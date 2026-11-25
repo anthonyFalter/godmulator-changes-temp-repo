@@ -113,6 +113,23 @@ export function getMaxCityPopulation(gridSize: number): number {
   return 220;
 }
 
+/**
+ * Returns the population required for a kingdom at `currentEpochIndex` to ascend to the next age.
+ * Scales safely against `getMaxCityPopulation(gridSize)` so a single-city kingdom on 64x64 (max 28)
+ * or 96x96 (max 40) worlds can cleanly progress all the way to the Star Age without softlocking.
+ */
+export function getEpochRequiredPopulation(currentEpochIndex: number, gridSize: number): number {
+  const maxCityPop = getMaxCityPopulation(gridSize);
+  const clampedEpoch = Math.max(0, Math.min(EPOCHS.length - 1, Math.floor(currentEpochIndex)));
+  if (clampedEpoch === 0) return Math.min(4, maxCityPop);
+  if (clampedEpoch === 1) return Math.min(8, Math.max(4, Math.floor(maxCityPop * 0.3)));
+  if (clampedEpoch === 2) return Math.min(14, Math.max(8, Math.floor(maxCityPop * 0.45)));
+  if (clampedEpoch === 3) return Math.min(26, Math.max(12, Math.floor(maxCityPop * 0.62)));
+  if (clampedEpoch === 4) return Math.min(34, Math.max(16, Math.floor(maxCityPop * 0.72)));
+  if (clampedEpoch === 5) return Math.min(44, Math.max(20, Math.floor(maxCityPop * 0.82)));
+  return Math.min(54, Math.max(24, Math.floor(maxCityPop * 0.9)));
+}
+
 export const BUILDINGS: BuildingDefinition[] = [
   {
     type: 'bonfire',
@@ -313,6 +330,54 @@ export const BUILDINGS: BuildingDefinition[] = [
       faith: 60,
     },
     footprint: 2,
+  },
+  {
+    type: 'windmill',
+    name: 'Windmill',
+    epoch: 'bronze',
+    roleSummary: 'Boosts farm crop growth (1.5x) & harvest yield (1.25x)',
+    keyHint: '',
+    cost: { wood: 42, stone: 28 },
+    maxHp: 280,
+    popCapBonus: 2,
+    productionPerSec: { food: 8 },
+    footprint: 1,
+  },
+  {
+    type: 'quarry_crane',
+    name: 'Quarry Crane',
+    epoch: 'bronze',
+    roleSummary: 'Extracts cut stone & raw ore in quarry districts',
+    keyHint: '',
+    cost: { wood: 40, stone: 34 },
+    maxHp: 320,
+    popCapBonus: 0,
+    productionPerSec: { stone: 6, ore: 4 },
+    footprint: 1,
+  },
+  {
+    type: 'ore_crusher',
+    name: 'Ore Crusher',
+    epoch: 'medieval',
+    roleSummary: 'Refines quarry rock into rich stone & ore',
+    keyHint: '',
+    cost: { wood: 50, stone: 60, ore: 28 },
+    maxHp: 460,
+    popCapBonus: 0,
+    productionPerSec: { stone: 10, ore: 8 },
+    footprint: 1,
+  },
+  {
+    type: 'quarry_excavator',
+    name: 'Quarry Excavator',
+    epoch: 'industrial',
+    roleSummary: 'Heavy industrial quarry rig yielding stone, ore & alloy',
+    keyHint: '',
+    cost: { stone: 95, ore: 75, alloy: 24 },
+    maxHp: 780,
+    popCapBonus: 0,
+    productionPerSec: { stone: 16, ore: 18, alloy: 4 },
+    footprint: 1,
   },
 ];
 
@@ -1986,6 +2051,15 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
     category: 'Sky Rain',
     isSkyRain: true,
     summary: 'Drops cherry blossom seeds',
+    faithCost: 5,
+    color: '#f472b6',
+  },
+  {
+    type: 'floral_rain',
+    name: 'Floral Rain',
+    category: 'Sky Rain',
+    isSkyRain: true,
+    summary: 'Drops wildflower seeds & heals land',
     faithCost: 5,
     color: '#f472b6',
   },

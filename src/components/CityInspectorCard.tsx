@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { BUILDINGS, EPOCHS, getMaxCityPopulation } from '../game/catalog';
-import { createSeededNomadName, getKingdomEpoch, getKingdomId, getKingdomRelation } from '../game/simulation';
+import {
+  createSeededNomadName,
+  getBuildingPopCapBonus,
+  getKingdomEpoch,
+  getKingdomId,
+  getKingdomRelation,
+} from '../game/simulation';
 import { Resources, SimulationState, SpeciesId } from '../game/types';
 import { HudPixelIcon, ResourceIconSvg, UnitPixelIcon } from './GameIcons';
 
@@ -113,7 +119,7 @@ export const CityInspectorCard: React.FC<CityInspectorCardProps> = React.memo(({
           completedCount++;
           const def = BUILDING_DEF_BY_TYPE.get(b.type);
           if (def) {
-            popCapBonus += def.popCapBonus ?? 0;
+            popCapBonus += getBuildingPopCapBonus(def, b.epochLevel);
             typeCounts.set(def.name, (typeCounts.get(def.name) ?? 0) + 1);
           }
         }

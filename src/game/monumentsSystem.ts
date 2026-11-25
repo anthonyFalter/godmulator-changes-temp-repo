@@ -12,6 +12,7 @@ export interface MonumentsSystem {
 interface WonderVisual {
   id: string;
   species: SpeciesId;
+  epochLevel: number;
   root: THREE.Group;
   animatedPart?: THREE.Object3D;
   baseAnimY: number;
@@ -175,6 +176,7 @@ function makeColoredBox(
 
 function buildRaceWonderMesh(
   species: SpeciesId,
+  epochLevel: number,
   mats: SharedWonderMaterials,
 ): {
   root: THREE.Group;
@@ -400,6 +402,52 @@ function buildRaceWonderMesh(
     }
   }
 
+  // M1: Progressive Era Visual Evolution for World Wonders (Epochs 3..7)
+  if (epochLevel >= 3) {
+    // Industrial Era: Riveted iron corner buttresses & warm furnace beacon braziers
+    for (const [cx, cz] of [[-0.86, -0.86], [0.86, -0.86], [-0.86, 0.86], [0.86, 0.86]] as const) {
+      addPart('metal', 0.16, 0.62, 0.16, cx, 0.31, cz, 0x64748b);
+      addPart('glow', 0.1, 0.14, 0.1, cx, 0.68, cz, epochLevel >= 5 ? 0x38bdf8 : 0xfbbf24);
+    }
+  }
+  if (epochLevel >= 4) {
+    // Atomic Era: Reinforced perimeter plinth ring & dual high-energy floodlight pylons
+    addPart('stone', 2.02, 0.12, 2.02, 0, 0.06, 0, 0x94a3b8);
+    addPart('metal', 0.14, 1.35, 0.14, -0.94, 0.68, 0, 0xcbd5e1);
+    addPart('metal', 0.14, 1.35, 0.14, 0.94, 0.68, 0, 0xcbd5e1);
+    addPart('glow', 0.16, 0.16, 0.16, -0.94, 1.42, 0, 0x38bdf8);
+    addPart('glow', 0.16, 0.16, 0.16, 0.94, 1.42, 0, 0x38bdf8);
+  }
+  if (epochLevel >= 5) {
+    // Information Era: Holographic data fins & cyan sky-transceiver needles
+    for (const [cx, cz] of [[0, -0.94], [0, 0.94]] as const) {
+      addPart('metal', 0.12, 1.85, 0.12, cx, 0.92, cz, 0xe2e8f0);
+      addPart('glow', 0.08, 0.42, 0.08, cx, 1.98, cz, 0x22d3ee);
+    }
+  }
+  if (epochLevel >= 6) {
+    // Orbital Era: Elevated titanium ring canopy & vertical orbital resonance beam
+    addPart('metal', 1.64, 0.08, 0.14, 0, 1.92, -0.78, 0xe2e8f0);
+    addPart('metal', 1.64, 0.08, 0.14, 0, 1.92, 0.78, 0xe2e8f0);
+    addPart('metal', 0.14, 0.08, 1.64, -0.78, 1.92, 0, 0xe2e8f0);
+    addPart('metal', 0.14, 0.08, 1.64, 0.78, 1.92, 0, 0xe2e8f0);
+    const orbitalBeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.12, epochLevel >= 7 ? 3.8 : 2.6, 6),
+      mats.beam,
+    );
+    orbitalBeam.position.set(0, epochLevel >= 7 ? 3.3 : 2.7, 0);
+    root.add(orbitalBeam);
+  }
+  if (epochLevel >= 7) {
+    // Star Age (Interstellar): Gilded stellar crown & twin radiant cosmic obelisks
+    addPart('metal', 1.18, 0.12, 1.18, 0, 2.55, 0, 0xfbbf24);
+    addPart('glow', 0.88, 0.1, 0.88, 0, 2.66, 0, 0x67e8f9);
+    for (const [cx, cz] of [[-0.96, -0.96], [0.96, -0.96], [-0.96, 0.96], [0.96, 0.96]] as const) {
+      addPart('metal', 0.12, 2.25, 0.12, cx, 1.12, cz, 0xf59e0b);
+      addPart('glow', 0.16, 0.22, 0.16, cx, 2.34, cz, 0xfef08a);
+    }
+  }
+
   // Merge each material bucket into ONE draw call and strip invisible -Y underside triangles
   const bucketKeys: MaterialBucket[] = ['stone', 'wood', 'foliage', 'metal', 'cloth', 'glow'];
   for (const key of bucketKeys) {
@@ -467,24 +515,30 @@ export function createMonumentsSystem(): MonumentsSystem {
 
   group.add(obeliskInst, plaqueInst);
 
-  let lastMemorialSig = -1;
+  let lastMemorialSig = '';
   const dummy = new THREE.Object3D();
 
   const update = (state: SimulationState, elapsed: number) => {
     const gs = state.gridSize;
     const wonders: WorldWonder[] = state.worldWonders ?? [];
 
-    // 1. Sync World Wonders
+    // 1. Sync World Wonders (with construction progress scale-up & 8-epoch visual evolution)
     const activeIds = new Set<string>();
     for (let i = 0; i < wonders.length; i++) {
       const w = wonders[i];
       activeIds.add(w.id);
+      const wonderEpoch = Math.max(0, Math.min(7, w.epochLevel ?? state.kingdomEpochs?.[w.kingdomId] ?? 2));
       let vis = wonderVisuals.get(w.id);
-      if (!vis) {
-        const built = buildRaceWonderMesh(w.species, sharedMats);
+      if (!vis || vis.epochLevel !== wonderEpoch) {
+        if (vis) {
+          group.remove(vis.root);
+          disposeWonderGeometries(vis.root);
+        }
+        const built = buildRaceWonderMesh(w.species, wonderEpoch, sharedMats);
         vis = {
           id: w.id,
           species: w.species,
+          epochLevel: wonderEpoch,
           root: built.root,
           animatedPart: built.animatedPart,
           baseAnimY: built.baseAnimY,
@@ -493,12 +547,24 @@ export function createMonumentsSystem(): MonumentsSystem {
         group.add(vis.root);
       }
       const tile = state.tiles[w.tileZ * gs + w.tileX];
-      const groundY = tile && tile.height > 0 ? tile.height * 0.45 + 0.25 : 0.25;
+      if (!tile || tile.height <= 0) {
+        vis.root.visible = false;
+        continue;
+      }
+      vis.root.visible = true;
+      const groundY = tile.height * 0.45 + 0.25;
       vis.root.position.set(w.tileX, groundY, w.tileZ);
 
+      const prog = Math.max(0, Math.min(100, w.constructionProgress ?? 100));
+      const scaleY = prog < 100 ? 0.26 + 0.74 * (prog / 100) : 1.0;
+      vis.root.scale.set(1, scaleY, 1);
+
       if (vis.animatedPart) {
-        vis.animatedPart.rotation.y = elapsed * (w.species === 'human' ? 1.4 : 1.05);
-        vis.animatedPart.position.y = vis.baseAnimY + Math.sin(elapsed * 2.4 + i) * 0.08;
+        vis.animatedPart.visible = prog >= 100;
+        if (prog >= 100) {
+          vis.animatedPart.rotation.y = elapsed * (w.species === 'human' ? 1.4 : 1.05);
+          vis.animatedPart.position.y = vis.baseAnimY + Math.sin(elapsed * 2.4 + i) * 0.08;
+        }
       }
     }
 
@@ -510,31 +576,36 @@ export function createMonumentsSystem(): MonumentsSystem {
       }
     }
 
-    // 2. Sync Battle Memorials (only rebuild matrices when count/list changes)
+    // 2. Sync Battle Memorials (hash ALL memorials including tile elevation so terrain changes always resync)
     const memorials: BattleMemorial[] = state.battleMemorials ?? [];
-    const memSig =
-      memorials.length > 0
-        ? memorials.length * 10007 + memorials[memorials.length - 1].tileX * 97 + memorials[memorials.length - 1].tileZ
-        : 0;
+    let memSig = `${memorials.length}`;
+    for (let i = 0; i < memorials.length; i++) {
+      const m = memorials[i];
+      const tile = state.tiles[m.tileZ * gs + m.tileX];
+      const h = tile ? tile.height : -1;
+      memSig += `|${m.id}:${m.tileX},${m.tileZ},${h}`;
+    }
     if (memSig !== lastMemorialSig) {
       lastMemorialSig = memSig;
-      const count = Math.min(MAX_MEMORIALS, memorials.length);
-      for (let i = 0; i < count; i++) {
+      let count = 0;
+      for (let i = 0; i < memorials.length && count < MAX_MEMORIALS; i++) {
         const m = memorials[i];
         const tile = state.tiles[m.tileZ * gs + m.tileX];
-        const groundY = tile && tile.height > 0 ? tile.height * 0.45 + 0.25 : 0.25;
+        if (!tile || tile.height <= 0) continue;
+        const groundY = tile.height * 0.45 + 0.25;
 
         dummy.position.set(m.tileX, groundY + 0.07, m.tileZ);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
-        plaqueInst.setMatrixAt(i, dummy.matrix);
+        plaqueInst.setMatrixAt(count, dummy.matrix);
 
         dummy.position.set(m.tileX, groundY + 0.46, m.tileZ);
         dummy.rotation.set(0, ((m.tileX + m.tileZ) & 3) * (Math.PI / 4), 0);
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
-        obeliskInst.setMatrixAt(i, dummy.matrix);
+        obeliskInst.setMatrixAt(count, dummy.matrix);
+        count++;
       }
       obeliskInst.count = count;
       plaqueInst.count = count;

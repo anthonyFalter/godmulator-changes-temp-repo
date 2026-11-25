@@ -3276,6 +3276,8 @@ test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, 
   placeBuilding(state, 'bonfire', 68, 42);
   const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
   assert.equal(sIds.length, 2);
+  setKingdomEpoch(state, sIds[0], 5);
+  setKingdomEpoch(state, sIds[1], 1);
   setKingdomRelation(state, sIds[0], sIds[1], 'war');
 
   // Human Nuke vs Enemy Orc
@@ -3287,7 +3289,7 @@ test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, 
   oTarget1.hp = 500;
   oTarget1.maxHp = 500;
 
-  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  for (let i = 0; i < 12; i++) stepSimulation(state, 0.1);
   const sawNuke = state.pendingVfx.some((v) => v.type === 'nuke_blast');
   assert.ok(sawNuke, 'Industrial/Atomic Human combatant should fire Nuke Bomb VFX in wartime combat');
 
@@ -3303,14 +3305,18 @@ test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, 
   oTarget2.hp = 500;
   oTarget2.maxHp = 500;
 
-  for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
+  for (let i = 0; i < 12; i++) stepSimulation(state, 0.1);
   const sawCataclysm = state.pendingVfx.some((v) => v.type === 'arcane_cataclysm');
   assert.ok(sawCataclysm, 'Advanced Elf combatant should unleash Arcane Cataclysm VFX rivaling Nukes');
 
   // Orc Battlewill: manifests as attached state on caster, emits battlewill_slash VFX, spawns ZERO summon units
   state.units = [];
   state.pendingVfx = [];
+  state.kingdomUltimateCooldowns = {};
+  setKingdomEpoch(state, sIds[1], 5);
+  setKingdomEpoch(state, sIds[0], 1);
   const oWarlord = spawnUnit(state, 'orc', 42, 52, true).unit!;
+  oWarlord.role = 'warrior';
   oWarlord.settlementId = sIds[1];
   oWarlord.battlewillCooldown = 0;
   oWarlord.weaponCooldown = 0;
@@ -3318,6 +3324,7 @@ test('War Update: universal self-defense + rivaling racial weapons (Human Nuke, 
   hTarget.settlementId = sIds[0];
   hTarget.hp = 500;
   hTarget.maxHp = 500;
+  oWarlord.targetEntityId = hTarget.id;
 
   const initialUnitCount = state.units.length;
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
@@ -3509,11 +3516,26 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     'Industrial ironclad and Orbital plasma cruiser should differ structurally',
   );
 
+  const geomSignature = (g: ReturnType<typeof createVehicleGroup>) => {
+    const parts: string[] = [];
+    g.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.isMesh && m.geometry) {
+        const pos = m.geometry.attributes?.position;
+        m.geometry.computeBoundingBox();
+        const sz = new THREE.Vector3();
+        m.geometry.boundingBox?.getSize(sz);
+        parts.push(`${m.name}:${pos?.count ?? 0}@${sz.x.toFixed(2)}x${sz.y.toFixed(2)}x${sz.z.toFixed(2)}`);
+      }
+    });
+    return parts.join('|');
+  };
+
   const indTank = createVehicleGroup('tank', 3, 'human', 2);
   const hoverTank = createVehicleGroup('tank', 6, 'human', 2);
   assert.notEqual(
-    indTank.children.length,
-    hoverTank.children.length,
+    geomSignature(indTank),
+    geomSignature(hoverTank),
     'Industrial tank and Space Age hover-railgun tank must differ in geometry parts',
   );
 
@@ -3531,8 +3553,9 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
     }
   }
   placeBuilding(state, 'bonfire', 48, 44);
+  const citySid = state.buildings[0].settlementId!;
   spawnUnit(state, 'human', 48, 45, true);
-  state.epochIndex = 1; // Bronze Age (only coastal Bronze Galley warship — no aircraft yet!)
+  setKingdomEpoch(state, citySid, 1); // Bronze Age (only coastal Bronze Galley warship — no aircraft yet!)
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.25);
 
   const earlyGlider = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
@@ -3542,7 +3565,7 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
   const bronzeShipMaxHp = shipBronze.maxHp ?? 0;
 
   // Advance to Medieval (Epoch 2 -> Sailing Galleon warship ONLY; NO airships, NO gliders, NO aircraft!)
-  state.epochIndex = 2;
+  setKingdomEpoch(state, citySid, 2);
   stepSimulation(state, 0.2);
   assert.equal(
     (state.vehicles ?? []).find((v) => v.isMilitary && (v.type === 'glider' || v.type === 'airship')),
@@ -3552,8 +3575,8 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
   assert.ok((shipBronze.maxHp ?? 0) > bronzeShipMaxHp, 'Warship maxHp should scale up with Epoch');
 
   // Advance to Industrial (Epoch 3 -> Propeller Biplane Fighter + Rigid Zeppelin Dirigible + WWI Trench Tank; NO helicopters or jets!)
-  state.epochIndex = 3;
-  stepSimulation(state, 0.2);
+  setKingdomEpoch(state, citySid, 3);
+  for (let i = 0; i < 16; i++) stepSimulation(state, 0.25);
   const fixedWing = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'glider');
   const hoverCraft = (state.vehicles ?? []).find((v) => v.isMilitary && v.type === 'airship');
   assert.ok(fixedWing, 'Industrial Age city should field a Propeller Biplane Fighter (glider)');
@@ -3562,13 +3585,13 @@ test('War Update Follow-Up: military vehicles evolve through epochs in simulatio
   assert.ok(industrialTankVeh && industrialTankVeh.y < 0.12, 'Industrial Age city should field a ground WWI Trench Tank');
 
   // Advance to Atomic (Epoch 4 -> Biplane evolves to Prop Heavy Bomber; Zeppelin evolves to Utility Helicopter)
-  state.epochIndex = 4;
+  setKingdomEpoch(state, citySid, 4);
   stepSimulation(state, 0.2);
   assert.equal(fixedWing.type, 'bomber_plane', 'Biplane should evolve into Heavy Bomber Plane in Atomic epoch');
   assert.equal(hoverCraft.type, 'helicopter', 'Airship should evolve into Helicopter in Atomic epoch');
 
   // Advance to Space/Orbital (Epoch 6 -> Helicopter evolves to Orbital Gunship + Hover Tank)
-  state.epochIndex = 6;
+  setKingdomEpoch(state, citySid, 6);
   stepSimulation(state, 0.2);
   assert.equal(
     hoverCraft.type,
@@ -3607,6 +3630,8 @@ test('War Update Follow-Up: Nukes, Elf Arcane Cataclysm, and Orc Battlewill dest
     placeBuilding(s, 'forager_hut', 49, 44);
     const sidA = s.buildings[0].settlementId!;
     const sidB = s.buildings[1].settlementId!;
+    setKingdomEpoch(s, sidA, 5);
+    setKingdomEpoch(s, sidB, 1);
     setKingdomRelation(s, sidA, sidB, 'war');
 
     const hNuker = spawnUnit(s, 'human', 43, 44, true).unit!;
@@ -3633,6 +3658,8 @@ test('War Update Follow-Up: Nukes, Elf Arcane Cataclysm, and Orc Battlewill dest
     placeBuilding(s, 'bonfire', 48, 44);
     const sidA = s.buildings[0].settlementId!;
     const sidB = s.buildings[1].settlementId!;
+    setKingdomEpoch(s, sidA, 5);
+    setKingdomEpoch(s, sidB, 1);
     setKingdomRelation(s, sidA, sidB, 'war');
 
     const eMage = spawnUnit(s, 'elf', 43, 44, true).unit!;
@@ -3657,6 +3684,8 @@ test('War Update Follow-Up: Nukes, Elf Arcane Cataclysm, and Orc Battlewill dest
     placeBuilding(s, 'bonfire', 48, 44);
     const sidA = s.buildings[0].settlementId!;
     const sidB = s.buildings[1].settlementId!;
+    setKingdomEpoch(s, sidA, 5);
+    setKingdomEpoch(s, sidB, 1);
     setKingdomRelation(s, sidA, sidB, 'war');
 
     const oWarlord = spawnUnit(s, 'orc', 44, 44, true).unit!;
@@ -3837,6 +3866,8 @@ test('Racial ultimate cooldown stops spam & Orc Battlewill cleaves mountains', (
   placeBuilding(state, 'bonfire', 20, 44);
   placeBuilding(state, 'bonfire', 70, 44);
   const sIds = Array.from(new Set(state.buildings.map((b) => b.settlementId!)));
+  setKingdomEpoch(state, sIds[0], 4);
+  setKingdomEpoch(state, sIds[1], 4);
   setKingdomRelation(state, sIds[0], sIds[1], 'war');
 
   // 1. Weak lone foot soldier (90 HP, not a King) must NOT trigger a nuke
@@ -3907,6 +3938,7 @@ test('Racial ultimate cooldown stops spam & Orc Battlewill cleaves mountains', (
   peakTile.height = 6;
   peakTile.terrain = 'mountain';
   const orcWarlord = spawnUnit(state, 'orc', 42, 56, true).unit!;
+  orcWarlord.role = 'warrior';
   orcWarlord.settlementId = sIds[1];
   orcWarlord.battlewillCooldown = 0;
   orcWarlord.weaponCooldown = 0;
@@ -3914,6 +3946,7 @@ test('Racial ultimate cooldown stops spam & Orc Battlewill cleaves mountains', (
   targetOnPeak.settlementId = sIds[0];
   targetOnPeak.hp = 700;
   targetOnPeak.maxHp = 700;
+  orcWarlord.targetEntityId = targetOnPeak.id;
   for (let i = 0; i < 6; i++) stepSimulation(state, 0.1);
   assert.ok(peakTile.height < 6, `Orc Battlewill must cleave mountain height downward (got ${peakTile.height})`);
 });
@@ -4038,8 +4071,22 @@ test('War vehicles use distinct 3D architectures per race AND evolve structurall
     { type: 'orbital_gunship' as const, epoch: 6 },
   ];
 
-  const signature = (g: ReturnType<typeof createVehicleGroup>) =>
-    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 10)},${Math.round(c.position.y * 10)},${Math.round(c.position.z * 10)}`).join('|')}`;
+  const signature = (g: ReturnType<typeof createVehicleGroup>) => {
+    const parts: string[] = [];
+    g.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.isMesh && m.geometry) {
+        const pos = m.geometry.attributes?.position;
+        m.geometry.computeBoundingBox();
+        const sz = new THREE.Vector3();
+        m.geometry.boundingBox?.getSize(sz);
+        parts.push(
+          `${m.name}:${pos?.count ?? 0}@${Math.round(m.position.x * 10)},${Math.round(m.position.y * 10)},${Math.round(m.position.z * 10)}:${sz.x.toFixed(2)}x${sz.y.toFixed(2)}x${sz.z.toFixed(2)}`,
+        );
+      }
+    });
+    return `${g.children.length}:${parts.join('|')}`;
+  };
 
   for (const { type, epoch } of vehicleTypes) {
     const h = createVehicleGroup(type, epoch, 'human', 1);
@@ -4281,15 +4328,36 @@ test('Sea Update: localized warm coral reefs stay submerged, scrap_sea has pure 
   assert.ok((walker.swimStamina ?? 0) > 40, 'Water walkway (stone_road) should recover stamina and keep units dry');
 
   // 4. Passenger ships differ structurally per race and evolve across ages
-  const shipSig = (g: ReturnType<typeof createVehicleGroup>) =>
-    `${g.children.length}:${g.children.map((c) => `${c.type[0]}@${Math.round(c.position.x * 100)},${Math.round(c.position.y * 100)},${Math.round(c.position.z * 100)}`).join('|')}`;
+  const shipSig = (g: ReturnType<typeof createVehicleGroup>) => {
+    const parts: string[] = [];
+    g.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.isMesh && m.geometry) {
+        const pos = m.geometry.attributes?.position;
+        m.geometry.computeBoundingBox();
+        const sz = new THREE.Vector3();
+        m.geometry.boundingBox?.getSize(sz);
+        parts.push(
+          `${m.name}:${pos?.count ?? 0}@${Math.round(m.position.x * 100)},${Math.round(m.position.y * 100)},${Math.round(m.position.z * 100)}:${sz.x.toFixed(2)}x${sz.y.toFixed(2)}x${sz.z.toFixed(2)}`,
+        );
+      }
+    });
+    return `${g.children.length}:${parts.join('|')}`;
+  };
 
   for (const sp of ['human', 'elf', 'orc'] as const) {
     const p1 = createVehicleGroup('passenger_ship', 1, sp, 1);
     const p4 = createVehicleGroup('passenger_ship', 4, sp, 1);
     const p6 = createVehicleGroup('passenger_ship', 6, sp, 1);
     assert.notEqual(shipSig(p1), shipSig(p6), `${sp} passenger_ship should evolve from age 1 to age 6`);
-    assert.ok(p4.children.length >= 3, `${sp} industrial/atomic passenger_ship should build multi-part hull`);
+    let p4Verts = 0;
+    p4.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.isMesh && m.geometry?.attributes?.position) {
+        p4Verts += m.geometry.attributes.position.count;
+      }
+    });
+    assert.ok(p4Verts >= 150, `${sp} industrial/atomic passenger_ship should build multi-part hull`);
   }
   for (const ep of [0, 2, 3, 4, 5, 6]) {
     const hSig = shipSig(createVehicleGroup('passenger_ship', ep, 'human', 1));

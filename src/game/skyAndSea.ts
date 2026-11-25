@@ -2026,6 +2026,8 @@ export interface StyledTerrainSystem {
     buildings?: BuildingEntity[],
     settlementSpecies?: Record<string, SpeciesId>,
     waterChanged?: boolean,
+    settlementKingdoms?: Record<string, string>,
+    kingdomEpochs?: Record<string, number>,
   ) => void;
   updateZones: (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => void;
   updateFrame: (
@@ -2036,6 +2038,117 @@ export interface StyledTerrainSystem {
     seasonWeights?: THREE.Vector4,
   ) => void;
   dispose: () => void;
+}
+
+/**
+ * Populates an RGBA Uint8Array with per-tile local kingdom epoch data for the terrain shader.
+ * Channel R encodes `(epoch + 1) * 16` (0 means unowned -> shader falls back to global uEpoch).
+ */
+export function buildTileLocalEpochBytes(
+  gridSize: number,
+  tiles: TileData[],
+  buildings?: BuildingEntity[],
+  settlementKingdoms?: Record<string, string>,
+  kingdomEpochs?: Record<string, number>,
+  outBytes?: Uint8Array,
+): Uint8Array {
+  const expectedLen = gridSize * gridSize * 4;
+  const bytes = outBytes && outBytes.length === expectedLen ? outBytes : new Uint8Array(expectedLen);
+  bytes.fill(0);
+
+  const resolveSettlementEpoch = (sid?: string): number | undefined => {
+    if (!sid) return undefined;
+    const kid = settlementKingdoms?.[sid] ?? sid;
+    const ep = kingdomEpochs?.[kid];
+    if (typeof ep === 'number' && Number.isFinite(ep)) {
+      return Math.max(0, Math.min(7, Math.floor(ep)));
+    }
+    return undefined;
+  };
+
+  const settlementAnchors: Array<{ x: number; z: number; epoch: number }> = [];
+  const seenAnchorSettlement = new Set<string>();
+
+  if (buildings && buildings.length > 0) {
+    for (let bi = 0; bi < buildings.length; bi++) {
+      const bld: BuildingEntity = buildings[bi];
+      const bEpoch =
+        resolveSettlementEpoch(bld.settlementId) ??
+        Math.max(0, Math.min(7, Math.floor(typeof bld.epochLevel === 'number' ? bld.epochLevel : 0)));
+      const encoded = (bEpoch + 1) * 16;
+
+      if (bld.settlementId) {
+        if (!seenAnchorSettlement.has(bld.settlementId)) {
+          seenAnchorSettlement.add(bld.settlementId);
+          settlementAnchors.push({ x: bld.tileX, z: bld.tileZ, epoch: bEpoch });
+        }
+      } else {
+        settlementAnchors.push({ x: bld.tileX, z: bld.tileZ, epoch: bEpoch });
+      }
+
+      const radius = 5;
+      for (let dz = -radius; dz <= radius; dz++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx: number = bld.tileX + dx;
+          const nz: number = bld.tileZ + dz;
+          if (nx < 0 || nz < 0 || nx >= gridSize || nz >= gridSize) continue;
+          const distSq = dx * dx + dz * dz;
+          if (distSq > radius * radius) continue;
+          const cIdx = (nz * gridSize + nx) * 4;
+          const distByte = Math.min(255, distSq + 1);
+          if (bytes[cIdx] === 0 || distByte < bytes[cIdx + 1]) {
+            bytes[cIdx] = encoded;
+            bytes[cIdx + 1] = distByte;
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < tiles.length; i++) {
+    const t = tiles[i];
+    const idx = i * 4;
+    if (t.farmSettlementId) {
+      const ep = resolveSettlementEpoch(t.farmSettlementId);
+      if (ep !== undefined) {
+        bytes[idx] = (ep + 1) * 16;
+        bytes[idx + 1] = 1;
+        continue;
+      }
+    }
+    if (t.claimedSettlementId) {
+      const ep = resolveSettlementEpoch(t.claimedSettlementId);
+      if (ep !== undefined) {
+        bytes[idx] = (ep + 1) * 16;
+        bytes[idx + 1] = 1;
+        continue;
+      }
+    }
+    if (
+      bytes[idx] === 0 &&
+      settlementAnchors.length > 0 &&
+      (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway')
+    ) {
+      let bestDistSq = 24 * 24;
+      let bestEpoch = -1;
+      for (let ai = 0; ai < settlementAnchors.length; ai++) {
+        const a = settlementAnchors[ai];
+        const dx = t.x - a.x;
+        const dz = t.z - a.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestDistSq) {
+          bestDistSq = d2;
+          bestEpoch = a.epoch;
+        }
+      }
+      if (bestEpoch >= 0) {
+        bytes[idx] = (bestEpoch + 1) * 16;
+        bytes[idx + 1] = 255;
+      }
+    }
+  }
+
+  return bytes;
 }
 
 const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
@@ -2111,6 +2224,19 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   cityLightTex.wrapT = THREE.ClampToEdgeWrapping;
   cityLightTex.flipY = false;
 
+  const localEpochBytes = new Uint8Array(gridSize * gridSize * 4);
+  const localEpochTex = new THREE.DataTexture(
+    localEpochBytes,
+    gridSize,
+    gridSize,
+    THREE.RGBAFormat,
+  );
+  localEpochTex.magFilter = THREE.NearestFilter;
+  localEpochTex.minFilter = THREE.NearestFilter;
+  localEpochTex.wrapS = THREE.ClampToEdgeWrapping;
+  localEpochTex.wrapT = THREE.ClampToEdgeWrapping;
+  localEpochTex.flipY = false;
+
   const sharedTime = { value: 0 };
   const sharedEpoch = { value: 0 };
   const sharedGridSize = { value: gridSize };
@@ -2119,6 +2245,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
   const sharedZoneIdMap = { value: zoneIdTex };
   const sharedZoneActive = { value: 0 };
   const sharedCityLightMap = { value: cityLightTex };
+  const sharedLocalEpochMap = { value: localEpochTex };
   const sharedDarkness = { value: 0.0 };
   const sharedSunDir = { value: new THREE.Vector3(0.38, 0.88, 0.26).normalize() };
   const sharedSunTint = { value: new THREE.Vector3(1.02, 1.0, 0.98) };
@@ -2134,6 +2261,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     uniform sampler2D uZoneIdMap;
     uniform float uZoneActive;
     uniform sampler2D uCityLightMap;
+    uniform sampler2D uLocalEpochMap;
     uniform float uDarkness;
     uniform vec3 uSunDir;
     uniform vec3 uSunTint;
@@ -2144,6 +2272,12 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
     vec2 tileCoordFallback(vec2 pixPos) {
       return floor(pixPos);
+    }
+
+    float sampleLocalEpoch(vec2 coord) {
+      vec2 clamped = clamp(coord, vec2(0.0), vec2(uGridSize - 1.0));
+      float raw = floor(texture2D(uLocalEpochMap, (clamped + 0.5) / uGridSize).r * 255.0 / 16.0 + 0.5);
+      return raw > 0.5 ? (raw - 1.0) : uEpoch;
     }
 
     float landHash12(vec2 p) {
@@ -2445,7 +2579,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         return c;
       } else if (code < 4.5) {
         // Cultivated city farm plots evolve across ages; untouched river valleys remain lush wildflower meadows
-        if (isCultivatedFarm && uEpoch >= 5.5) {
+        float farmEpoch = isCultivatedFarm ? sampleLocalEpoch(floor(pixPos)) : uEpoch;
+        if (isCultivatedFarm && farmEpoch >= 5.5) {
           // Orbital & Interstellar Ages: Techno-modern hydroponic bio-agri deck with glowing cyan/emerald nutrient channels
           vec2 fPix = floor(subUv * 16.0);
           float border = step(fPix.x, 1.0) + step(14.0, fPix.x) + step(fPix.y, 1.0) + step(14.0, fPix.y);
@@ -2456,7 +2591,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec3 cyanGlow = landSrgb(86.0, 207.0, 225.0);
           vec3 c = mix(bioGreen, deckCol, clamp(border, 0.0, 1.0) * 0.85);
           return mix(c, cyanGlow, channel * (0.65 + 0.35 * pulse));
-        } else if (isCultivatedFarm && uEpoch >= 1.0) {
+        } else if (isCultivatedFarm && farmEpoch >= 1.0) {
           // Bronze -> Atomic Ages: Plowed agricultural crop furrows with golden wheat/grain rows
           vec2 fPix = floor(subUv * 16.0);
           float furrow = mod(fPix.y, 4.0);
@@ -2804,6 +2939,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       bool isBlossom = abs(code - 20.0) < 0.5;
       bool isFloral = code >= 25.5;
       bool isArid = abs(code - 2.0) < 0.5 || abs(code - 19.0) < 0.5;
+      float farmLocalEpoch = (isFertile && isCultivatedFarm) ? sampleLocalEpoch(floor(pixPos)) : uEpoch;
 
       // ---- SPRING: Fresh sprout-green vibrancy & blooming wildflower/petal flecks ----
       if (wSpr > 0.01) {
@@ -2821,7 +2957,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           } else if (isBlossom && (leafNoise > 0.52 || detail > 0.80)) {
             sprCol = mix(sprCol, detail > 0.90 ? landSrgb(255.0, 234.0, 244.0) : landSrgb(250.0, 164.0, 204.0), 0.88);
           }
-        } else if (isFertile && isCultivatedFarm && uEpoch < 5.5) {
+        } else if (isFertile && isCultivatedFarm && farmLocalEpoch < 5.5) {
           // Spring cultivated farms: fresh dark loam & bright young green shoots
           vec2 fPix = floor(subUv * 16.0);
           float furrow = mod(fPix.y, 4.0);
@@ -2862,7 +2998,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
                 : landSrgb(198.0, 96.0, 30.0);
             autCol = mix(autCol, leafCol, 0.84);
           }
-        } else if (isFertile && isCultivatedFarm && uEpoch < 5.5) {
+        } else if (isFertile && isCultivatedFarm && farmLocalEpoch < 5.5) {
           // Harvested autumn wheat & amber stubble furrows
           vec2 fPix = floor(subUv * 16.0);
           float furrow = mod(fPix.y, 4.0);
@@ -2941,7 +3077,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec3 snowCol = mix(snowSh, snowBase, step(0.32, driftNoise));
           snowCol = mix(snowCol, snowHi, step(0.64, driftNoise));
           snowCol = mix(snowCol, snowHi, glint * 0.85);
-          if (isFertile && isCultivatedFarm && uEpoch < 5.5) {
+          if (isFertile && isCultivatedFarm && farmLocalEpoch < 5.5) {
             // Keep faint plowed furrow lines visible beneath winter frost
             vec2 fPix = floor(subUv * 16.0);
             float furrowLine = step(mod(fPix.y, 4.0), 1.1);
@@ -3123,8 +3259,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       }
 
       float noiseVal = landHash12(pixPos * 16.0);
+      float roadEpoch = sampleLocalEpoch(floor(pixPos));
 
-      if (uEpoch < 1.5) {
+      if (roadEpoch < 1.5) {
         // Prehistoric & Bronze Ages: Trodden earth & wooden boardwalk planks oriented perpendicular to road curve/axis
         vec3 dirtBase  = landSrgb(138.0, 106.0, 72.0);
         vec3 woodPlank = landSrgb(162.0, 124.0, 84.0);
@@ -3156,7 +3293,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 c = mix(woodPlank, dirtBase, step(0.78, noiseVal) * 0.45);
         return mix(c, darkMud, plankSeam * 0.72);
 
-      } else if (uEpoch < 3.5) {
+      } else if (roadEpoch < 3.5) {
         // Classical & Industrial Ages: Dressed stone sidewalks, seamless granite curbs & oriented cobblestones
         vec3 base = landSrgb(168.0, 148.0, 130.0);
         vec3 hi   = landSrgb(202.0, 182.0, 158.0);
@@ -3212,9 +3349,9 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         vec3 c = mix(base, hi, step(0.55, toneSeed));
         return mix(c, sh, mortar * 0.78);
 
-      } else if (uEpoch < 5.5) {
+      } else if (roadEpoch < 5.5) {
         // Atomic & Information Ages: Continuous connected asphalt streets, stone/concrete sidewalks & Times Square Scramble Plazas
-        bool isInfoAge = uEpoch >= 4.5;
+        bool isInfoAge = roadEpoch >= 4.5;
         vec3 asphalt = isInfoAge ? landSrgb(42.0, 48.0, 56.0) : landSrgb(54.0, 60.0, 68.0);
         vec3 sidewalk = isInfoAge ? landSrgb(138.0, 146.0, 158.0) : landSrgb(126.0, 134.0, 144.0);
         vec3 curbCol = isInfoAge ? landSrgb(172.0, 182.0, 192.0) : landSrgb(150.0, 158.0, 168.0);
@@ -3475,7 +3612,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         tieMask = armVertical ? step(mod(rPix.y, 3.0), 0.9) : step(mod(rPix.x, 3.0), 0.9);
       }
 
-      if (uEpoch < 4.5) {
+      float railEpoch = sampleLocalEpoch(floor(pixPos));
+      if (railEpoch < 4.5) {
         // Industrial & Atomic Age: Ground-level crushed stone ballast + oak sleepers + gleaming twin steel rails
         vec3 ballast = mix(landSrgb(104.0, 96.0, 88.0), landSrgb(126.0, 118.0, 108.0), step(0.55, noiseVal));
         vec3 sleeper = landSrgb(88.0, 56.0, 34.0);
@@ -3490,7 +3628,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         // Information & Space Age: Clean urban transit median / plinth shadow under the 3D suspended metro pillars & viaduct
         vec3 curb = landSrgb(72.0, 78.0, 88.0);
         vec3 gravel = mix(landSrgb(56.0, 62.0, 70.0), landSrgb(68.0, 74.0, 84.0), step(0.55, noiseVal));
-        vec3 plazaStripe = uEpoch >= 5.5 ? landSrgb(52.0, 148.0, 168.0) : landSrgb(98.0, 128.0, 76.0);
+        vec3 plazaStripe = railEpoch >= 5.5 ? landSrgb(52.0, 148.0, 168.0) : landSrgb(98.0, 128.0, 76.0);
         vec3 c = mix(curb, gravel, step(dTrack, 0.28));
         return mix(c, plazaStripe, step(dTrack, 0.14) * 0.65);
       }
@@ -3549,7 +3687,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       float beaconAlong = abs(along - 0.5);
       if (abs(across - 0.40) < 0.035 && beaconAlong < 0.07) {
         float pulse = 0.65 + 0.35 * sin(tTime * 4.5 - (pixPos.x + pixPos.y));
-        vec3 beaconCol = uEpoch >= 5.5 ? landSrgb(86.0, 224.0, 245.0) : landSrgb(255.0, 214.0, 102.0);
+        float runwayEpoch = sampleLocalEpoch(floor(pixPos));
+        vec3 beaconCol = runwayEpoch >= 5.5 ? landSrgb(86.0, 224.0, 245.0) : landSrgb(255.0, 214.0, 102.0);
         c = mix(c, beaconCol, 0.78 * pulse);
       }
       return c;
@@ -3587,7 +3726,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.84,
     metalness: 0.08,
   });
-  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v11';
+  cliffMat.customProgramCacheKey = () => 'aeon_cliff_pixel_v12';
   cliffMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -3597,6 +3736,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     shader.uniforms.uZoneIdMap = sharedZoneIdMap;
     shader.uniforms.uZoneActive = sharedZoneActive;
     shader.uniforms.uCityLightMap = sharedCityLightMap;
+    shader.uniforms.uLocalEpochMap = sharedLocalEpochMap;
     shader.uniforms.uDarkness = sharedDarkness;
     shader.uniforms.uSunDir = sharedSunDir;
     shader.uniforms.uSunTint = sharedSunTint;
@@ -3651,16 +3791,17 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
         vec3 cliffCol;
         if (isUrbanRetainingWall) {
-          if (uEpoch >= 3.5) {
+          float wallEpoch = sampleLocalEpoch(cliffOwnerCoord);
+          if (wallEpoch >= 3.5) {
             // Dressed architectural concrete seawall / retaining caisson with horizontal joints & subtle safety stripe
-            vec3 concBase = uEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
-            vec3 concHi   = uEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
-            vec3 concSh   = uEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
+            vec3 concBase = wallEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
+            vec3 concHi   = wallEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
+            vec3 concSh   = wallEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
             float panelSeam = max(step(0.88, fract(wallPix.y * 2.5)), step(0.90, fract(wallPix.x * 1.5)));
             float panelTone = landHash12(floor(vec2(wallPix.x * 1.5, wallPix.y * 2.5)));
             cliffCol = mix(concBase, concHi, step(0.62, panelTone));
             cliffCol = mix(cliffCol, concSh, panelSeam * 0.72);
-            if (uEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
+            if (wallEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
               cliffCol = mix(cliffCol, landSrgb(86.0, 207.0, 225.0), 0.52);
             }
           } else {
@@ -3804,7 +3945,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             vec2(0.5),
             ownerCode,
             uTime,
-            uEpoch,
+            sampleLocalEpoch(cliffOwnerCoord),
             uDarkness
           );
           gl_FragColor.rgb += cliffNightGlow * 0.45;
@@ -3986,18 +4127,19 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
             : vec3(0.0);
 
           if (isRoadTile) {
+            float roadTileEpoch = sampleLocalEpoch(tileCoord);
             vec3 marginCol = isBridgeRoad
-              ? (uEpoch < 1.5
+              ? (roadTileEpoch < 1.5
                   ? landSrgb(120.0, 88.0, 58.0)
-                  : uEpoch < 3.5
+                  : roadTileEpoch < 3.5
                     ? landSrgb(156.0, 146.0, 134.0)
-                    : uEpoch < 5.5
+                    : roadTileEpoch < 5.5
                       ? landSrgb(132.0, 142.0, 156.0)
                       : landSrgb(68.0, 84.0, 102.0))
               : sampledBiomeCol;
             col = computeRoadColor(pixPos, subUv, uTime, rN, rS, rW, rE, rNW, rNE, rSW, rSE, marginCol);
 
-            if (uEpoch < 4.5) {
+            if (roadTileEpoch < 4.5) {
               bool crossWE = abs(cW - 14.0) < 0.5 && abs(cE - 14.0) < 0.5;
               bool crossNS = abs(cN - 14.0) < 0.5 && abs(cS - 14.0) < 0.5;
               if (crossWE) {
@@ -4177,7 +4319,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       roughness,
       metalness,
     });
-    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v17';
+    topMat.customProgramCacheKey = () => 'aeon_land_top_pixel_v18';
     topMat.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = sharedTime;
       shader.uniforms.uEpoch = sharedEpoch;
@@ -4187,6 +4329,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       shader.uniforms.uZoneIdMap = sharedZoneIdMap;
       shader.uniforms.uZoneActive = sharedZoneActive;
       shader.uniforms.uCityLightMap = sharedCityLightMap;
+      shader.uniforms.uLocalEpochMap = sharedLocalEpochMap;
       shader.uniforms.uDarkness = sharedDarkness;
       shader.uniforms.uSunDir = sharedSunDir;
       shader.uniforms.uSunTint = sharedSunTint;
@@ -4217,7 +4360,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
               gl_FragColor.rgb = col;
             }
             if (uDarkness > 0.03) {
-              vec3 nightCityGlow = computeCityNightGlow(pixPos, tileCoord, subUv, myCode, uTime, uEpoch, uDarkness);
+              vec3 nightCityGlow = computeCityNightGlow(pixPos, tileCoord, subUv, myCode, uTime, sampleLocalEpoch(tileCoord), uDarkness);
               gl_FragColor.rgb += nightCityGlow * 0.62;
             }
             if (uZoneActive > 0.5) {
@@ -4289,7 +4432,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     roughness: 0.82,
     metalness: 0.05,
   });
-  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v4';
+  unifiedMat.customProgramCacheKey = () => 'aeon_land_unified_chunk_v5';
   unifiedMat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = sharedTime;
     shader.uniforms.uEpoch = sharedEpoch;
@@ -4299,6 +4442,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     shader.uniforms.uZoneIdMap = sharedZoneIdMap;
     shader.uniforms.uZoneActive = sharedZoneActive;
     shader.uniforms.uCityLightMap = sharedCityLightMap;
+    shader.uniforms.uLocalEpochMap = sharedLocalEpochMap;
     shader.uniforms.uDarkness = sharedDarkness;
     shader.uniforms.uSunDir = sharedSunDir;
     shader.uniforms.uSunTint = sharedSunTint;
@@ -4369,15 +4513,16 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
 
           vec3 cliffCol;
           if (isUrbanRetainingWall) {
-            if (uEpoch >= 3.5) {
-              vec3 concBase = uEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
-              vec3 concHi   = uEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
-              vec3 concSh   = uEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
+            float wallEpoch = sampleLocalEpoch(cliffOwnerCoord);
+            if (wallEpoch >= 3.5) {
+              vec3 concBase = wallEpoch >= 5.5 ? landSrgb(112.0, 126.0, 144.0) : landSrgb(122.0, 130.0, 138.0);
+              vec3 concHi   = wallEpoch >= 5.5 ? landSrgb(148.0, 164.0, 184.0) : landSrgb(154.0, 162.0, 170.0);
+              vec3 concSh   = wallEpoch >= 5.5 ? landSrgb(68.0, 78.0, 92.0)    : landSrgb(74.0, 82.0, 90.0);
               float panelSeam = max(step(0.88, fract(wallPix.y * 2.5)), step(0.90, fract(wallPix.x * 1.5)));
               float panelTone = landHash12(floor(vec2(wallPix.x * 1.5, wallPix.y * 2.5)));
               cliffCol = mix(concBase, concHi, step(0.62, panelTone));
               cliffCol = mix(cliffCol, concSh, panelSeam * 0.72);
-              if (uEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
+              if (wallEpoch >= 5.5 && abs(fract(wallPix.y * 1.2) - 0.5) < 0.08) {
                 cliffCol = mix(cliffCol, landSrgb(86.0, 207.0, 225.0), 0.52);
               }
             } else {
@@ -4543,7 +4688,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
           vec2 glowSubUv = aeonIsTop ? subUv : vec2(0.5);
           float glowCode = aeonIsTop ? myCode : ownerCode;
           float glowWeight = aeonIsTop ? 0.62 : 0.45;
-          gl_FragColor.rgb += computeCityNightGlow(glowPix, glowTile, glowSubUv, glowCode, uTime, uEpoch, uDarkness) * glowWeight;
+          gl_FragColor.rgb += computeCityNightGlow(glowPix, glowTile, glowSubUv, glowCode, uTime, sampleLocalEpoch(glowTile), uDarkness) * glowWeight;
         }
         if (uZoneActive > 0.5) {
           if (aeonIsTop) {
@@ -4695,6 +4840,8 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     buildings?: BuildingEntity[],
     settlementSpecies?: Record<string, SpeciesId>,
     waterChanged = true,
+    settlementKingdoms?: Record<string, string>,
+    kingdomEpochs?: Record<string, number>,
   ) => {
     cityLightBytes.fill(0);
     if (!bathymetryReady || waterChanged) {
@@ -4837,8 +4984,17 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
       }
     }
 
+    buildTileLocalEpochBytes(
+      gridSize,
+      tiles,
+      buildings,
+      settlementKingdoms,
+      kingdomEpochs,
+      localEpochBytes,
+    );
     landMapTex.needsUpdate = true;
     cityLightTex.needsUpdate = true;
+    localEpochTex.needsUpdate = true;
   };
 
   const updateZones = (colorData: Uint8Array, idData: Uint8Array, anyActive: boolean) => {
@@ -4908,6 +5064,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
     zoneColorTex.dispose();
     zoneIdTex.dispose();
     cityLightTex.dispose();
+    localEpochTex.dispose();
   };
 
   return { getMaterials, getChunkMaterials, updateMap, updateZones, updateFrame, dispose };

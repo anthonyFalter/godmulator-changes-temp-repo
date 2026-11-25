@@ -39,10 +39,22 @@ function addKingdomSettlement(
   cx: number,
   cz: number,
   buildingCount = 4,
+  unitCount = 3,
 ): void {
   sim.settlementSpecies![kingdomId] = species;
   sim.settlementNames![kingdomId] = name;
   sim.settlementKingdoms![kingdomId] = kingdomId;
+  sim.kingdomResources = sim.kingdomResources ?? {};
+  sim.kingdomResources[kingdomId] = {
+    wood: 500,
+    stone: 500,
+    food: 500,
+    ore: 500,
+    knowledge: 500,
+    energy: 500,
+    alloy: 500,
+    faith: 500,
+  };
   setKingdomEpoch(sim, kingdomId, epoch);
   sim.epochIndex = Math.max(sim.epochIndex, epoch);
 
@@ -55,6 +67,8 @@ function addKingdomSettlement(
     [-3, -2, 'forager_hut'],
     [2, -3, 'smeltery'],
     [-2, 3, 'bonfire'],
+    [3, -2, 'forager_hut'],
+    [-3, 2, 'forager_hut'],
   ];
 
   for (let i = 0; i < Math.min(buildingCount, offsets.length); i++) {
@@ -77,15 +91,15 @@ function addKingdomSettlement(
     sim.buildings.push(b);
   }
 
-  for (let u = 0; u < 3; u++) {
+  for (let u = 0; u < unitCount; u++) {
     const unit: UnitEntity = {
       id: `${kingdomId}_u_${u}`,
       name: `${name} Warrior ${u}`,
       role: 'warrior',
       faction: 'civilization',
       species,
-      x: cx + (u - 1) * 1.4,
-      z: cz + 1.5,
+      x: cx + ((u % 4) - 1.5) * 1.1,
+      z: cz + 1.5 + Math.floor(u / 4) * 0.6,
       targetX: cx,
       targetZ: cz,
       hp: 160,
@@ -107,8 +121,8 @@ function addKingdomSettlement(
 
 test('Humans prioritize transcontinental ballistic missiles (ICBM / Nuclear ICBM) that fly across distance before detonating', () => {
   const sim = makeLandSim(64);
-  addKingdomSettlement(sim, 'human_k', 'Terran Union', 'human', 5, 10, 10, 4);
-  addKingdomSettlement(sim, 'orc_k', 'Iron Horde', 'orc', 2, 52, 52, 4);
+  addKingdomSettlement(sim, 'human_k', 'Terran Union', 'human', 5, 10, 10, 9, 16);
+  addKingdomSettlement(sim, 'orc_k', 'Iron Horde', 'orc', 2, 52, 52, 4, 6);
 
   setKingdomRelation(sim, 'human_k', 'orc_k', 'war');
 
@@ -168,8 +182,24 @@ test('Humans prioritize transcontinental ballistic missiles (ICBM / Nuclear ICBM
 
 test('Elves cast long-range astral magic spells across continents and never launch steel missiles or cannons', () => {
   const sim = makeLandSim(64);
-  addKingdomSettlement(sim, 'elf_k', 'Sylvan Spire', 'elf', 5, 12, 50, 4);
-  addKingdomSettlement(sim, 'orc_k', 'Ashfang Clan', 'orc', 1, 50, 12, 4);
+  addKingdomSettlement(sim, 'elf_k', 'Sylvan Spire', 'elf', 5, 12, 50, 9, 16);
+  addKingdomSettlement(sim, 'orc_k', 'Ashfang Clan', 'orc', 1, 50, 12, 6, 8);
+  // Add a secondary Orc outpost outside the initial 5.6-tile cataclysm blast so the war continues for follow-up salvos
+  sim.buildings.push({
+    id: 'orc_k_outpost',
+    type: 'bonfire',
+    tileX: 58,
+    tileZ: 20,
+    hp: 400,
+    maxHp: 400,
+    constructionProgress: 100,
+    epochLevel: 1,
+    blessedTimer: 0,
+    cursedTimer: 0,
+    shieldTimer: 0,
+    settlementId: 'orc_k',
+    species: 'orc',
+  });
 
   setKingdomRelation(sim, 'elf_k', 'orc_k', 'war');
 
@@ -220,8 +250,8 @@ test('Elves cast long-range astral magic spells across continents and never laun
 test('Orcs hurl flaming magma siege boulders in early epochs and WAAAGH! scrap-rocket swarms in Industrial+ epochs', () => {
   // Early-epoch Orcs: flaming magma siege boulders
   const earlySim = makeLandSim(64);
-  addKingdomSettlement(earlySim, 'orc_early', 'Skullcrusher Tribe', 'orc', 1, 14, 14, 4);
-  addKingdomSettlement(earlySim, 'human_early', 'Valenhold', 'human', 1, 46, 46, 4);
+  addKingdomSettlement(earlySim, 'orc_early', 'Skullcrusher Tribe', 'orc', 1, 14, 14, 4, 6);
+  addKingdomSettlement(earlySim, 'human_early', 'Valenhold', 'human', 1, 46, 46, 4, 6);
   setKingdomRelation(earlySim, 'orc_early', 'human_early', 'war');
 
   stepStrategicWarfare(earlySim, 4.0);
@@ -235,8 +265,8 @@ test('Orcs hurl flaming magma siege boulders in early epochs and WAAAGH! scrap-r
 
   // Industrial+ Orcs: chaotic WAAAGH! scrap-rocket swarms
   const modernSim = makeLandSim(64);
-  addKingdomSettlement(modernSim, 'orc_modern', 'Red Scrap Waagh', 'orc', 4, 14, 14, 4);
-  addKingdomSettlement(modernSim, 'human_modern', 'Solaris', 'human', 4, 46, 46, 4);
+  addKingdomSettlement(modernSim, 'orc_modern', 'Red Scrap Waagh', 'orc', 4, 14, 14, 6, 10);
+  addKingdomSettlement(modernSim, 'human_modern', 'Solaris', 'human', 4, 46, 46, 6, 10);
   setKingdomRelation(modernSim, 'orc_modern', 'human_modern', 'war');
 
   stepStrategicWarfare(modernSim, 4.0);
@@ -381,8 +411,8 @@ test('War-front arrows ONLY render when at war AND Kingdoms/Alliances zones are 
 
 test('Kingdoms actively claim expansive territory and annex enemy territory and buildings during war', () => {
   const sim = makeLandSim(64);
-  addKingdomSettlement(sim, 'alpha_k', 'Aurelia', 'human', 3, 20, 32, 4);
-  addKingdomSettlement(sim, 'beta_k', 'Mordrak', 'orc', 3, 36, 32, 4);
+  addKingdomSettlement(sim, 'alpha_k', 'Aurelia', 'human', 3, 20, 32, 6, 10);
+  addKingdomSettlement(sim, 'beta_k', 'Mordrak', 'orc', 3, 36, 32, 6, 10);
 
   const initialZones = computeWorldZones(sim);
   const alphaInitZone = Array.from(initialZones.kingdomsById.values()).find((k) => k.kingdomId === 'alpha_k')!;

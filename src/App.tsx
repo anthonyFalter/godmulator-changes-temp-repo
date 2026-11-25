@@ -30,6 +30,8 @@ import {
   getTile,
   placeBuilding,
   setKingdomEpoch,
+  setWorldEpoch,
+  shouldTriggerAgeProgressBanner,
   spawnUnit,
   syncAverageEpochFromKingdoms,
   syncStateResourcesFromKingdoms,
@@ -104,6 +106,10 @@ import {
 } from './game/zones';
 import { EntityInspectorCard } from './components/EntityInspectorCard';
 import { CityInspectorCard, InspectedCityRef } from './components/CityInspectorCard';
+import {
+  InspectedStructureRef,
+  StructureInspectorCard,
+} from './components/StructureInspectorCard';
 import { GraphicsSettingsPanel } from './components/GraphicsSettingsPanel';
 import { AgeProgressBanner, AgeProgressEvent } from './components/AgeProgressBanner';
 import {
@@ -453,9 +459,14 @@ export default function App() {
   const [seasonPreset, setSeasonPreset] = useState<SeasonPreset>('auto');
   const [ageBannerEvent, setAgeBannerEvent] = useState<AgeProgressEvent | null>(null);
   const [isAgeScreenShaking, setIsAgeScreenShaking] = useState<boolean>(false);
-  const prevEpochTrackRef = useRef<{ worldKey: string; epochIndex: number }>({
+  const prevEpochTrackRef = useRef<{
+    worldKey: string;
+    epochIndex: number;
+    advanceSeq: number;
+  }>({
     worldKey: '',
     epochIndex: 0,
+    advanceSeq: 0,
   });
   const ageBannerSeqRef = useRef<number>(1);
   const ageShakeTimerRef = useRef<number | null>(null);
@@ -467,6 +478,7 @@ export default function App() {
   const [inspectedCity, setInspectedCity] = useState<
     (InspectedCityRef & { hexColor?: string }) | null
   >(null);
+  const [inspectedStructure, setInspectedStructure] = useState<InspectedStructureRef | null>(null);
   const [hoveredEntityId, setHoveredEntityId] = useState<string | null>(null);
   const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
   const selectedEntityIdRef = useRef<string | null>(null);
@@ -621,8 +633,10 @@ export default function App() {
       selectedEntityIdRef.current = null;
       setFollowingEntityId(null);
       setInspectedCity(null);
+      setInspectedStructure(null);
       setSelectedAllianceKingdomId(null);
       setLightingPreset(nextSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
+      setSeasonPreset(nextSim.seasonPreset ?? 'auto');
       setActiveCategory('spawn');
       setActiveTool({ kind: 'spawn', unit: 'human' });
       soundEngine.playBuild();
@@ -670,8 +684,10 @@ export default function App() {
         selectedEntityIdRef.current = null;
         setFollowingEntityId(null);
         setInspectedCity(null);
+        setInspectedStructure(null);
         setSelectedAllianceKingdomId(null);
         setLightingPreset(builtSim.worldRules?.dayNightCycle ? 'auto' : 'noon');
+        setSeasonPreset(builtSim.seasonPreset ?? 'auto');
         setActiveCategory('spawn');
         setActiveTool({ kind: 'spawn', unit: 'human' });
         setLoadingProgress(100);
@@ -692,6 +708,7 @@ export default function App() {
           worldConfig,
         );
         simRef.current = fallbackSim;
+        setSeasonPreset(fallbackSim.seasonPreset ?? 'auto');
         setTitleMenuStep('main');
         handleStartGame();
       });
@@ -759,12 +776,14 @@ export default function App() {
         description: worldDescription,
         thumbnailDataUrl,
         lightingPreset,
+        seasonPreset,
         activeZones,
         sim: simRef.current,
       });
       activeSaveIdRef.current = saved.id;
       simRef.current.worldName = saved.name;
       simRef.current.worldDescription = saved.description ?? '';
+      simRef.current.seasonPreset = seasonPreset;
       setWorldConfig((prev) => ({ ...prev, worldName: saved.name }));
       setHasSavedWorld(true);
       setSaveModalStep(null);
@@ -778,8 +797,12 @@ export default function App() {
         setGameState('title');
       }
       return true;
-    } catch {
-      setStatusFeedback('Unable to save world');
+    } catch (err) {
+      const msg =
+        err instanceof Error && err.message.trim().length > 0
+          ? err.message
+          : 'Unable to save world';
+      setStatusFeedback(msg);
       return false;
     } finally {
       setIsSavingWorld(false);
@@ -793,6 +816,7 @@ export default function App() {
     saveNameDraft,
     saveThenQuit,
     savedWorlds,
+    seasonPreset,
     worldConfig.worldName,
   ]);
 
@@ -837,6 +861,7 @@ export default function App() {
       setLightingPreset(
         fresh.lightingPreset ?? (restored.worldRules?.dayNightCycle ? 'auto' : 'noon'),
       );
+      setSeasonPreset(fresh.seasonPreset ?? restored.seasonPreset ?? 'auto');
       setActiveZones({ ...DEFAULT_ZONE_TOGGLES, ...(fresh.activeZones ?? {}) });
       setHoverTile(null);
       setHoveredEntityId(null);
@@ -844,6 +869,7 @@ export default function App() {
       selectedEntityIdRef.current = null;
       setFollowingEntityId(null);
       setInspectedCity(null);
+      setInspectedStructure(null);
       setSelectedAllianceKingdomId(null);
       setActiveCategory('spawn');
       setActiveTool({ kind: 'spawn', unit: 'human' });
@@ -1071,6 +1097,7 @@ export default function App() {
       tileX: number;
       tileZ: number;
     }) => {
+      setInspectedStructure(null);
       setInspectedCity(city);
       soundEngine.playClick();
       setStatusFeedback(`Inspecting city ${city.name}`);
@@ -1140,6 +1167,7 @@ export default function App() {
             (u) => u.state !== 'ko' && Math.hypot(u.x - tileX, u.z - tileZ) <= 0.65,
           );
         if (nearbyUnit) {
+          setInspectedStructure(null);
           if (selectedEntityIdRef.current !== nearbyUnit.id) {
             selectedEntityIdRef.current = nearbyUnit.id;
             setSelectedEntityId(nearbyUnit.id);
@@ -1184,20 +1212,68 @@ export default function App() {
         }
 
         const tile = getTile(sim, tileX, tileZ);
-        const bld = sim.buildings.find((b) => b.tileX === tileX && b.tileZ === tileZ);
+        const wonder = (sim.worldWonders ?? []).find(
+          (w) => w.tileX === tileX && w.tileZ === tileZ,
+        );
+        const bld = sim.buildings.find(
+          (b) => b.hp > 0 && b.tileX === tileX && b.tileZ === tileZ,
+        );
+        const memorial = (sim.battleMemorials ?? []).find(
+          (m) => m.tileX === tileX && m.tileZ === tileZ,
+        );
+        const isBridgeTile =
+          tile !== undefined &&
+          (tile.terrain === 'stone_road' || tile.terrain === 'rail_track') &&
+          (tile.height === 0 || Boolean(tile.isBridge));
+        const isRuinTile =
+          tile !== undefined &&
+          (tile.resourceNode === 'ancient_ruin' || tile.resourceNode === 'atlantis_ruin');
         const nearbyRoadster = (sim.vehicles ?? []).find(
           (v) => v.type === 'roadster' && Math.hypot(v.x - tileX, v.z - tileZ) <= 1.15,
         );
         if (nearbyRoadster) {
+          setInspectedStructure(null);
           const modeLabel =
             nearbyRoadster.stuntPhase && nearbyRoadster.stuntPhase !== 'cruise'
               ? `Propulsion Stunt: ${nearbyRoadster.stuntPhase.replace('_', ' ')}`
               : 'Cruising with SpaceX Thrusters Armed';
           setStatusFeedback(`Tesla Roadster Easter Egg (${modeLabel})`);
+        } else if (wonder) {
+          setInspectedCity(null);
+          setInspectedStructure({ kind: 'wonder', id: wonder.id });
+          const pct = Math.round(wonder.constructionProgress ?? 100);
+          setStatusFeedback(
+            pct < 100
+              ? `${wonder.name} (Building ${pct}%)`
+              : `${wonder.name} (${Math.round(wonder.hp ?? 2600)}/${Math.round(wonder.maxHp ?? 2600)} HP)`,
+          );
         } else if (bld) {
+          setInspectedCity(null);
+          setInspectedStructure({ kind: 'building', id: bld.id });
           const def = BUILDINGS.find((d) => d.type === bld.type);
           setStatusFeedback(`${def?.name ?? bld.type} (${Math.round(bld.hp)}/${bld.maxHp} HP)`);
+        } else if (memorial) {
+          setInspectedCity(null);
+          setInspectedStructure({ kind: 'memorial', id: memorial.id });
+          setStatusFeedback(`${memorial.label} (${memorial.fallenCount} fallen)`);
+        } else if (isBridgeTile && tile) {
+          setInspectedCity(null);
+          setInspectedStructure({ kind: 'bridge', tileX: tile.x, tileZ: tile.z });
+          setStatusFeedback(
+            tile.terrain === 'rail_track'
+              ? `Rail Bridge (${tileX}, ${tileZ})`
+              : `Bridge Span (${tileX}, ${tileZ})`,
+          );
+        } else if (isRuinTile && tile) {
+          setInspectedCity(null);
+          setInspectedStructure({ kind: 'ruin', tileX: tile.x, tileZ: tile.z });
+          setStatusFeedback(
+            tile.resourceNode === 'atlantis_ruin'
+              ? `Sunken Atlantis Ruin (${tileX}, ${tileZ})`
+              : `Ancient Ruin (${tileX}, ${tileZ})`,
+          );
         } else if (tile) {
+          setInspectedStructure(null);
           setStatusFeedback(`${tile.terrain.replace('_', ' ')} (${tileX}, ${tileZ})`);
         }
         soundEngine.playClick();
@@ -1534,31 +1610,43 @@ export default function App() {
   const avgEpochInfo = computeAverageCivilizationEpoch(sim);
   const currentEpoch = EPOCHS[avgEpochInfo.roundedIndex] || EPOCHS[0];
 
-  // Detect upward age progression while playing and launch the middle Fortnite-style token flip banner
+  // Detect genuine upward age progression while playing and launch the middle Fortnite-style token flip banner
+  const epochAdvanceSeq = sim.epochAdvanceSeq ?? 0;
   useEffect(() => {
     const worldKey = `${sim.seed}:${sim.gridSize}`;
     if (gameState !== 'playing') {
-      prevEpochTrackRef.current = { worldKey, epochIndex: currentEpoch.index };
+      prevEpochTrackRef.current = {
+        worldKey,
+        epochIndex: currentEpoch.index,
+        advanceSeq: epochAdvanceSeq,
+      };
       setAgeBannerEvent(null);
       setIsAgeScreenShaking(false);
       return;
     }
     if (prevEpochTrackRef.current.worldKey !== worldKey) {
-      prevEpochTrackRef.current = { worldKey, epochIndex: currentEpoch.index };
+      prevEpochTrackRef.current = {
+        worldKey,
+        epochIndex: currentEpoch.index,
+        advanceSeq: epochAdvanceSeq,
+      };
       return;
     }
     const prevIdx = prevEpochTrackRef.current.epochIndex;
-    if (currentEpoch.index > prevIdx) {
+    const prevSeq = prevEpochTrackRef.current.advanceSeq;
+    if (shouldTriggerAgeProgressBanner(prevIdx, currentEpoch.index, prevSeq, epochAdvanceSeq)) {
       prevEpochTrackRef.current.epochIndex = currentEpoch.index;
+      prevEpochTrackRef.current.advanceSeq = epochAdvanceSeq;
       setAgeBannerEvent({
         id: ageBannerSeqRef.current++,
         fromIndex: prevIdx,
         toIndex: currentEpoch.index,
       });
-    } else if (currentEpoch.index < prevIdx) {
+    } else if (currentEpoch.index !== prevIdx || epochAdvanceSeq !== prevSeq) {
       prevEpochTrackRef.current.epochIndex = currentEpoch.index;
+      prevEpochTrackRef.current.advanceSeq = epochAdvanceSeq;
     }
-  }, [currentEpoch.index, gameState, sim.seed, sim.gridSize]);
+  }, [currentEpoch.index, epochAdvanceSeq, gameState, sim.seed, sim.gridSize]);
 
   useEffect(() => {
     return () => {
@@ -3641,6 +3729,59 @@ export default function App() {
               </div>
             )}
 
+            {gameState === 'playing' && inspectedStructure && (
+              <div className={chronicleOpen && !speedMenuOpen && !cameraMenuOpen ? 'hidden lg:contents' : 'contents'}>
+                <StructureInspectorCard
+                  sim={sim}
+                  structureRef={inspectedStructure}
+                  offsetLeft={isInspectTabActive}
+                  onClose={() => {
+                    setInspectedStructure(null);
+                    soundEngine.playClick();
+                  }}
+                  onFocusTile={(tx, tz) => {
+                    cameraActionRef.current.focusTarget = { x: tx, z: tz, zoom: 10.5 };
+                    soundEngine.playClick();
+                    setStatusFeedback(`Focused camera on (${tx}, ${tz})`);
+                  }}
+                  onDemolishBuilding={(buildingId) => {
+                    const s = simRef.current;
+                    const idx = s.buildings.findIndex((b) => b.id === buildingId);
+                    if (idx >= 0) {
+                      const target = s.buildings[idx];
+                      target.hp = 0;
+                      const t = getTile(s, target.tileX, target.tileZ);
+                      if (t && t.buildingId === target.id) {
+                        t.buildingId = null;
+                      }
+                      s.buildings.splice(idx, 1);
+                      soundEngine.playClick();
+                      setInspectedStructure(null);
+                      setStatusFeedback('Demolished structure');
+                      setHudTick((v) => v + 1);
+                    }
+                  }}
+                  onDemolishWonder={(wonderId) => {
+                    const s = simRef.current;
+                    if (!s.worldWonders) return;
+                    const idx = s.worldWonders.findIndex((w) => w.id === wonderId);
+                    if (idx >= 0) {
+                      const target = s.worldWonders[idx];
+                      const t = getTile(s, target.tileX, target.tileZ);
+                      if (t && t.buildingId === target.id) {
+                        t.buildingId = null;
+                      }
+                      s.worldWonders.splice(idx, 1);
+                      soundEngine.playClick();
+                      setInspectedStructure(null);
+                      setStatusFeedback(`Razed ${target.name}`);
+                      setHudTick((v) => v + 1);
+                    }
+                  }}
+                />
+              </div>
+            )}
+
             {chronicleOpen && !speedMenuOpen && !cameraMenuOpen && (
               <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-3 overflow-y-auto">
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -4448,35 +4589,7 @@ export default function App() {
                               const idx = Number(e.target.value);
                               const ep = EPOCHS[idx];
                               if (!ep) return;
-                              const s = simRef.current;
-                              const targetProg = ep.index >= EPOCHS.length - 1 ? 100 : 0;
-                              s.epochIndex = ep.index;
-                              if (!s.kingdomEpochs) s.kingdomEpochs = {};
-                              if (!s.kingdomEpochProgress) s.kingdomEpochProgress = {};
-                              for (const kid of Object.keys(s.kingdomEpochs)) {
-                                s.kingdomEpochs[kid] = ep.index;
-                                s.kingdomEpochProgress[kid] = targetProg;
-                              }
-                              for (const b of s.buildings) {
-                                b.epochLevel = ep.index;
-                                if (b.settlementId) {
-                                  const kid = getKingdomId(s, b.settlementId);
-                                  s.kingdomEpochs[kid] = ep.index;
-                                  s.kingdomEpochProgress[kid] = targetProg;
-                                }
-                              }
-                              for (const u of s.units) {
-                                if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
-                                  const kid = u.settlementId
-                                    ? getKingdomId(s, u.settlementId)
-                                    : u.kingdomId;
-                                  if (kid) {
-                                    s.kingdomEpochs[kid] = ep.index;
-                                    s.kingdomEpochProgress[kid] = targetProg;
-                                  }
-                                }
-                              }
-                              syncAverageEpochFromKingdoms(s);
+                              setWorldEpoch(simRef.current, ep.index);
                               soundEngine.playEpochAscend();
                               setStatusFeedback(ep.name);
                               setHudTick((t) => t + 1);
@@ -4580,6 +4693,7 @@ export default function App() {
                                   const opt = WORLD_SEASON_PRESETS[idx];
                                   if (!opt) return;
                                   setSeasonPreset(opt.id);
+                                  simRef.current.seasonPreset = opt.id;
                                   soundEngine.playClick();
                                   setStatusFeedback(`Season: ${opt.label}`);
                                   setHudTick((t) => t + 1);

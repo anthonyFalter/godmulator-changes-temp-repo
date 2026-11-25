@@ -62,11 +62,17 @@ export interface WorldGridBuffers {
   resourceAmountMap: Uint16Array;
   ownerMap: Uint16Array;
   crushedMask: Uint8Array;
+  /** Elevated liquid surface level per tile (0 when no elevated liquid above terrain height). */
+  liquidLevelMap: Float32Array;
   dirtyChunks: Uint8Array;
   dirtyChunkCount: number;
   activeFireTiles: Set<number>;
   /** Monotonic terrain mutation counter for invalidating cached flow fields & coarse graphs. */
   terrainVersion: number;
+  /** Monotonic height mutation counter so canvas zone overlays always detect pre-synced height changes. */
+  heightVersion: number;
+  /** Monotonic water/shoreline/ice mutation counter so canvas ocean SDF stays in sync. */
+  waterVersion: number;
   /** Monotonic prop/resource mutation counter. */
   propVersion: number;
 }
@@ -91,10 +97,13 @@ export function createWorldGridBuffers(
     resourceAmountMap: new Uint16Array(totalTiles),
     ownerMap: new Uint16Array(totalTiles),
     crushedMask: new Uint8Array(totalTiles),
+    liquidLevelMap: new Float32Array(totalTiles),
     dirtyChunks,
     dirtyChunkCount: totalChunks,
     activeFireTiles: new Set<number>(),
     terrainVersion: 1,
+    heightVersion: 1,
+    waterVersion: 1,
     propVersion: 1,
   };
 }
@@ -168,8 +177,15 @@ export function syncWorldGridFromTiles(
   markAllDirty = true,
 ): void {
   const len = Math.min(tiles.length, grid.heightMap.length);
-  const { heightMap, terrainCodeMap, resourceNodeMap, resourceAmountMap, crushedMask, activeFireTiles } =
-    grid;
+  const {
+    heightMap,
+    terrainCodeMap,
+    resourceNodeMap,
+    resourceAmountMap,
+    crushedMask,
+    liquidLevelMap,
+    activeFireTiles,
+  } = grid;
   activeFireTiles.clear();
 
   for (let i = 0; i < len; i++) {
@@ -179,6 +195,7 @@ export function syncWorldGridFromTiles(
     resourceNodeMap[i] = RESOURCE_NODE_TO_CODE[t.resourceNode] ?? 0;
     resourceAmountMap[i] = t.resourceAmount > 65535 ? 65535 : Math.max(0, t.resourceAmount | 0);
     crushedMask[i] = t.height > 0 && (t.crushedTimer ?? 0) > 0 ? 1 : 0;
+    liquidLevelMap[i] = (t.liquidLevel ?? 0) > t.height ? (t.liquidLevel ?? 0) : 0;
     if (t.onFireTimer > 0) {
       activeFireTiles.add(i);
     }
@@ -188,6 +205,8 @@ export function syncWorldGridFromTiles(
     markAllChunksDirty(grid);
   }
   grid.terrainVersion++;
+  grid.heightVersion++;
+  grid.waterVersion++;
   grid.propVersion++;
 }
 
@@ -199,15 +218,19 @@ export function syncTileToWorldGrid(grid: WorldGridBuffers, t: TileData): void {
   const idx = t.z * grid.gridSize + t.x;
   if (idx < 0 || idx >= grid.heightMap.length) return;
 
+  const prevHeight = grid.heightMap[idx];
+  const prevCode = grid.terrainCodeMap[idx];
   const nextHeight = t.height;
   const nextCode = TERRAIN_TO_CODE[t.terrain] ?? 3;
   const nextNode = RESOURCE_NODE_TO_CODE[t.resourceNode] ?? 0;
   const nextAmount = t.resourceAmount > 65535 ? 65535 : Math.max(0, t.resourceAmount | 0);
   const nextCrushed = t.height > 0 && (t.crushedTimer ?? 0) > 0 ? 1 : 0;
+  const nextLiquidLevel = (t.liquidLevel ?? 0) > t.height ? (t.liquidLevel ?? 0) : 0;
 
+  const heightChanged = prevHeight !== nextHeight;
   const terrainChanged =
-    grid.heightMap[idx] !== nextHeight ||
-    grid.terrainCodeMap[idx] !== nextCode ||
+    heightChanged ||
+    prevCode !== nextCode ||
     grid.crushedMask[idx] !== nextCrushed;
 
   const propChanged =
@@ -218,6 +241,7 @@ export function syncTileToWorldGrid(grid: WorldGridBuffers, t: TileData): void {
   grid.resourceNodeMap[idx] = nextNode;
   grid.resourceAmountMap[idx] = nextAmount;
   grid.crushedMask[idx] = nextCrushed;
+  grid.liquidLevelMap[idx] = nextLiquidLevel;
 
   if (t.onFireTimer > 0) {
     grid.activeFireTiles.add(idx);
@@ -228,6 +252,21 @@ export function syncTileToWorldGrid(grid: WorldGridBuffers, t: TileData): void {
   if (terrainChanged) {
     markTileDirty(grid, t.x, t.z);
     grid.terrainVersion++;
+    if (heightChanged) {
+      grid.heightVersion++;
+    }
+    if (
+      prevHeight === 0 ||
+      nextHeight === 0 ||
+      prevCode === 0 ||
+      prevCode === 1 ||
+      prevCode === 23 ||
+      nextCode === 0 ||
+      nextCode === 1 ||
+      nextCode === 23
+    ) {
+      grid.waterVersion++;
+    }
   }
   if (propChanged || terrainChanged) {
     grid.propVersion++;
@@ -355,13 +394,13 @@ export function raycastWorldGrid(
     tMaxZ = (cz - 0.5 - oz) / dz;
   }
 
-  const { heightMap, terrainCodeMap, crushedMask } = grid;
+  const { heightMap, terrainCodeMap, crushedMask, liquidLevelMap } = grid;
   const maxSteps = gs * 3 + 4;
 
   for (let step = 0; step < maxSteps; step++) {
     const tExit = Math.min(tMaxX, tMaxZ, tMax);
     const tileIndex = cz * gs + cx;
-    const topY =
+    const baseTopY =
       yOverrides && tileIndex < yOverrides.length
         ? yOverrides[tileIndex]
         : getTileTopYFromCode(
@@ -369,6 +408,11 @@ export function raycastWorldGrid(
             terrainCodeMap[tileIndex],
             crushedMask[tileIndex] !== 0,
           );
+    const liqLvl = liquidLevelMap[tileIndex];
+    const topY =
+      liqLvl > heightMap[tileIndex]
+        ? Math.max(baseTopY + 0.04, liqLvl * TERRAIN_HEIGHT_STEP + 0.22)
+        : baseTopY;
 
     const yEnter = oy + dy * tCur;
     const yExit = oy + dy * tExit;

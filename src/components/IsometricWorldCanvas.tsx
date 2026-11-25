@@ -786,7 +786,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     // Frustum-culled 32x32 hidden-face-culled greedy-meshed terrain chunk system
     // (100% pixel-identical to individual blocks via world-space styledTerrain shaders!)
     const styledTerrain = createStyledTerrainSystem(sim.gridSize);
-    styledTerrain.updateMap(sim.tiles, sim.buildings, sim.settlementSpecies);
+    styledTerrain.updateMap(
+      sim.tiles,
+      sim.buildings,
+      sim.settlementSpecies,
+      true,
+      sim.settlementKingdoms,
+      sim.kingdomEpochs,
+    );
 
     const worldBoundsSphere = new THREE.Sphere(
       new THREE.Vector3(gridCenter, 2, gridCenter),
@@ -1184,10 +1191,37 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       emissiveIntensity: 1.15,
       roughness: 0.25,
     });
+    const metroOrbitalConcreteMat = new THREE.MeshStandardMaterial({
+      color: 0xcbd5e1,
+      roughness: 0.42,
+      metalness: 0.28,
+    });
+    const metroOrbitalParapetMat = new THREE.MeshStandardMaterial({
+      color: 0x52647a,
+      roughness: 0.52,
+      metalness: 0.3,
+    });
+    const metroOrbitalRailMat = new THREE.MeshStandardMaterial({
+      color: 0x56cfe1,
+      roughness: 0.24,
+      metalness: 0.62,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.95,
+    });
     const streetPoleMat = new THREE.MeshStandardMaterial({
-      color: 0x4a3525,
+      color: 0x54351e,
       roughness: 0.78,
-      metalness: 0.15,
+      metalness: 0.14,
+    });
+    const streetPoleIronMat = new THREE.MeshStandardMaterial({
+      color: 0x475569,
+      roughness: 0.45,
+      metalness: 0.64,
+    });
+    const streetPoleOrbitalMat = new THREE.MeshStandardMaterial({
+      color: 0xcbd5e1,
+      roughness: 0.32,
+      metalness: 0.75,
     });
     const streetLampGlowMat = new THREE.MeshStandardMaterial({
       color: 0xffb703,
@@ -1195,16 +1229,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       emissiveIntensity: 0.35,
       roughness: 0.2,
     });
+    const streetLampModernMat = new THREE.MeshStandardMaterial({
+      color: 0xfef3c7,
+      emissive: 0xf59e0b,
+      emissiveIntensity: 0.35,
+      roughness: 0.2,
+    });
+    const streetLampOrbitalMat = new THREE.MeshStandardMaterial({
+      color: 0x56cfe1,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.55,
+      roughness: 0.18,
+    });
     const skywayDeckMat = new THREE.MeshStandardMaterial({
-      color: 0x334155,
+      color: 0x475569,
       roughness: 0.56,
-      metalness: 0.35,
+      metalness: 0.32,
     });
     const skywayTrimMat = new THREE.MeshStandardMaterial({
-      color: 0xf59e0b,
+      color: 0xfbbf24,
       emissive: 0xf59e0b,
-      emissiveIntensity: 0.75,
+      emissiveIntensity: 0.65,
       roughness: 0.28,
+    });
+    const skywayOrbitalDeckMat = new THREE.MeshStandardMaterial({
+      color: 0x36475c,
+      roughness: 0.42,
+      metalness: 0.46,
+    });
+    const skywayOrbitalTrimMat = new THREE.MeshStandardMaterial({
+      color: 0x56cfe1,
+      emissive: 0x38bdf8,
+      emissiveIntensity: 0.95,
+      roughness: 0.22,
     });
     const billboardCyanMat = new THREE.MeshStandardMaterial({
       color: 0x38bdf8,
@@ -1271,27 +1328,48 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const metroRailNSInst = makeMetroInst(metroRailNSGeo, metroRailMat, MAX_METRO_STRIP_INST, false);
     const metroParapetEWInst = makeMetroInst(metroParapetEWGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
     const metroParapetNSInst = makeMetroInst(metroParapetNSGeo, metroParapetMat, MAX_METRO_STRIP_INST, true);
+    const metroOrbitalPillarInst = makeMetroInst(metroPillarGeo, metroOrbitalConcreteMat, MAX_METRO_INST, true);
+    const metroOrbitalCapInst = makeMetroInst(metroCapGeo, metroOrbitalConcreteMat, MAX_METRO_INST, true);
+    const metroOrbitalDeckHubInst = makeMetroInst(metroDeckHubGeo, metroOrbitalConcreteMat, MAX_METRO_INST, true);
+    const metroOrbitalSpanEWInst = makeMetroInst(metroSpanEWGeo, metroOrbitalConcreteMat, MAX_METRO_INST, true);
+    const metroOrbitalSpanNSInst = makeMetroInst(metroSpanNSGeo, metroOrbitalConcreteMat, MAX_METRO_INST, true);
+    const metroOrbitalRailHubInst = makeMetroInst(metroRailHubGeo, metroOrbitalRailMat, MAX_METRO_INST, false);
+    const metroOrbitalRailEWInst = makeMetroInst(metroRailEWGeo, metroOrbitalRailMat, MAX_METRO_STRIP_INST, false);
+    const metroOrbitalRailNSInst = makeMetroInst(metroRailNSGeo, metroOrbitalRailMat, MAX_METRO_STRIP_INST, false);
+    const metroOrbitalParapetEWInst = makeMetroInst(metroParapetEWGeo, metroOrbitalParapetMat, MAX_METRO_STRIP_INST, true);
+    const metroOrbitalParapetNSInst = makeMetroInst(metroParapetNSGeo, metroOrbitalParapetMat, MAX_METRO_STRIP_INST, true);
     const runwayBeaconInst = makeMetroInst(runwayBeaconGeo, runwayBeaconMat, MAX_RUNWAY_LIGHT_INST, false);
     const streetPoleInst = makeMetroInst(streetPoleGeo, streetPoleMat, MAX_METRO_INST, false);
+    const streetPoleIronInst = makeMetroInst(streetPoleGeo, streetPoleIronMat, MAX_METRO_INST, false);
+    const streetPoleOrbitalInst = makeMetroInst(streetPoleGeo, streetPoleOrbitalMat, MAX_METRO_INST, false);
     const streetLampHeadInst = makeMetroInst(streetLampHeadGeo, streetLampGlowMat, MAX_METRO_INST, false);
+    const streetLampModernInst = makeMetroInst(streetLampHeadGeo, streetLampModernMat, MAX_METRO_INST, false);
+    const streetLampOrbitalInst = makeMetroInst(streetLampHeadGeo, streetLampOrbitalMat, MAX_METRO_INST, false);
     const skywayDeckInst = makeMetroInst(skywayDeckGeo, skywayDeckMat, MAX_METRO_INST, true);
     const skywayTrimInst = makeMetroInst(skywayTrimGeo, skywayTrimMat, MAX_METRO_STRIP_INST, false);
-    const billboardFrameInst = makeMetroInst(billboardFrameGeo, streetPoleMat, MAX_METRO_INST, true);
+    const skywayOrbitalDeckInst = makeMetroInst(skywayDeckGeo, skywayOrbitalDeckMat, MAX_METRO_INST, true);
+    const skywayOrbitalTrimInst = makeMetroInst(skywayTrimGeo, skywayOrbitalTrimMat, MAX_METRO_STRIP_INST, false);
+    const billboardFrameInst = makeMetroInst(billboardFrameGeo, streetPoleIronMat, MAX_METRO_INST, true);
     const billboardCyanInst = makeMetroInst(billboardScreenGeo, billboardCyanMat, MAX_METRO_INST, false);
     const billboardPinkInst = makeMetroInst(billboardScreenGeo, billboardPinkMat, MAX_METRO_INST, false);
     const billboardGoldInst = makeMetroInst(billboardScreenGeo, billboardGoldMat, MAX_METRO_INST, false);
 
-    // Era-evolving 3D Bridge Architectural Kit (1 draw call per era style, 0 draw calls when unused)
+    // Era-evolving 3D Bridge Architectural Kit (8 distinct eras, 1 draw call per active era style)
     const bridgeKit = createBridgeKitGeometries();
     const bridgeKitMat = new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.78,
       metalness: 0.14,
     });
+    const bridgePrehistoricSideInst = makeMetroInst(bridgeKit.prehistoricSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
     const bridgeWoodSideInst = makeMetroInst(bridgeKit.woodSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
     const bridgeWoodDeckInst = makeMetroInst(bridgeKit.woodDeckGeo, bridgeKitMat, MAX_METRO_INST, false);
     const bridgeStoneSideInst = makeMetroInst(bridgeKit.stoneSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
     const bridgeIronSideInst = makeMetroInst(bridgeKit.ironSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+    const bridgeAtomicSideInst = makeMetroInst(bridgeKit.atomicSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+    const bridgeInfoSideInst = makeMetroInst(bridgeKit.infoSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+    const bridgeOrbitalSideInst = makeMetroInst(bridgeKit.orbitalSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
+    const bridgeStarSideInst = makeMetroInst(bridgeKit.starSideGeo, bridgeKitMat, MAX_METRO_STRIP_INST, true);
 
     const allMetroInsts = [
       metroPillarInst,
@@ -1304,19 +1382,40 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       metroRailNSInst,
       metroParapetEWInst,
       metroParapetNSInst,
+      metroOrbitalPillarInst,
+      metroOrbitalCapInst,
+      metroOrbitalDeckHubInst,
+      metroOrbitalSpanEWInst,
+      metroOrbitalSpanNSInst,
+      metroOrbitalRailHubInst,
+      metroOrbitalRailEWInst,
+      metroOrbitalRailNSInst,
+      metroOrbitalParapetEWInst,
+      metroOrbitalParapetNSInst,
       runwayBeaconInst,
       streetPoleInst,
+      streetPoleIronInst,
+      streetPoleOrbitalInst,
       streetLampHeadInst,
+      streetLampModernInst,
+      streetLampOrbitalInst,
       skywayDeckInst,
       skywayTrimInst,
+      skywayOrbitalDeckInst,
+      skywayOrbitalTrimInst,
       billboardFrameInst,
       billboardCyanInst,
       billboardPinkInst,
       billboardGoldInst,
+      bridgePrehistoricSideInst,
       bridgeWoodSideInst,
       bridgeWoodDeckInst,
       bridgeStoneSideInst,
       bridgeIronSideInst,
+      bridgeAtomicSideInst,
+      bridgeInfoSideInst,
+      bridgeOrbitalSideInst,
+      bridgeStarSideInst,
     ];
 
     const TERRAIN_CODE: Record<string, number> = {
@@ -8255,7 +8354,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
     let lastTime = performance.now();
     let hudSyncAccumulator = 0;
-    let lastStreetPoleEpoch = -1;
     let lumUnitScanAccum = 0.1;
     let cachedLumUnitId: string | null = null;
     let elapsedTotal = 0;
@@ -8611,6 +8709,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let pendingTerrainMapSync = false;
     let pendingTerrainBathymetrySync = false;
     let pendingZoneOverlayMapSync = !propsRef.current.zoneOverlayBuffers?.anyActive;
+    let lastCanvasTerrainVersion = -1;
+    let lastCanvasHeightVersion = -1;
+    let lastCanvasWaterVersion = -1;
     let simSteppedThisFrame = true;
     let shadowSceneDirty = true;
     let shadowWarmupFrames = 4;
@@ -8706,6 +8807,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         const refreshedGrid = ensureWorldGrid(simState);
         syncWorldGridFromTiles(refreshedGrid, simState.tiles, true);
+        lastCanvasTerrainVersion = refreshedGrid.terrainVersion;
+        lastCanvasHeightVersion = refreshedGrid.heightVersion;
+        lastCanvasWaterVersion = refreshedGrid.waterVersion;
         chunkTerrain.queueProgressiveRebuild(refreshedGrid);
         const newCenter = (simState.gridSize - 1) / 2;
         camDesiredTarget.set(newCenter, 1.2, newCenter);
@@ -8769,8 +8873,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const tiles = simState.tiles;
       const tileCount = tiles.length;
 
+      const gridVersionChanged =
+        lastCanvasTerrainVersion !== -1 && worldGrid.terrainVersion !== lastCanvasTerrainVersion;
+      const gridHeightChanged =
+        lastCanvasHeightVersion !== -1 && worldGrid.heightVersion !== lastCanvasHeightVersion;
+      const gridWaterChanged =
+        lastCanvasWaterVersion !== -1 && worldGrid.waterVersion !== lastCanvasWaterVersion;
+
       let anyDynamicTileY = false;
-      let anyGridChangedThisFrame = false;
+      let anyGridChangedThisFrame = gridVersionChanged;
+      if (gridHeightChanged) zoneHeightDirty = true;
+      if (gridWaterChanged) waterMapNeedsSync = true;
       const shouldScanTiles =
         simChanged ||
         simSteppedThisFrame ||
@@ -8778,6 +8891,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         hasTsunamis ||
         hasQuakes ||
         terrainMapDirty ||
+        gridVersionChanged ||
+        gridHeightChanged ||
+        gridWaterChanged ||
         worldGrid.dirtyChunkCount > 0 ||
         elapsed - lastTileScanTime >= 0.32;
 
@@ -8891,6 +9007,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           tileTerrainCode[i] = tCode;
           markTileDirty(worldGrid, t.x, t.z);
           if (prevHeight !== t.height) {
+            worldGrid.heightVersion++;
             zoneHeightDirty = true;
           }
           // Only rebuild the full-map ocean Chamfer distance texture when water/shoreline/ice tiles actually change
@@ -8904,6 +9021,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             tCode === 1 ||
             tCode === 23
           ) {
+            worldGrid.waterVersion++;
             waterMapNeedsSync = true;
           }
         } else if (
@@ -8932,7 +9050,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           terrainMapDirty = true;
         }
         const mSig =
-          tCode === 9 || tCode === 14 || tCode === 21 ? (t.height << 5) | tCode : 0;
+          tCode === 9 || tCode === 14 || tCode === 21
+            ? ((t.isBridge ? 1 : 0) << 10) | (t.height << 5) | tCode
+            : 0;
         const prevMSig = tileMetroSig[i];
         if (prevMSig !== mSig) {
           if (prevMSig > 0) metroFeatureTileCount--;
@@ -8964,7 +9084,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                           ? 7
                           : overrideBiome === 'highland'
                             ? 8
-                            : 0
+                            : overrideBiome === 'volcanic'
+                              ? 9
+                              : overrideBiome === 'blight'
+                                ? 10
+                                : overrideBiome === 'floral'
+                                  ? 11
+                                  : 0
             : 0;
           const isFarmPlotBit = t.farmSettlementId && t.farmPlotKind === 'wheat' ? 1 : 0;
           const cropTypeCode =
@@ -9034,11 +9160,15 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             : 0;
         if (tileLiquidSig[i] !== lqSig) {
           tileLiquidSig[i] = lqSig;
+          worldGrid.liquidLevelMap[i] = elevLvl > t.height ? elevLvl : 0;
           elevatedLiquidNeedsSync = true;
         }
       }
       lastTileScanPendingY = anyDynamicTileY;
       }
+      lastCanvasTerrainVersion = worldGrid.terrainVersion;
+      lastCanvasHeightVersion = worldGrid.heightVersion;
+      lastCanvasWaterVersion = worldGrid.waterVersion;
 
       if (elevatedLiquidNeedsSync || simChanged) {
         syncElevatedLiquids(simState.tiles);
@@ -9069,7 +9199,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (pendingTerrainMapSync) {
             pendingTerrainMapSync = false;
             pendingTerrainBathymetrySync = false;
-            styledTerrain.updateMap(simState.tiles, simState.buildings, simState.settlementSpecies, true);
+            styledTerrain.updateMap(
+              simState.tiles,
+              simState.buildings,
+              simState.settlementSpecies,
+              true,
+              simState.settlementKingdoms,
+              simState.kingdomEpochs,
+            );
           }
           if (pendingZoneOverlayMapSync) {
             pendingZoneOverlayMapSync = false;
@@ -9091,6 +9228,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               simState.buildings,
               simState.settlementSpecies,
               wantBathy,
+              simState.settlementKingdoms,
+              simState.kingdomEpochs,
             );
             heavyWorkDoneThisFrame = true;
           } else if (
@@ -9680,140 +9819,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         rebuildVisiblePropsAndLod();
       }
 
-      // Sync & animate Race-Unique Era-Evolving Farm Windmills + Heavy Industrial Quarry/Mining Facilities
-      if (startupRevealStage >= 2 && propAssetsReady) {
-        const districtsMap = simState.settlementDistricts;
-        const wmGridSize = simState.gridSize;
+      // Windmills & Quarry Rigs are now real promoted BuildingEntity structures rendered via BatchedBuildingSystem.
+      // Keep legacy static pools empty if they were ever initialized.
+      if (windmillTowerPool || windmillBladesPool || miningFacilityPool) {
         windmillTowerPool?.reset();
         windmillBladesPool?.reset();
         miningFacilityPool?.reset();
-
-        if (districtsMap) {
-          let wmIdx = 0;
-          for (const [sid, dist] of Object.entries(districtsMap)) {
-            const farmEpoch = getSettlementEpoch(simState, sid);
-            const species = simState.settlementSpecies?.[sid] ?? 'human';
-            const raceIdx =
-              species === 'elf'
-                ? 1
-                : species === 'dwarf'
-                  ? 2
-                  : species === 'lizardfolk'
-                    ? 3
-                    : species === 'orc'
-                      ? 4
-                      : 0;
-            const eraTier = farmEpoch >= 6 ? 2 : farmEpoch >= 3 ? 1 : 0;
-            const wmVariantIdx = raceIdx * 3 + eraTier;
-
-            // 1. Race-unique, era-evolving Windmill / Aero-Turbine at farm district center (Medieval Age / Epoch 2+)
-            const cx = dist.farmX;
-            const cz = dist.farmZ;
-            const centerIdx = cz * wmGridSize + cx;
-            const centerTile = simState.tiles[centerIdx];
-            if (farmEpoch >= 2 && centerTile && centerTile.height > 0 && !centerTile.buildingId && isPointInCullBounds(cx, cz, worldCullBounds, 4.5)) {
-              let nearbyFarms = 0;
-              for (let oz = -2; oz <= 2 && nearbyFarms < 4; oz++) {
-                for (let ox = -2; ox <= 2 && nearbyFarms < 4; ox++) {
-                  if (ox === 0 && oz === 0) continue;
-                  const fx = cx + ox;
-                  const fz = cz + oz;
-                  if (fx < 0 || fz < 0 || fx >= wmGridSize || fz >= wmGridSize) continue;
-                  const ft = simState.tiles[fz * wmGridSize + fx];
-                  if (ft && ft.farmSettlementId === sid && ft.farmPlotKind === 'wheat') {
-                    nearbyFarms++;
-                  }
-                }
-              }
-              if (nearbyFarms >= 4) {
-                ensureDistrictFacilityPools();
-                const topY = tileCurrentY[centerIdx] ?? centerTile.height * HEIGHT_STEP;
-                const yaw = ((cx * 7 + cz * 13) % 4) * (Math.PI * 0.5) + Math.PI * 0.25;
-                _wmEuler.set(0, yaw, 0);
-                _wmQuat.setFromEuler(_wmEuler);
-                _wmPos.set(cx, topY, cz);
-                _wmMat.compose(_wmPos, _wmQuat, _wmScale);
-                _wmMatBuf.set(_wmMat.elements);
-                windmillTowerPool!.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
-
-                // Rotor hub height & spin speed evolve cleanly with era tier
-                const hubY = eraTier === 2 ? 2.12 : eraTier === 1 ? 1.38 : 1.24;
-                const hubFwd = eraTier === 2 ? 0.44 : 0.48;
-                const spinSpeed = eraTier === 2 ? 2.3 : eraTier === 1 ? 1.7 : 1.35;
-                const spinAngle = elapsedTotal * spinSpeed + wmIdx * 1.1;
-                _wmSpinQuat.setFromAxisAngle(_wmAxisZ, spinAngle);
-                _wmQuat.multiply(_wmSpinQuat);
-                _wmPos.set(
-                  cx + Math.sin(yaw) * hubFwd,
-                  topY + hubY,
-                  cz + Math.cos(yaw) * hubFwd,
-                );
-                _wmMat.compose(_wmPos, _wmQuat, _wmScale);
-                _wmMatBuf.set(_wmMat.elements);
-                windmillBladesPool!.pushFromMatrixArray(wmVariantIdx, _wmMatBuf, 0);
-                wmIdx++;
-              }
-            }
-
-            // 2. Heavy Industrial Quarry / Mining Facilities (Cranes, Ore Crushers, Tracked Excavators & Steel Yards)
-            // Stone Age (Epoch 0) uses raw hand-carved pits; timber derricks unlock at Bronze Age (Epoch 1+)
-            const qx = dist.quarryX;
-            const qz = dist.quarryZ;
-            if (farmEpoch >= 1 && isPointInCullBounds(qx, qz, worldCullBounds, 6.0)) {
-              let quarryCount = 0;
-              for (let oz = -dist.quarryHalfSize; oz <= dist.quarryHalfSize && quarryCount < 4; oz++) {
-                for (let ox = -dist.quarryHalfSize; ox <= dist.quarryHalfSize && quarryCount < 4; ox++) {
-                  const tx = qx + ox;
-                  const tz = qz + oz;
-                  if (tx < 0 || tz < 0 || tx >= wmGridSize || tz >= wmGridSize) continue;
-                  const qt = simState.tiles[tz * wmGridSize + tx];
-                  if (qt && qt.farmSettlementId === sid && qt.farmPlotKind === 'quarry') {
-                    quarryCount++;
-                  }
-                }
-              }
-
-              if (quarryCount >= 4) {
-                ensureDistrictFacilityPools();
-                const placeMiningMachine = (
-                  ox: number,
-                  oz: number,
-                  machineIdx: number,
-                  yawOffset: number,
-                ) => {
-                  const tx = qx + ox;
-                  const tz = qz + oz;
-                  if (tx < 1 || tz < 1 || tx >= wmGridSize - 1 || tz >= wmGridSize - 1) return;
-                  const tidx = tz * wmGridSize + tx;
-                  const mt = simState.tiles[tidx];
-                  if (!mt || mt.height <= 0 || mt.buildingId) return;
-                  const topY = tileCurrentY[tidx] ?? mt.height * HEIGHT_STEP;
-                  _wmEuler.set(0, yawOffset, 0);
-                  _wmQuat.setFromEuler(_wmEuler);
-                  _wmPos.set(tx, topY, tz);
-                  _wmMat.compose(_wmPos, _wmQuat, _wmScale);
-                  _wmMatBuf.set(_wmMat.elements);
-                  miningFacilityPool!.pushFromMatrixArray(machineIdx, _wmMatBuf, 0);
-                };
-
-                // Primary Quarry Crane: Timber/Iron Derrick (Epoch 1-2) -> Yellow-Steel Heavy Industrial Tower Crane (Epoch 3+)
-                const craneVariant = farmEpoch >= 3 ? 1 : 0;
-                placeMiningMachine(0, 0, craneVariant, ((qx * 5 + qz * 11) % 4) * (Math.PI * 0.5));
-
-                // Secondary Industrial Ore Crusher & Steel Ingot Rack (Epoch 2+)
-                if (farmEpoch >= 2) {
-                  placeMiningMachine(2, -1, 2, Math.PI * 0.5);
-                }
-
-                // Heavy-Metal Tracked Excavator & Steel Girder Yard (Epoch 3+)
-                if (farmEpoch >= 3) {
-                  placeMiningMachine(-2, 2, 3, -Math.PI * 0.25);
-                }
-              }
-            }
-          }
-        }
-
         windmillTowerPool?.commit();
         windmillBladesPool?.commit();
         miningFacilityPool?.commit();
@@ -9839,31 +9850,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             }
           }
 
-        if (maxWorldEpoch >= 6) {
-          metroConcreteMat.color.setHex(0xcbd5e1);
-          metroConcreteMat.metalness = 0.28;
-          metroConcreteMat.roughness = 0.42;
-          metroParapetMat.color.setHex(0x52647a);
-          metroRailMat.color.setHex(0x56cfe1);
-          metroRailMat.emissive.setHex(0x38bdf8);
-          metroRailMat.emissiveIntensity = 0.95;
-          skywayDeckMat.color.setHex(0x36475c);
-          skywayTrimMat.color.setHex(0x56cfe1);
-          skywayTrimMat.emissive.setHex(0x38bdf8);
-          skywayTrimMat.emissiveIntensity = 0.95;
-        } else {
-          metroConcreteMat.color.setHex(0x8d99ae);
-          metroConcreteMat.metalness = 0.08;
-          metroConcreteMat.roughness = 0.78;
-          metroParapetMat.color.setHex(0x5c677d);
-          metroRailMat.color.setHex(0xe2e8f0);
-          metroRailMat.emissive.setHex(0x000000);
-          metroRailMat.emissiveIntensity = 0;
-          skywayDeckMat.color.setHex(0x475569);
-          skywayTrimMat.color.setHex(0xfbbf24);
-          skywayTrimMat.emissive.setHex(0xf59e0b);
-          skywayTrimMat.emissiveIntensity = maxWorldEpoch >= 5 ? 0.72 : 0.42;
-        }
+          // Per-tile era buckets keep Info-Age (5) and Orbital-Age (6+) viaducts/skyways/lamps visually isolated.
 
         const gs = simState.gridSize;
         bldTypeAtCache.clear();
@@ -9987,16 +9974,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const isWaterWalkway =
             t.height === 0 &&
             (t.terrain === 'stone_road' || t.terrain === 'rail_track' || t.terrain === 'runway');
+          const tN = t.z > 0 ? simState.tiles[(t.z - 1) * gs + t.x] : null;
+          const tS = t.z + 1 < gs ? simState.tiles[(t.z + 1) * gs + t.x] : null;
+          const tW = t.x > 0 ? simState.tiles[t.z * gs + (t.x - 1)] : null;
+          const tE = t.x + 1 < gs ? simState.tiles[t.z * gs + (t.x + 1)] : null;
+          const isHeightOneBridge =
+            t.height === 1 &&
+            (t.terrain === 'stone_road' || t.terrain === 'rail_track') &&
+            (Boolean(t.isBridge) ||
+              (tN !== null && tN.height === 0 && tS !== null && tS.height === 0) ||
+              (tW !== null && tW.height === 0 && tE !== null && tE.height === 0));
           if (t.height <= 0 && !isWaterWalkway) continue;
           const curY = tileCurrentY[i];
 
-          // Era-evolving 3D Bridge Architecture (wooden timber rails + slatted deck, carved stone arch parapets, riveted iron trusses)
-          if (isWaterWalkway && t.terrain !== 'runway') {
+          // Era-evolving 3D Bridge Architecture across all 8 epochs on both water-level and height-1 bridge spans
+          if ((isWaterWalkway && t.terrain !== 'runway') || isHeightOneBridge) {
             const bridgeEp = getLocalTileEpoch(t.x, t.z);
-            const tN = t.z > 0 ? simState.tiles[(t.z - 1) * gs + t.x] : null;
-            const tS = t.z + 1 < gs ? simState.tiles[(t.z + 1) * gs + t.x] : null;
-            const tW = t.x > 0 ? simState.tiles[t.z * gs + (t.x - 1)] : null;
-            const tE = t.x + 1 < gs ? simState.tiles[t.z * gs + (t.x + 1)] : null;
             const isBridgeLink = (nb: typeof tN) =>
               nb !== null &&
               (nb.height > 0 || nb.terrain === 'stone_road' || nb.terrain === 'rail_track');
@@ -10004,18 +9997,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const sConn = isBridgeLink(tS);
             const wConn = isBridgeLink(tW);
             const eConn = isBridgeLink(tE);
+            const isDryAnchor = (nb: typeof tN) =>
+              nb !== null && nb.height > 0 && !nb.isBridge;
             const touchesDryLand =
-              (tN !== null && tN.height > 0) ||
-              (tS !== null && tS.height > 0) ||
-              (tW !== null && tW.height > 0) ||
-              (tE !== null && tE.height > 0);
+              isDryAnchor(tN) || isDryAnchor(tS) || isDryAnchor(tW) || isDryAnchor(tE);
 
-            const sideInst =
-              t.terrain === 'rail_track' || bridgeEp >= 3
-                ? bridgeIronSideInst
-                : bridgeEp >= 2
-                  ? bridgeStoneSideInst
-                  : bridgeWoodSideInst;
+            let sideInst: THREE.InstancedMesh;
+            if (bridgeEp >= 7) {
+              sideInst = bridgeStarSideInst;
+            } else if (bridgeEp >= 6) {
+              sideInst = bridgeOrbitalSideInst;
+            } else if (bridgeEp >= 5) {
+              sideInst = bridgeInfoSideInst;
+            } else if (bridgeEp >= 4) {
+              sideInst = bridgeAtomicSideInst;
+            } else if (bridgeEp >= 3 || t.terrain === 'rail_track') {
+              sideInst = bridgeIronSideInst;
+            } else if (bridgeEp >= 2) {
+              sideInst = bridgeStoneSideInst;
+            } else if (bridgeEp >= 1) {
+              sideInst = bridgeWoodSideInst;
+            } else {
+              sideInst = bridgePrehistoricSideInst;
+            }
 
             // Place 3D railings / parapets / trusses + water pilings along every open-water edge
             if (!nConn) pushInst(sideInst, t.x, curY, t.z - 0.45, 0, 0, 0);
@@ -10023,23 +10027,29 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             if (!wConn) pushInst(sideInst, t.x - 0.45, curY, t.z, 0, Math.PI * 0.5, 0);
             if (!eConn) pushInst(sideInst, t.x + 0.45, curY, t.z, 0, Math.PI * 0.5, 0);
 
-            // Slatted wooden cross-plank decking on Prehistoric & Bronze Age bridges (oriented perpendicular to span)
+            // Slatted wooden cross-plank decking on Prehistoric & Bronze Age road bridges (oriented perpendicular to span)
             if (bridgeEp <= 1 && t.terrain === 'stone_road') {
               const spanNS = (nConn || sConn) && !(wConn && eConn);
               pushInst(bridgeWoodDeckInst, t.x, curY, t.z, 0, spanNS ? Math.PI * 0.5 : 0, 0);
             }
 
-            // Warm bridge entrance lanterns atop the posts where a bridge meets dry land
+            // Warm/modern/orbital bridge entrance lanterns atop the posts where a bridge meets dry land
             if (touchesDryLand) {
               const lampY = curY + (bridgeEp >= 3 ? 0.36 : 0.33);
-              if (!nConn && tW && tW.height > 0) pushInst(streetLampHeadInst, t.x - 0.43, lampY, t.z - 0.45);
-              if (!sConn && tW && tW.height > 0) pushInst(streetLampHeadInst, t.x - 0.43, lampY, t.z + 0.45);
-              if (!nConn && tE && tE.height > 0) pushInst(streetLampHeadInst, t.x + 0.43, lampY, t.z - 0.45);
-              if (!sConn && tE && tE.height > 0) pushInst(streetLampHeadInst, t.x + 0.43, lampY, t.z + 0.45);
-              if (!wConn && tN && tN.height > 0) pushInst(streetLampHeadInst, t.x - 0.45, lampY, t.z - 0.43);
-              if (!eConn && tN && tN.height > 0) pushInst(streetLampHeadInst, t.x + 0.45, lampY, t.z - 0.43);
-              if (!wConn && tS && tS.height > 0) pushInst(streetLampHeadInst, t.x - 0.45, lampY, t.z + 0.43);
-              if (!eConn && tS && tS.height > 0) pushInst(streetLampHeadInst, t.x + 0.45, lampY, t.z + 0.43);
+              const bridgeLampInst =
+                bridgeEp >= 6
+                  ? streetLampOrbitalInst
+                  : bridgeEp >= 4
+                    ? streetLampModernInst
+                    : streetLampHeadInst;
+              if (!nConn && isDryAnchor(tW)) pushInst(bridgeLampInst, t.x - 0.43, lampY, t.z - 0.45);
+              if (!sConn && isDryAnchor(tW)) pushInst(bridgeLampInst, t.x - 0.43, lampY, t.z + 0.45);
+              if (!nConn && isDryAnchor(tE)) pushInst(bridgeLampInst, t.x + 0.43, lampY, t.z - 0.45);
+              if (!sConn && isDryAnchor(tE)) pushInst(bridgeLampInst, t.x + 0.43, lampY, t.z + 0.45);
+              if (!wConn && isDryAnchor(tN)) pushInst(bridgeLampInst, t.x - 0.45, lampY, t.z - 0.43);
+              if (!eConn && isDryAnchor(tN)) pushInst(bridgeLampInst, t.x + 0.45, lampY, t.z - 0.43);
+              if (!wConn && isDryAnchor(tS)) pushInst(bridgeLampInst, t.x - 0.45, lampY, t.z + 0.43);
+              if (!eConn && isDryAnchor(tS)) pushInst(bridgeLampInst, t.x + 0.45, lampY, t.z + 0.43);
             }
           } else if (isWaterWalkway) {
             // Offshore runway pontoon pilings
@@ -10049,7 +10059,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               [-0.42, 0.42],
               [0.42, 0.42],
             ] as const) {
-              pushInst(streetPoleInst, t.x + px, 0.22, t.z + pz, 0, 0, 0, 1.45, 0.24, 1.45);
+              pushInst(streetPoleIronInst, t.x + px, 0.22, t.z + pz, 0, 0, 0, 1.45, 0.24, 1.45);
             }
           }
 
@@ -10093,16 +10103,16 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               pushInst(streetPoleInst, fx, curY + 0.17, fz, 0, 0, 0, 1.0, 0.34, 1.0);
               pushInst(streetLampHeadInst, fx, curY + 0.37, fz, 0, 0, 0, 1.15, 1.25, 1.15);
             } else if (ep === 3) {
-              pushInst(streetPoleInst, fx, curY + 0.22, fz, 0, 0, 0, 0.9, 0.44, 0.9);
+              pushInst(streetPoleIronInst, fx, curY + 0.22, fz, 0, 0, 0, 0.9, 0.44, 0.9);
               pushInst(streetLampHeadInst, fx, curY + 0.47, fz, 0, 0, 0, 1.1, 1.35, 1.1);
             } else if (ep <= 5) {
-              pushInst(streetPoleInst, fx, curY + 0.28, fz, 0, 0, 0, 0.82, 0.56, 0.82);
+              pushInst(streetPoleIronInst, fx, curY + 0.28, fz, 0, 0, 0, 0.82, 0.56, 0.82);
               const armInX = fx - Math.sign(offX || 1) * 0.07;
               const armInZ = fz - Math.sign(offZ || 1) * 0.07;
-              pushInst(streetLampHeadInst, armInX, curY + 0.58, armInZ, 0, 0, 0, 1.45, 0.72, 1.45);
+              pushInst(streetLampModernInst, armInX, curY + 0.58, armInZ, 0, 0, 0, 1.45, 0.72, 1.45);
             } else {
-              pushInst(streetPoleInst, fx, curY + 0.25, fz, 0, 0, 0, 0.88, 0.5, 0.88);
-              pushInst(streetLampHeadInst, fx, curY + 0.53, fz, 0, 0.78, 0, 1.15, 1.65, 1.15);
+              pushInst(streetPoleOrbitalInst, fx, curY + 0.25, fz, 0, 0, 0, 0.88, 0.5, 0.88);
+              pushInst(streetLampOrbitalInst, fx, curY + 0.53, fz, 0, 0.78, 0, 1.15, 1.65, 1.15);
             }
 
             // 3D Times Square / Tokyo LED Roadside & Plaza Gantry Billboards in Epochs 4+
@@ -10111,7 +10121,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               const bYaw = roadLinks >= 3 ? Math.PI / 4 : nRoad || sRoad ? 0 : Math.PI / 2;
               const bx = t.x + (nRoad || sRoad ? -sideSign * 0.36 : 0);
               const bz = t.z + (nRoad || sRoad ? 0 : -sideSign * 0.36);
-              pushInst(streetPoleInst, bx, curY + 0.32, bz, 0, 0, 0, 1.25, 0.64, 1.25);
+              pushInst(ep >= 6 ? streetPoleOrbitalInst : streetPoleIronInst, bx, curY + 0.32, bz, 0, 0, 0, 1.25, 0.64, 1.25);
               pushInst(billboardFrameInst, bx, curY + 0.68, bz, 0, bYaw, 0, 1, 1, 1);
               const screenPick = (t.x + t.z * 3) % 3;
               const screenInst =
@@ -10122,57 +10132,64 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
           // 3D Urban Skybridges (linking level facing high-rises across streets in Atomic Age 4+) & Orthogonal Elevated Skyways (Epoch 5+)
           if (skybridgesActive && t.terrain === 'stone_road' && !bldTypeAtCache.has(i) && !isElevatedNodeAt(t.x, t.z)) {
-            const hasBldN = t.z > 0 && bldTypeAtCache.has((t.z - 1) * gs + t.x);
-            const hasBldS = t.z + 1 < gs && bldTypeAtCache.has((t.z + 1) * gs + t.x);
-            const hasBldW = t.x > 0 && bldTypeAtCache.has(t.z * gs + (t.x - 1));
-            const hasBldE = t.x + 1 < gs && bldTypeAtCache.has(t.z * gs + (t.x + 1));
-            if (hasBldN && hasBldS && ((t.x + t.z) & 1) === 0) {
-              const yN = tileCurrentY[(t.z - 1) * gs + t.x];
-              const yS = tileCurrentY[(t.z + 1) * gs + t.x];
-              if (Math.abs(yN - yS) < 0.25 && Math.abs(yN - curY) < 0.25) {
-                pushInst(skywayDeckInst, t.x, curY + 0.56, t.z, 0, 0, 0, 0.55, 1.0, 1.02);
-                pushInst(skywayTrimInst, t.x - 0.12, curY + 0.61, t.z, 0, 0, 0, 1.0, 1.0, 1.02);
-                pushInst(skywayTrimInst, t.x + 0.12, curY + 0.61, t.z, 0, 0, 0, 1.0, 1.0, 1.02);
+            const tileEp = getLocalTileEpoch(t.x, t.z);
+            if (tileEp >= 4) {
+              const isOrbitalSky = tileEp >= 6;
+              const deckInst = isOrbitalSky ? skywayOrbitalDeckInst : skywayDeckInst;
+              const trimInst = isOrbitalSky ? skywayOrbitalTrimInst : skywayTrimInst;
+              const pierInst = isOrbitalSky ? streetPoleOrbitalInst : streetPoleIronInst;
+              const hasBldN = t.z > 0 && bldTypeAtCache.has((t.z - 1) * gs + t.x);
+              const hasBldS = t.z + 1 < gs && bldTypeAtCache.has((t.z + 1) * gs + t.x);
+              const hasBldW = t.x > 0 && bldTypeAtCache.has(t.z * gs + (t.x - 1));
+              const hasBldE = t.x + 1 < gs && bldTypeAtCache.has(t.z * gs + (t.x + 1));
+              if (hasBldN && hasBldS && ((t.x + t.z) & 1) === 0) {
+                const yN = tileCurrentY[(t.z - 1) * gs + t.x];
+                const yS = tileCurrentY[(t.z + 1) * gs + t.x];
+                if (Math.abs(yN - yS) < 0.25 && Math.abs(yN - curY) < 0.25) {
+                  pushInst(deckInst, t.x, curY + 0.56, t.z, 0, 0, 0, 0.55, 1.0, 1.02);
+                  pushInst(trimInst, t.x - 0.12, curY + 0.61, t.z, 0, 0, 0, 1.0, 1.0, 1.02);
+                  pushInst(trimInst, t.x + 0.12, curY + 0.61, t.z, 0, 0, 0, 1.0, 1.0, 1.02);
+                }
+              } else if (hasBldW && hasBldE && ((t.x + t.z) & 1) === 0) {
+                const yW = tileCurrentY[t.z * gs + (t.x - 1)];
+                const yE = tileCurrentY[t.z * gs + (t.x + 1)];
+                if (Math.abs(yW - yE) < 0.25 && Math.abs(yW - curY) < 0.25) {
+                  pushInst(deckInst, t.x, curY + 0.56, t.z, 0, Math.PI / 2, 0, 0.55, 1.0, 1.02);
+                  pushInst(trimInst, t.x, curY + 0.61, t.z - 0.12, 0, Math.PI / 2, 0, 1.0, 1.0, 1.02);
+                  pushInst(trimInst, t.x, curY + 0.61, t.z + 0.12, 0, Math.PI / 2, 0, 1.0, 1.0, 1.02);
+                }
               }
-            } else if (hasBldW && hasBldE && ((t.x + t.z) & 1) === 0) {
-              const yW = tileCurrentY[t.z * gs + (t.x - 1)];
-              const yE = tileCurrentY[t.z * gs + (t.x + 1)];
-              if (Math.abs(yW - yE) < 0.25 && Math.abs(yW - curY) < 0.25) {
-                pushInst(skywayDeckInst, t.x, curY + 0.56, t.z, 0, Math.PI / 2, 0, 0.55, 1.0, 1.02);
-                pushInst(skywayTrimInst, t.x, curY + 0.61, t.z - 0.12, 0, Math.PI / 2, 0, 1.0, 1.0, 1.02);
-                pushInst(skywayTrimInst, t.x, curY + 0.61, t.z + 0.12, 0, Math.PI / 2, 0, 1.0, 1.0, 1.02);
-              }
-            }
 
-            if (isSkywayExpressAt(t.x, t.z)) {
-              // Slender overpass pier column & orthogonal elevated Skyway expressway deck segment
-              if (((t.x + t.z) & 1) === 0) {
-                pushInst(streetPoleInst, t.x, curY + 0.22, t.z, 0, 0, 0, 2.0, 0.44, 2.0);
-              }
-              const dirs: ReadonlyArray<[number, number]> = [
-                [1, 0],
-                [0, 1],
-              ];
-              for (const [dx, dz] of dirs) {
-                const nx = t.x + dx;
-                const nz = t.z + dz;
-                if (!isSkywayExpressAt(nx, nz)) continue;
-                const nIdx = nz * gs + nx;
-                const nextY = tileCurrentY[nIdx];
-                const dy = nextY - curY;
-                if (Math.abs(dy) > 0.35) continue;
-                const planar = 1.0;
-                const spanLen = Math.hypot(planar, dy);
-                const yaw = Math.atan2(dx, dz);
-                const pitchX = -Math.atan2(dy, planar);
-                const midY = (curY + nextY) * 0.5;
-                const mx = t.x + dx * 0.5;
-                const mz = t.z + dz * 0.5;
-                const pxOff = dz * 0.21;
-                const pzOff = -dx * 0.21;
-                pushInst(skywayDeckInst, mx, midY + 0.46, mz, pitchX, yaw, 0, 1, 1, spanLen);
-                pushInst(skywayTrimInst, mx + pxOff, midY + 0.505, mz + pzOff, pitchX, yaw, 0, 1, 1, spanLen);
-                pushInst(skywayTrimInst, mx - pxOff, midY + 0.505, mz - pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+              if (isSkywayExpressAt(t.x, t.z)) {
+                // Slender overpass pier column & orthogonal elevated Skyway expressway deck segment
+                if (((t.x + t.z) & 1) === 0) {
+                  pushInst(pierInst, t.x, curY + 0.22, t.z, 0, 0, 0, 2.0, 0.44, 2.0);
+                }
+                const dirs: ReadonlyArray<[number, number]> = [
+                  [1, 0],
+                  [0, 1],
+                ];
+                for (const [dx, dz] of dirs) {
+                  const nx = t.x + dx;
+                  const nz = t.z + dz;
+                  if (!isSkywayExpressAt(nx, nz)) continue;
+                  const nIdx = nz * gs + nx;
+                  const nextY = tileCurrentY[nIdx];
+                  const dy = nextY - curY;
+                  if (Math.abs(dy) > 0.35) continue;
+                  const planar = 1.0;
+                  const spanLen = Math.hypot(planar, dy);
+                  const yaw = Math.atan2(dx, dz);
+                  const pitchX = -Math.atan2(dy, planar);
+                  const midY = (curY + nextY) * 0.5;
+                  const mx = t.x + dx * 0.5;
+                  const mz = t.z + dz * 0.5;
+                  const pxOff = dz * 0.21;
+                  const pzOff = -dx * 0.21;
+                  pushInst(deckInst, mx, midY + 0.46, mz, pitchX, yaw, 0, 1, 1, spanLen);
+                  pushInst(trimInst, mx + pxOff, midY + 0.505, mz + pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+                  pushInst(trimInst, mx - pxOff, midY + 0.505, mz - pzOff, pitchX, yaw, 0, 1, 1, spanLen);
+                }
               }
             }
           }
@@ -10182,12 +10199,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const nodeHere = isElevatedNodeAt(t.x, t.z);
           if (!nodeHere) continue;
 
+          const isOrbitalMetro = getLocalTileEpoch(t.x, t.z) >= 6;
+          const mPillarInst = isOrbitalMetro ? metroOrbitalPillarInst : metroPillarInst;
+          const mCapInst = isOrbitalMetro ? metroOrbitalCapInst : metroCapInst;
+          const mDeckHubInst = isOrbitalMetro ? metroOrbitalDeckHubInst : metroDeckHubInst;
+          const mRailHubInst = isOrbitalMetro ? metroOrbitalRailHubInst : metroRailHubInst;
+          const mSpanEWInst = isOrbitalMetro ? metroOrbitalSpanEWInst : metroSpanEWInst;
+          const mRailEWInst = isOrbitalMetro ? metroOrbitalRailEWInst : metroRailEWInst;
+          const mParapetEWInst = isOrbitalMetro ? metroOrbitalParapetEWInst : metroParapetEWInst;
+          const mSpanNSInst = isOrbitalMetro ? metroOrbitalSpanNSInst : metroSpanNSInst;
+          const mRailNSInst = isOrbitalMetro ? metroOrbitalRailNSInst : metroRailNSInst;
+          const mParapetNSInst = isOrbitalMetro ? metroOrbitalParapetNSInst : metroParapetNSInst;
+
           const isStationHere = bldTypeAtCache.get(i) === 'rail_station';
           const isRoadBridgeHere = t.terrain === 'stone_road';
 
           if (t.terrain === 'rail_track' && !isStationHere) {
-            pushInst(metroPillarInst, t.x, curY + 0.32, t.z);
-            pushInst(metroCapInst, t.x, curY + 0.60, t.z);
+            pushInst(mPillarInst, t.x, curY + 0.32, t.z);
+            pushInst(mCapInst, t.x, curY + 0.60, t.z);
           }
           if (t.terrain === 'rail_track' || isRoadBridgeHere) {
             // Rotate hub node by 45 degrees along purely diagonal curved segments
@@ -10197,8 +10226,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               isElevatedNodeAt(t.x, t.z + 1) ||
               isElevatedNodeAt(t.x, t.z - 1);
             const hubYaw = hasCard ? 0 : Math.PI / 4;
-            pushInst(metroDeckHubInst, t.x, curY + 0.68, t.z, 0, hubYaw, 0);
-            pushInst(metroRailHubInst, t.x, curY + 0.75, t.z, 0, hubYaw, 0);
+            pushInst(mDeckHubInst, t.x, curY + 0.68, t.z, 0, hubYaw, 0);
+            pushInst(mRailHubInst, t.x, curY + 0.75, t.z, 0, hubYaw, 0);
           }
 
           if (t.x + 1 < gs && isElevatedNodeAt(t.x + 1, t.z)) {
@@ -10213,11 +10242,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 const spanLen = Math.hypot(1, dy);
                 const slopeZ = Math.atan2(dy, 1);
                 const midY = (curY + nextY) * 0.5;
-                pushInst(metroSpanEWInst, t.x + 0.5, midY + 0.68, t.z, 0, 0, slopeZ, spanLen, 1, 1);
-                pushInst(metroRailEWInst, t.x + 0.5, midY + 0.755, t.z - 0.14, 0, 0, slopeZ, spanLen, 1, 1);
-                pushInst(metroRailEWInst, t.x + 0.5, midY + 0.755, t.z + 0.14, 0, 0, slopeZ, spanLen, 1, 1);
-                pushInst(metroParapetEWInst, t.x + 0.5, midY + 0.76, t.z - 0.27, 0, 0, slopeZ, spanLen, 1, 1);
-                pushInst(metroParapetEWInst, t.x + 0.5, midY + 0.76, t.z + 0.27, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(mSpanEWInst, t.x + 0.5, midY + 0.68, t.z, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(mRailEWInst, t.x + 0.5, midY + 0.755, t.z - 0.14, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(mRailEWInst, t.x + 0.5, midY + 0.755, t.z + 0.14, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(mParapetEWInst, t.x + 0.5, midY + 0.76, t.z - 0.27, 0, 0, slopeZ, spanLen, 1, 1);
+                pushInst(mParapetEWInst, t.x + 0.5, midY + 0.76, t.z + 0.27, 0, 0, slopeZ, spanLen, 1, 1);
               }
             }
           }
@@ -10234,11 +10263,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                 const spanLen = Math.hypot(1, dy);
                 const slopeX = -Math.atan2(dy, 1);
                 const midY = (curY + nextY) * 0.5;
-                pushInst(metroSpanNSInst, t.x, midY + 0.68, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
-                pushInst(metroRailNSInst, t.x - 0.14, midY + 0.755, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
-                pushInst(metroRailNSInst, t.x + 0.14, midY + 0.755, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
-                pushInst(metroParapetNSInst, t.x - 0.27, midY + 0.76, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
-                pushInst(metroParapetNSInst, t.x + 0.27, midY + 0.76, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(mSpanNSInst, t.x, midY + 0.68, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(mRailNSInst, t.x - 0.14, midY + 0.755, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(mRailNSInst, t.x + 0.14, midY + 0.755, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(mParapetNSInst, t.x - 0.27, midY + 0.76, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
+                pushInst(mParapetNSInst, t.x + 0.27, midY + 0.76, t.z + 0.5, slopeX, 0, 0, 1, 1, spanLen);
               }
             }
           }
@@ -10269,11 +10298,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             const mz = t.z + dz * 0.5;
             const perpX = dz / planar;
             const perpZ = -dx / planar;
-            pushInst(metroSpanNSInst, mx, midY + 0.68, mz, slopeX, yaw, 0, 1, 1, spanLen);
-            pushInst(metroRailNSInst, mx + perpX * 0.14, midY + 0.755, mz + perpZ * 0.14, slopeX, yaw, 0, 1, 1, spanLen);
-            pushInst(metroRailNSInst, mx - perpX * 0.14, midY + 0.755, mz - perpZ * 0.14, slopeX, yaw, 0, 1, 1, spanLen);
-            pushInst(metroParapetNSInst, mx + perpX * 0.27, midY + 0.76, mz + perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
-            pushInst(metroParapetNSInst, mx - perpX * 0.27, midY + 0.76, mz - perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(mSpanNSInst, mx, midY + 0.68, mz, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(mRailNSInst, mx + perpX * 0.14, midY + 0.755, mz + perpZ * 0.14, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(mRailNSInst, mx - perpX * 0.14, midY + 0.755, mz - perpZ * 0.14, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(mParapetNSInst, mx + perpX * 0.27, midY + 0.76, mz + perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
+            pushInst(mParapetNSInst, mx - perpX * 0.27, midY + 0.76, mz - perpZ * 0.27, slopeX, yaw, 0, 1, 1, spanLen);
           }
           }
         }
@@ -10472,6 +10501,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         for (let si = 0; si < entry.spinParts.length; si++) {
           entry.spinParts[si].rotation.y += dt * 1.8;
+        }
+        for (let szi = 0; szi < entry.spinZParts.length; szi++) {
+          entry.spinZParts[szi].rotation.z += dt * (1.6 + b.epochLevel * 0.25);
         }
       }
 
@@ -16648,7 +16680,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         propsRef.current.seasonPreset ?? 'auto',
         simRef.current.year,
       );
-      stepSeasonWeightsVector(renderedSeasonWeights, activeSeasonState.weights, dt, 2.4);
+      stepSeasonWeightsVector(renderedSeasonWeights, activeSeasonState.weights, dt);
       voxelTreeLib?.updateSeason(renderedSeasonWeights);
       variantLib?.updateSeason(renderedSeasonWeights);
       treeImpostors?.updateSeason(renderedSeasonWeights);
@@ -16733,31 +16765,25 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         shaderElapsed,
       );
 
-      // Update 3D street fixture materials only when epoch changes
-      if (epochIdx !== lastStreetPoleEpoch) {
-        lastStreetPoleEpoch = epochIdx;
-        if (epochIdx === 0) {
-          streetPoleMat.color.setHex(0x4a301c);
-          streetPoleMat.metalness = 0.05;
-        } else if (epochIdx <= 2) {
-          streetPoleMat.color.setHex(0x5c3a21);
-          streetPoleMat.metalness = 0.18;
-        } else if (epochIdx === 3) {
-          streetPoleMat.color.setHex(0x282d33);
-          streetPoleMat.metalness = 0.68;
-        } else if (epochIdx <= 5) {
-          streetPoleMat.color.setHex(0x64748b);
-          streetPoleMat.metalness = 0.62;
-        } else {
-          streetPoleMat.color.setHex(0xcbd5e1);
-          streetPoleMat.metalness = 0.75;
-        }
-      }
+      // Update era-isolated 3D street lamp glow materials independently so Stone Age torches and Orbital holograms coexist cleanly
+      const warmLampProfile = getEpochCityLightProfile(1, primarySpecies, currentDarkness, shaderElapsed);
+      const modernLampProfile = getEpochCityLightProfile(5, primarySpecies, currentDarkness, shaderElapsed);
+      const orbitalLampProfile = getEpochCityLightProfile(6, primarySpecies, currentDarkness, shaderElapsed);
       streetLampGlowMat.color.setHex(
-        currentDarkness > 0.12 ? cityLightProfile.primaryHex : 0x475569,
+        currentDarkness > 0.12 ? warmLampProfile.primaryHex : 0x5c4028,
       );
-      streetLampGlowMat.emissive.setHex(cityLightProfile.primaryHex);
-      streetLampGlowMat.emissiveIntensity = cityLightProfile.streetFixtureEmissiveIntensity;
+      streetLampGlowMat.emissive.setHex(warmLampProfile.primaryHex);
+      streetLampGlowMat.emissiveIntensity = warmLampProfile.streetFixtureEmissiveIntensity;
+      streetLampModernMat.color.setHex(
+        currentDarkness > 0.12 ? modernLampProfile.primaryHex : 0x475569,
+      );
+      streetLampModernMat.emissive.setHex(modernLampProfile.primaryHex);
+      streetLampModernMat.emissiveIntensity = modernLampProfile.streetFixtureEmissiveIntensity;
+      streetLampOrbitalMat.color.setHex(
+        currentDarkness > 0.12 ? orbitalLampProfile.primaryHex : 0x475569,
+      );
+      streetLampOrbitalMat.emissive.setHex(orbitalLampProfile.primaryHex);
+      streetLampOrbitalMat.emissiveIntensity = orbitalLampProfile.streetFixtureEmissiveIntensity;
       runwayBeaconMat.emissiveIntensity = 0.55 + currentDarkness * 2.25;
 
       // Update settlement heart light & distributed city cluster point lights
@@ -17508,6 +17534,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       metroConcreteMat.dispose();
       metroParapetMat.dispose();
       metroRailMat.dispose();
+      metroOrbitalConcreteMat.dispose();
+      metroOrbitalParapetMat.dispose();
+      metroOrbitalRailMat.dispose();
       runwayBeaconMat.dispose();
       metroPillarGeo.dispose();
       metroCapGeo.dispose();
@@ -17527,16 +17556,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       billboardFrameGeo.dispose();
       billboardScreenGeo.dispose();
       streetPoleMat.dispose();
+      streetPoleIronMat.dispose();
+      streetPoleOrbitalMat.dispose();
       streetLampGlowMat.dispose();
+      streetLampModernMat.dispose();
+      streetLampOrbitalMat.dispose();
       skywayDeckMat.dispose();
       skywayTrimMat.dispose();
+      skywayOrbitalDeckMat.dispose();
+      skywayOrbitalTrimMat.dispose();
       billboardCyanMat.dispose();
       billboardPinkMat.dispose();
       billboardGoldMat.dispose();
+      bridgeKit.prehistoricSideGeo.dispose();
       bridgeKit.woodSideGeo.dispose();
       bridgeKit.woodDeckGeo.dispose();
       bridgeKit.stoneSideGeo.dispose();
       bridgeKit.ironSideGeo.dispose();
+      bridgeKit.atomicSideGeo.dispose();
+      bridgeKit.infoSideGeo.dispose();
+      bridgeKit.orbitalSideGeo.dispose();
+      bridgeKit.starSideGeo.dispose();
       bridgeKitMat.dispose();
       chunkTerrain.dispose();
       terrainWorkerPool.dispose();

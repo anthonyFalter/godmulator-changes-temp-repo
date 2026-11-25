@@ -1244,13 +1244,27 @@ export function getEntityInspectProfile(
     unit.role === 'dinosaur' ? getDinosaurVariant(unit.appearanceSeed).diet : undefined;
   const { subtitle, factionLabel } = getSubtitleAndFaction(unit);
 
+  const unitEpoch =
+    unit.faction === 'civilization'
+      ? (() => {
+          const kid = unit.settlementId
+            ? (state.settlementKingdoms?.[unit.settlementId] ?? unit.settlementId)
+            : unit.kingdomId;
+          if (kid && state.kingdomEpochs && state.kingdomEpochs[kid] !== undefined) {
+            return Math.max(0, Math.min(EPOCHS.length - 1, Math.floor(state.kingdomEpochs[kid])));
+          }
+          // Unhomed nomads in a populated world belong to Stone Age (0), matching getUnitEpoch
+          return state.buildings.length > 0 ? 0 : Math.max(0, Math.min(EPOCHS.length - 1, Math.floor(state.epochIndex)));
+        })()
+      : 0;
+
   const baseItems =
     unit.items !== undefined
       ? unit.items
       : generateUnitItems(
           unit.role,
           unit.species,
-          state.epochIndex,
+          unitEpoch,
           unit.appearanceSeed,
           dinoDiet,
         );

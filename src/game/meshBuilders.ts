@@ -5627,7 +5627,259 @@ export function createBuildingGroup(
     }
   };
 
-  if (isDwarf) {
+  if (
+    type === 'windmill' ||
+    type === 'quarry_crane' ||
+    type === 'ore_crusher' ||
+    type === 'quarry_excavator'
+  ) {
+    // =========================================================================
+    // PROMOTED DISTRICT STRUCTURES (C1 + M1): Full 5-species x 8-epoch visuals
+    // =========================================================================
+    const ep = Math.max(0, Math.min(7, epochIndex));
+    const spWall = isElf
+      ? ep >= 5 ? elfPearlTechMat : ep >= 2 ? elfMossStoneMat : elfBirchMat
+      : isOrc
+        ? ep >= 4 ? orcGunmetalMat : ep >= 2 ? orcBasaltMat : orcCharredLogMat
+        : isDwarf
+          ? ep >= 5 ? orcIronMat : darkStoneMat
+          : isLizardfolk
+            ? ep >= 5 ? orcBasaltMat : adobeMat
+            : ep >= 5 ? techMat : ep >= 4 ? concreteMat : ep >= 3 ? brickMat : ep >= 2 ? stoneMat : whitePlasterMat;
+    const spTrim = isElf
+      ? ep >= 5 ? elfFiligreeMat : elfHeartwoodMat
+      : isOrc
+        ? ep >= 3 ? orcIronMat : orcCrimsonMat
+        : isDwarf
+          ? ep >= 6 ? goldMat : copperMat
+          : isLizardfolk
+            ? ep >= 4 ? goldMat : elfJadeRoofMat
+            : ep >= 6 ? goldMat : ep >= 3 ? darkTechMat : woodMat;
+    const spRoof = isElf
+      ? ep >= 4 ? elfJadeRoofMat : elfLeafRoofMat
+      : isOrc
+        ? ep >= 3 ? orcRustPlateMat : orcCrimsonMat
+        : isDwarf
+          ? copperMat
+          : isLizardfolk
+            ? goldMat
+            : ep >= 5 ? glassCurtainMat : ep >= 3 ? slateRoofMat : redRoofMat;
+    const spGlow = isElf
+      ? elfAquaGlowMat
+      : isOrc
+        ? orcMagmaGlowMat
+        : isDwarf
+          ? neonAmberMat
+          : isLizardfolk
+            ? neonLimeMat
+            : glowCyanMat;
+
+    if (type === 'windmill') {
+      // Base foundation plinth
+      const baseW = ep >= 5 ? 0.62 : 0.72;
+      const plinth = new THREE.Mesh(new THREE.BoxGeometry(baseW, 0.12, baseW), ep >= 5 ? darkTechMat : stoneMat);
+      plinth.position.y = 0.06;
+      group.add(plinth);
+
+      if (ep <= 1) {
+        // Ep 0-1 (Prehistoric / Bronze): Timber post-mill on stone crib with thatched roof
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.42, 0.18), spTrim);
+        post.position.y = 0.3;
+        group.add(post);
+        const body = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.56, 0.44), spWall);
+        body.position.y = 0.72;
+        body.castShadow = true;
+        group.add(body);
+        const cap = new THREE.Mesh(pxCone(0.36, 0.28, 4), ep === 0 ? thatchMat : spRoof);
+        cap.rotation.y = Math.PI / 4;
+        cap.position.y = 1.12;
+        group.add(cap);
+      } else if (ep === 2) {
+        // Ep 2 (Medieval): Tapered dressed-stone tower mill with species roof cap & balcony collar
+        const tower = new THREE.Mesh(pxCylinder(0.24, 0.36, 0.96, 8), spWall);
+        tower.position.y = 0.58;
+        tower.castShadow = true;
+        group.add(tower);
+        const collar = new THREE.Mesh(pxCylinder(0.32, 0.32, 0.07, 8), spTrim);
+        collar.position.y = 0.56;
+        group.add(collar);
+        const cap = new THREE.Mesh(pxCone(0.3, 0.34, 8), spRoof);
+        cap.position.y = 1.22;
+        group.add(cap);
+      } else if (ep === 3) {
+        // Ep 3 (Industrial): Brick & iron smock-mill with side boiler annex & smokestack
+        const tower = new THREE.Mesh(pxCylinder(0.25, 0.38, 1.06, 8), spWall);
+        tower.position.y = 0.62;
+        tower.castShadow = true;
+        group.add(tower);
+        const annex = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.44, 0.32), spTrim);
+        annex.position.set(0.32, 0.3, -0.08);
+        group.add(annex);
+        const stack = new THREE.Mesh(pxCylinder(0.055, 0.07, 0.72, 6), darkTechMat);
+        stack.position.set(0.36, 0.78, -0.1);
+        group.add(stack);
+        const cap = new THREE.Mesh(pxCylinder(0.22, 0.28, 0.24, 8), spRoof);
+        cap.position.y = 1.24;
+        group.add(cap);
+      } else if (ep === 4) {
+        // Ep 4 (Atomic): Reinforced concrete cylindrical aero-pylon & nacelle housing
+        const pylon = new THREE.Mesh(pxCylinder(0.16, 0.28, 1.24, 8), spWall);
+        pylon.position.y = 0.72;
+        pylon.castShadow = true;
+        group.add(pylon);
+        const nacelle = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.24, 0.46), spTrim);
+        nacelle.position.set(0, 1.38, 0.04);
+        group.add(nacelle);
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), beaconRedMat);
+        beacon.position.set(0, 1.54, -0.1);
+        group.add(beacon);
+      } else if (ep === 5) {
+        // Ep 5 (Information): Sleek glass-and-composite smart wind turbine with telemetry collar
+        const mast = new THREE.Mesh(pxCylinder(0.1, 0.2, 1.38, 8), spWall);
+        mast.position.y = 0.78;
+        mast.castShadow = true;
+        group.add(mast);
+        const collar = new THREE.Mesh(pxTorus(0.18, 0.032, 6, 10), spGlow);
+        collar.rotation.x = Math.PI / 2;
+        collar.position.y = 0.65;
+        group.add(collar);
+        const nacelle = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.44), spRoof);
+        nacelle.position.set(0, 1.48, 0.04);
+        group.add(nacelle);
+      } else {
+        // Ep 6-7 (Orbital / Star Age): Plasma-ring aero-spire / Golden-cyan stellar harmonic vane
+        const spire = new THREE.Mesh(pxCylinder(0.11, 0.24, ep >= 7 ? 1.56 : 1.44, 8), ep >= 7 ? goldMat : spWall);
+        spire.position.y = ep >= 7 ? 0.86 : 0.8;
+        spire.castShadow = true;
+        group.add(spire);
+        const ring = new THREE.Mesh(pxTorus(0.32, 0.04, 6, 12), ep >= 7 ? glowCyanMat : spGlow);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = ep >= 7 ? 1.15 : 1.02;
+        group.add(ring);
+        const hubPod = new THREE.Mesh(pxSphere(0.18, 8, 6), ep >= 7 ? goldMat : spTrim);
+        hubPod.position.set(0, ep >= 7 ? 1.62 : 1.5, 0.08);
+        group.add(hubPod);
+      }
+
+      // Single merged spinning blade assembly rotating around Z-axis (`spin_z_part`)
+      const rotorY = ep >= 7 ? 1.62 : ep >= 5 ? 1.48 : ep === 4 ? 1.38 : ep >= 2 ? 1.08 : 0.92;
+      const rotorZ = ep >= 4 ? 0.3 : 0.34;
+      const bladeSpan = ep >= 5 ? 1.24 : ep >= 3 ? 1.14 : 1.02;
+      const bladeThickness = ep >= 5 ? 0.075 : 0.12;
+      const bladeParts: THREE.BufferGeometry[] = [];
+      const bH = new THREE.BoxGeometry(bladeSpan, bladeThickness, 0.032);
+      const bV = new THREE.BoxGeometry(bladeThickness, bladeSpan, 0.032);
+      const hub = new THREE.BoxGeometry(0.14, 0.14, 0.08);
+      bladeParts.push(bH.toNonIndexed(), bV.toNonIndexed(), hub.toNonIndexed());
+      bH.dispose();
+      bV.dispose();
+      hub.dispose();
+      const mergedRotor = mergeGeometries(bladeParts, false);
+      for (const bp of bladeParts) bp.dispose();
+      const rotorMat = ep >= 7 ? glowCyanMat : ep >= 5 ? techMat : ep >= 3 ? spTrim : whitePlasterMat;
+      const rotorMesh = new THREE.Mesh(mergedRotor ?? new THREE.BoxGeometry(bladeSpan, 0.1, 0.04), rotorMat);
+      rotorMesh.position.set(0, rotorY, rotorZ);
+      rotorMesh.name = 'spin_z_part';
+      rotorMesh.castShadow = true;
+      group.add(rotorMesh);
+    } else if (type === 'quarry_crane') {
+      // Promoted Quarry Crane: 5-species x 8-epoch derrick / gantry crane / orbital grav-hoist
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.12, 0.82), spWall);
+      pad.position.y = 0.06;
+      group.add(pad);
+      const mastH = 0.78 + ep * 0.07;
+      const mast = new THREE.Mesh(
+        new THREE.BoxGeometry(ep >= 4 ? 0.18 : 0.14, mastH, ep >= 4 ? 0.18 : 0.14),
+        ep >= 6 ? goldMat : spTrim,
+      );
+      mast.position.set(-0.18, 0.12 + mastH * 0.5, 0);
+      mast.castShadow = true;
+      group.add(mast);
+      const boom = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.1, 0.1), ep >= 4 ? spRoof : spTrim);
+      boom.position.set(0.14, 0.12 + mastH + 0.04, 0);
+      boom.rotation.z = ep >= 5 ? 0.08 : 0.24;
+      boom.castShadow = true;
+      group.add(boom);
+      const counterWeight = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.22, 0.24), darkStoneMat);
+      counterWeight.position.set(-0.34, 0.24, 0);
+      group.add(counterWeight);
+      const hoistLine = new THREE.Mesh(
+        pxCylinder(ep >= 6 ? 0.04 : 0.02, ep >= 6 ? 0.04 : 0.02, mastH * 0.56, 6),
+        ep >= 6 ? spGlow : darkTechMat,
+      );
+      hoistLine.position.set(0.38, 0.12 + mastH * 0.68, 0);
+      group.add(hoistLine);
+      const loadBlock = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.2, 0.24), ep >= 7 ? goldMat : stoneMat);
+      loadBlock.position.set(0.38, 0.34, 0);
+      group.add(loadBlock);
+      if (ep >= 5) {
+        const beacon = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), spGlow);
+        beacon.position.set(-0.18, 0.18 + mastH, 0);
+        group.add(beacon);
+      }
+    } else if (type === 'ore_crusher') {
+      // Promoted Ore Crusher: 5-species x 8-epoch stone hopper -> industrial smelter -> plasma refinery
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.24, 0.84), spWall);
+      base.position.y = 0.12;
+      base.castShadow = true;
+      group.add(base);
+      const hopper = new THREE.Mesh(pxCylinder(0.36, 0.22, 0.42 + ep * 0.03, 6), spTrim);
+      hopper.position.set(0, 0.44 + ep * 0.015, 0);
+      hopper.castShadow = true;
+      group.add(hopper);
+      const chute = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.38), spRoof);
+      chute.position.set(0, 0.26, 0.34);
+      group.add(chute);
+      const coreGlow = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.24), ep >= 5 ? spGlow : flameMat);
+      coreGlow.position.set(0, 0.62 + ep * 0.02, 0);
+      coreGlow.name = 'flicker_flame';
+      group.add(coreGlow);
+      if (ep >= 3) {
+        const stack = new THREE.Mesh(pxCylinder(0.06, 0.08, 0.68 + ep * 0.04, 6), darkTechMat);
+        stack.position.set(-0.3, 0.66, -0.24);
+        group.add(stack);
+      }
+      if (ep >= 6) {
+        const ring = new THREE.Mesh(pxTorus(0.38, 0.038, 6, 12), ep >= 7 ? goldMat : spGlow);
+        ring.rotation.x = Math.PI / 2;
+        ring.position.y = 0.88;
+        ring.name = 'spin_part';
+        group.add(ring);
+      }
+    } else {
+      // Promoted Quarry Excavator: 5-species x 8-epoch steam shovel -> tracked rig -> laser/gravitic core harvester
+      const tracks = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.16, 0.72), ep >= 6 ? darkTechMat : orcBasaltMat);
+      tracks.position.y = 0.08;
+      group.add(tracks);
+      const hull = new THREE.Mesh(
+        new THREE.BoxGeometry(0.58, 0.34 + ep * 0.025, 0.54),
+        ep >= 7 ? goldMat : ep >= 4 ? neonAmberMat : spWall,
+      );
+      hull.position.set(-0.08, 0.34 + ep * 0.012, 0);
+      hull.castShadow = true;
+      group.add(hull);
+      const cabGlass = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.22, 0.34), ep >= 5 ? spGlow : glassCurtainMat);
+      cabGlass.position.set(0.14, 0.42, 0.12);
+      group.add(cabGlass);
+      const arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.11, 0.11), spTrim);
+      arm1.position.set(0.26, 0.62, -0.06);
+      arm1.rotation.z = 0.48;
+      arm1.castShadow = true;
+      group.add(arm1);
+      const arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.44, 0.11), spTrim);
+      arm2.position.set(0.48, 0.48, -0.06);
+      arm2.rotation.z = -0.22;
+      group.add(arm2);
+      const bucket = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.26), ep >= 6 ? spGlow : darkTechMat);
+      bucket.position.set(0.5, 0.2, -0.06);
+      group.add(bucket);
+      if (ep >= 6) {
+        const extractorBeam = new THREE.Mesh(pxCylinder(0.05, 0.09, 0.78, 6), spGlow);
+        extractorBeam.position.set(0.46, 0.56, -0.06);
+        group.add(extractorBeam);
+      }
+    }
+  } else if (isDwarf) {
     // =========================================================================
     // DWARVEN HOLD ARCHITECTURE: Monumental Carved Granite Vaults, Ribbed
     // Hammered-Bronze Domes, Molten Amber Forge-Channels & Brass Gear-Citadels
@@ -5829,10 +6081,59 @@ export function createBuildingGroup(
       astroRing1.name = 'spin_part';
       group.add(astroRing1);
       addDwarfCornerButtresses(0.4, 0.48 * hScale, true);
+    } else if (type === 'launch_arcology') {
+      // Dwarven Orbital Launch Arcology: Heavy armored blast-pad, twin brass gantry cranes & launch-ready star-rocket
+      const blastPad = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.16, 0.92), basePlinthMat);
+      blastPad.position.y = 0.18;
+      group.add(blastPad);
+      const rocketH = (epochIndex >= 7 ? 1.38 : 1.12) * hScale;
+      const rocketBody = new THREE.Mesh(pxCylinder(0.16, 0.22, rocketH, 8), epochIndex >= 7 ? goldMat : techMat);
+      rocketBody.position.y = 0.26 + rocketH * 0.5;
+      rocketBody.castShadow = true;
+      group.add(rocketBody);
+      const noseCone = new THREE.Mesh(pxCone(0.16, 0.34, 8), goldMat);
+      noseCone.position.y = 0.26 + rocketH + 0.17;
+      group.add(noseCone);
+      // Twin riveted brass gantry towers framing the launch craft
+      for (const sx of [-0.36, 0.36]) {
+        const gantry = new THREE.Mesh(new THREE.BoxGeometry(0.14, rocketH * 0.92, 0.18), metalTrim);
+        gantry.position.set(sx, 0.26 + rocketH * 0.46, -0.14);
+        group.add(gantry);
+        const clamp = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.1), bodyWall);
+        clamp.position.set(sx * 0.55, 0.26 + rocketH * 0.62, -0.04);
+        group.add(clamp);
+      }
+      const ignition = new THREE.Mesh(pxCylinder(0.18, 0.24, 0.14, 8), forgeGlow);
+      ignition.position.y = 0.28;
+      ignition.name = 'flicker_flame';
+      group.add(ignition);
+      addDwarfCornerButtresses(0.42, 0.46, true);
+    } else if (type === 'dyson_spire') {
+      // Dwarven Dyson Spire: Monumental Runic Forge-Spire with dual counter-spinning brass/gold gyroscopes & star-core beam
+      const towerH = (epochIndex >= 7 ? 1.48 : 1.24) * hScale;
+      const keep = new THREE.Mesh(pxCylinder(0.32, 0.48, towerH, 8), bodyWall);
+      keep.position.y = 0.12 + towerH * 0.5;
+      group.add(keep);
+      const crownRing = new THREE.Mesh(pxCylinder(0.46, 0.42, 0.12, 8), goldMat);
+      crownRing.position.y = 0.12 + towerH + 0.06;
+      group.add(crownRing);
+      const gyro1 = new THREE.Mesh(pxTorus(0.48, 0.048, 6, 14), goldMat);
+      gyro1.position.y = 0.12 + towerH * 0.68;
+      gyro1.rotation.x = Math.PI / 2;
+      gyro1.name = 'spin_part';
+      group.add(gyro1);
+      const gyro2 = new THREE.Mesh(pxTorus(0.36, 0.038, 6, 12), forgeGlow);
+      gyro2.position.y = 0.12 + towerH + 0.34;
+      gyro2.rotation.x = Math.PI / 3;
+      gyro2.name = 'spin_part';
+      group.add(gyro2);
+      const skyBeam = new THREE.Mesh(pxCylinder(0.085, 0.085, 3.1, 8), epochIndex >= 7 ? glowCyanMat : forgeGlow);
+      skyBeam.position.y = 0.12 + towerH + 1.55;
+      group.add(skyBeam);
+      addDwarfCornerButtresses(0.44, Math.min(0.95, towerH * 0.82), true);
     } else {
-      // Guildhall, Rail Station, Airport, Launch Arcology & Dyson Spire: Majestic Armored Dwarven Citadel / Sky-Harbor / Runic Forge-Spire
-      const isSpire = type === 'launch_arcology' || type === 'dyson_spire';
-      const towerH = (isSpire ? 1.15 : 0.6) * hScale;
+      // Guildhall, Rail Station & Airport: Majestic Armored Dwarven Citadel / Sky-Harbor
+      const towerH = 0.6 * hScale;
       const keep = new THREE.Mesh(pxCylinder(0.38, 0.48, towerH, 8), bodyWall);
       keep.position.y = 0.12 + towerH * 0.5;
       group.add(keep);
@@ -5843,16 +6144,6 @@ export function createBuildingGroup(
       dome.scale.set(1, 0.72, 1);
       dome.position.y = 0.12 + towerH + 0.1;
       group.add(dome);
-      if (isSpire) {
-        const gyro1 = new THREE.Mesh(pxTorus(0.42, 0.045, 6, 14), goldMat);
-        gyro1.position.y = 0.12 + towerH * 0.72;
-        gyro1.rotation.x = Math.PI / 2;
-        gyro1.name = 'spin_part';
-        group.add(gyro1);
-        const skyBeam = new THREE.Mesh(pxCylinder(0.075, 0.075, 2.6, 8), forgeGlow);
-        skyBeam.position.y = 0.12 + towerH + 1.3;
-        group.add(skyBeam);
-      }
       addDwarfCornerButtresses(0.42, Math.min(0.85, towerH * 0.78), true);
     }
   } else if (isLizardfolk) {
@@ -6015,24 +6306,55 @@ export function createBuildingGroup(
       focusRing.rotation.x = Math.PI / 2;
       focusRing.name = 'spin_part';
       group.add(focusRing);
-    } else {
-      // Guildhall, Rail Station, Airport, Launch Arcology & Dyson Spire: Majestic Celestial Sun-Pyramid Spire
-      const isSpire = type === 'launch_arcology' || type === 'dyson_spire';
-      const tiers = isSpire ? 5 : 4;
-      const topY = addSteppedPyramid(tiers, 0.94, (isSpire ? 0.2 : 0.15) * hScale, true, true);
-      const obelisk = new THREE.Mesh(pxCone(0.16, (isSpire ? 0.72 : 0.42) * hScale, 4), sunGold);
-      obelisk.position.y = topY + (isSpire ? 0.36 : 0.21) * hScale;
+    } else if (type === 'launch_arcology') {
+      // Lizardfolk Orbital Launch Arcology: Stepped Sun-Barge Launch Cradle with Twin Jade Gantries & Solar Craft
+      const topY = addSteppedPyramid(3, 0.94, 0.16 * hScale, true, true);
+      const vesselH = (epochIndex >= 7 ? 1.05 : 0.82) * hScale;
+      const solarCraft = new THREE.Mesh(pxCone(0.2, vesselH, 4), sunGold);
+      solarCraft.rotation.y = Math.PI / 4;
+      solarCraft.position.y = topY + vesselH * 0.5 + 0.08;
+      solarCraft.castShadow = true;
+      group.add(solarCraft);
+      for (const sx of [-0.34, 0.34]) {
+        const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.1, vesselH * 0.85, 0.12), jadeMat);
+        pylon.position.set(sx, topY + vesselH * 0.42, 0);
+        group.add(pylon);
+      }
+      const launchGlow = new THREE.Mesh(pxCylinder(0.18, 0.24, 0.1, 6), prismGlow);
+      launchGlow.position.y = topY + 0.05;
+      launchGlow.name = 'flicker_flame';
+      group.add(launchGlow);
+    } else if (type === 'dyson_spire') {
+      // Lizardfolk Dyson Spire: 6-tier Celestial Obsidian-Gold Pyramid with Twin Spinning Solar Rings & Starlight Column
+      const tiers = epochIndex >= 7 ? 6 : 5;
+      const topY = addSteppedPyramid(tiers, 0.96, 0.2 * hScale, true, true);
+      const obelisk = new THREE.Mesh(pxCone(0.18, 0.86 * hScale, 4), sunGold);
+      obelisk.position.y = topY + 0.43 * hScale;
       group.add(obelisk);
-      const halo = new THREE.Mesh(pxTorus(isSpire ? 0.42 : 0.3, 0.04, 6, 14), jadeMat);
-      halo.position.y = topY + (isSpire ? 0.48 : 0.26) * hScale;
+      const haloLower = new THREE.Mesh(pxTorus(0.46, 0.044, 6, 14), jadeMat);
+      haloLower.position.y = topY + 0.42 * hScale;
+      haloLower.rotation.x = Math.PI / 2;
+      haloLower.name = 'spin_part';
+      group.add(haloLower);
+      const haloUpper = new THREE.Mesh(pxTorus(0.32, 0.036, 6, 12), sunGold);
+      haloUpper.position.y = topY + 0.78 * hScale;
+      haloUpper.rotation.x = Math.PI / 2;
+      haloUpper.name = 'spin_part';
+      group.add(haloUpper);
+      const solarPillar = new THREE.Mesh(pxCylinder(0.085, 0.085, 3.2, 8), prismGlow);
+      solarPillar.position.y = topY + 1.65;
+      group.add(solarPillar);
+    } else {
+      // Guildhall, Rail Station & Airport: Majestic Ceremonial Sun-Pyramid
+      const topY = addSteppedPyramid(4, 0.92, 0.15 * hScale, true, true);
+      const obelisk = new THREE.Mesh(pxCone(0.16, 0.42 * hScale, 4), sunGold);
+      obelisk.position.y = topY + 0.21 * hScale;
+      group.add(obelisk);
+      const halo = new THREE.Mesh(pxTorus(0.3, 0.04, 6, 14), jadeMat);
+      halo.position.y = topY + 0.26 * hScale;
       halo.rotation.x = Math.PI / 2;
       halo.name = 'spin_part';
       group.add(halo);
-      if (isSpire) {
-        const solarPillar = new THREE.Mesh(pxCylinder(0.075, 0.075, 2.8, 8), prismGlow);
-        solarPillar.position.y = topY + 1.5;
-        group.add(solarPillar);
-      }
     }
   } else {
   switch (type) {
@@ -9044,7 +9366,15 @@ export function createBuildingGroup(
 
   // STAR AGE (Epoch 7 / Interstellar): Bespoke futuristic architectural evolution per race & building role
   // (Distinct structural silhouettes per race — not recolors of Orbital Age!)
-  if (epochIndex >= 7 && type !== 'rail_station' && type !== 'airport') {
+  if (
+    epochIndex >= 7 &&
+    type !== 'rail_station' &&
+    type !== 'airport' &&
+    type !== 'windmill' &&
+    type !== 'quarry_crane' &&
+    type !== 'ore_crusher' &&
+    type !== 'quarry_excavator'
+  ) {
     while (group.children.length > 0) {
       group.remove(group.children[0]);
     }
@@ -19996,65 +20326,73 @@ export function createHyperspaceRippleEffects(radius: number): HyperspaceRippleE
 }
 
 /**
- * Era-evolving 3D bridge architectural kit (instanced per open-water bridge edge, 1 draw call per era style):
- * - Prehistoric / Bronze (ep <= 1): Timber pilings, knee braces, handrails, mid-rails & slatted cross-plank deck
- * - Classical / Medieval (ep === 2): Carved ashlar stone parapet walls, stone piers, coping caps & under-arch corbels
- * - Industrial / Modern (ep >= 3): Riveted wrought-iron Warren truss girders, steel stanchions & reinforced piers
+ * Era-evolving 3D bridge architectural kit (instanced per open-water bridge edge, 1 draw call per era style)
+ * covering ALL 8 Epochs (0..7):
+ * - Ep 0 (Prehistoric): Rough lashed-log & rope suspension rails
+ * - Ep 1 (Bronze): Timber pilings, knee braces, handrails & slatted cross-plank deck
+ * - Ep 2 (Medieval): Carved ashlar stone parapet walls, piers, coping caps & arch corbels
+ * - Ep 3 (Industrial): Riveted wrought-iron Warren truss girders, stanchions & piers
+ * - Ep 4 (Atomic): Reinforced concrete viaduct barriers & dual steel suspension stanchions
+ * - Ep 5 (Information): Sleek white cable-stayed pylons & tinted glass wind-barriers
+ * - Ep 6 (Orbital): Titanium maglev guideway rails with glowing cyan energy strips
+ * - Ep 7 (Star Age): Gilded golden-cyan hardlight energy balustrades & levitating pylons
  */
 export function createBridgeKitGeometries(): {
+  prehistoricSideGeo: THREE.BufferGeometry;
   woodSideGeo: THREE.BufferGeometry;
   woodDeckGeo: THREE.BufferGeometry;
   stoneSideGeo: THREE.BufferGeometry;
   ironSideGeo: THREE.BufferGeometry;
+  atomicSideGeo: THREE.BufferGeometry;
+  infoSideGeo: THREE.BufferGeometry;
+  orbitalSideGeo: THREE.BufferGeometry;
+  starSideGeo: THREE.BufferGeometry;
 } {
-  // 1. Wooden Timber Bridge Side Rail + Pilings + Knee Braces (aligned along X: -0.5..+0.5, y = 0 at deck surface)
+  // 0. Prehistoric Lashed-Log & Rope Bridge Rail (Ep 0)
+  const prehistoricParts: THREE.BufferGeometry[] = [];
+  addColoredBox(prehistoricParts, 0.12, 0.48, 0.12, -0.44, -0.02, 0.0, 0x6b472b);
+  addColoredBox(prehistoricParts, 0.12, 0.48, 0.12, 0.44, -0.02, 0.0, 0x614026);
+  addColoredBox(prehistoricParts, 1.04, 0.04, 0.04, 0.0, 0.17, 0.0, 0xb89660); // braided rope rail
+  addColoredBox(prehistoricParts, 1.04, 0.08, 0.09, 0.0, -0.02, 0.0, 0x52341c); // log stringer
+  const prehistoricSideGeo = finalizeMergedParts(prehistoricParts);
+
+  // 1. Bronze Timber Bridge Side Rail + Pilings + Knee Braces (Ep 1)
   const woodSideParts: THREE.BufferGeometry[] = [];
-  // Twin corner timber pilings descending into water & rising to handrail posts
   addColoredBox(woodSideParts, 0.11, 0.56, 0.11, -0.43, -0.01, 0.0, 0x5c3c22);
   addColoredBox(woodSideParts, 0.11, 0.56, 0.11, 0.43, -0.01, 0.0, 0x55361e);
-  // Weathered darker timber post caps
   addColoredBox(woodSideParts, 0.13, 0.04, 0.13, -0.43, 0.285, 0.0, 0x7a5130);
   addColoredBox(woodSideParts, 0.13, 0.04, 0.13, 0.43, 0.285, 0.0, 0x744c2c);
-  // Center baluster post
   addColoredBox(woodSideParts, 0.075, 0.25, 0.075, 0.0, 0.125, 0.0, 0x6b472a);
-  // Top timber handrail & middle rope/slat rail
   addColoredBox(woodSideParts, 1.04, 0.055, 0.068, 0.0, 0.23, 0.0, 0x8b5e36);
   addColoredBox(woodSideParts, 1.02, 0.036, 0.045, 0.0, 0.12, 0.0, 0x734b2b);
-  // Heavy outer deck stringer beam hugging the water-facing edge
   addColoredBox(woodSideParts, 1.04, 0.095, 0.085, 0.0, -0.03, 0.0, 0x4b2f19);
-  // Stepped under-deck timber knee braces framing an arch silhouette beneath the span
   addColoredBox(woodSideParts, 0.18, 0.065, 0.07, -0.32, -0.10, 0.0, 0x432916);
   addColoredBox(woodSideParts, 0.18, 0.065, 0.07, 0.32, -0.10, 0.0, 0x432916);
   addColoredBox(woodSideParts, 0.10, 0.065, 0.065, -0.37, -0.16, 0.0, 0x3b2413);
   addColoredBox(woodSideParts, 0.10, 0.065, 0.065, 0.37, -0.16, 0.0, 0x3b2413);
   const woodSideGeo = finalizeMergedParts(woodSideParts);
 
-  // 2. Wooden Slatted Cross-Plank Deck Overlay (5 oak planks perpendicular to bridge travel along X)
+  // Wooden Slatted Cross-Plank Deck Overlay (used on Ep 0-1)
   const woodDeckParts: THREE.BufferGeometry[] = [];
   const plankColors = [0x9c6e42, 0x8d6138, 0xa87a4c, 0x865b33, 0x97693e];
   for (let pi = 0; pi < 5; pi++) {
     const px = -0.39 + pi * 0.195;
     addColoredBox(woodDeckParts, 0.155, 0.034, 0.86, px, 0.017, 0.0, plankColors[pi]);
-    // Tiny dark nail/iron-stud trim near each plank end
     addColoredBox(woodDeckParts, 0.035, 0.038, 0.045, px, 0.019, -0.36, 0x4b321d);
     addColoredBox(woodDeckParts, 0.035, 0.038, 0.045, px, 0.019, 0.36, 0x4b321d);
   }
   const woodDeckGeo = finalizeMergedParts(woodDeckParts);
 
-  // 3. Classical & Medieval Carved Stone Arch Bridge Parapet + Piers + Coping
+  // 2. Medieval Carved Stone Arch Bridge Parapet + Piers + Coping (Ep 2)
   const stoneSideParts: THREE.BufferGeometry[] = [];
-  // Sturdy corner stone piers descending into water & rising to crenellated caps
   addColoredBox(stoneSideParts, 0.17, 0.58, 0.17, -0.43, -0.01, 0.0, 0x7c8085);
   addColoredBox(stoneSideParts, 0.17, 0.58, 0.17, 0.43, -0.01, 0.0, 0x74787d);
   addColoredBox(stoneSideParts, 0.20, 0.045, 0.20, -0.43, 0.29, 0.0, 0xa9adb2);
   addColoredBox(stoneSideParts, 0.20, 0.045, 0.20, 0.43, 0.29, 0.0, 0xa2a6ab);
-  // Multi-tone dressed ashlar stone parapet wall
   addColoredBox(stoneSideParts, 0.34, 0.20, 0.11, -0.22, 0.10, 0.0, 0x8f9499);
   addColoredBox(stoneSideParts, 0.32, 0.20, 0.11, 0.08, 0.10, 0.0, 0x83888d);
   addColoredBox(stoneSideParts, 0.24, 0.20, 0.11, 0.30, 0.10, 0.0, 0x969ba0);
-  // Overhanging dressed stone coping cap along the top
   addColoredBox(stoneSideParts, 1.04, 0.05, 0.145, 0.0, 0.22, 0.0, 0xb6babf);
-  // Under-deck stone arch spandrel & stepped arch voussoirs curving between piers
   addColoredBox(stoneSideParts, 1.02, 0.08, 0.12, 0.0, -0.04, 0.0, 0x6b7076);
   addColoredBox(stoneSideParts, 0.22, 0.08, 0.115, -0.32, -0.11, 0.0, 0x60656b);
   addColoredBox(stoneSideParts, 0.22, 0.08, 0.115, 0.32, -0.11, 0.0, 0x60656b);
@@ -20062,19 +20400,15 @@ export function createBridgeKitGeometries(): {
   addColoredBox(stoneSideParts, 0.12, 0.09, 0.11, 0.38, -0.18, 0.0, 0x555a60);
   const stoneSideGeo = finalizeMergedParts(stoneSideParts);
 
-  // 4. Industrial & Modern Riveted Iron Truss / Steel Viaduct Side Girder + Piers
+  // 3. Industrial Riveted Iron Warren Truss Side Girder + Piers (Ep 3)
   const ironSideParts: THREE.BufferGeometry[] = [];
-  // Concrete/masonry water piers beneath the steel span
   addColoredBox(ironSideParts, 0.16, 0.34, 0.16, -0.44, -0.15, 0.0, 0x737b84);
   addColoredBox(ironSideParts, 0.16, 0.34, 0.16, 0.44, -0.15, 0.0, 0x6d757e);
-  // Lower & upper riveted steel truss chords
   addColoredBox(ironSideParts, 1.04, 0.065, 0.085, 0.0, 0.01, 0.0, 0x3b444e);
   addColoredBox(ironSideParts, 1.04, 0.06, 0.075, 0.0, 0.31, 0.0, 0x4c5763);
-  // Vertical iron truss stanchions
   addColoredBox(ironSideParts, 0.07, 0.34, 0.075, -0.44, 0.16, 0.0, 0x343c45);
   addColoredBox(ironSideParts, 0.06, 0.32, 0.065, 0.0, 0.16, 0.0, 0x3f4954);
   addColoredBox(ironSideParts, 0.07, 0.34, 0.075, 0.44, 0.16, 0.0, 0x343c45);
-  // Stepped Warren-truss diagonal cross-bracing struts
   addColoredBox(ironSideParts, 0.055, 0.10, 0.055, -0.32, 0.09, 0.0, 0x53606e);
   addColoredBox(ironSideParts, 0.055, 0.10, 0.055, -0.22, 0.16, 0.0, 0x5a6877);
   addColoredBox(ironSideParts, 0.055, 0.10, 0.055, -0.12, 0.23, 0.0, 0x53606e);
@@ -20083,11 +20417,61 @@ export function createBridgeKitGeometries(): {
   addColoredBox(ironSideParts, 0.055, 0.10, 0.055, 0.32, 0.09, 0.0, 0x53606e);
   const ironSideGeo = finalizeMergedParts(ironSideParts);
 
+  // 4. Atomic Reinforced Concrete Viaduct + Red-Steel Suspension Stanchions (Ep 4)
+  const atomicParts: THREE.BufferGeometry[] = [];
+  addColoredBox(atomicParts, 0.2, 0.44, 0.2, -0.44, -0.14, 0.0, 0x9ca3af);
+  addColoredBox(atomicParts, 0.2, 0.44, 0.2, 0.44, -0.14, 0.0, 0x949ba7);
+  addColoredBox(atomicParts, 1.04, 0.16, 0.12, 0.0, 0.07, 0.0, 0xb8bec7);
+  addColoredBox(atomicParts, 0.08, 0.42, 0.08, -0.44, 0.26, 0.0, 0xb91c1c);
+  addColoredBox(atomicParts, 0.08, 0.42, 0.08, 0.44, 0.26, 0.0, 0xb91c1c);
+  addColoredBox(atomicParts, 1.04, 0.05, 0.05, 0.0, 0.42, 0.0, 0xdc2626);
+  addColoredBox(atomicParts, 0.035, 0.28, 0.035, -0.22, 0.26, 0.0, 0x64748b);
+  addColoredBox(atomicParts, 0.035, 0.28, 0.035, 0.0, 0.26, 0.0, 0x64748b);
+  addColoredBox(atomicParts, 0.035, 0.28, 0.035, 0.22, 0.26, 0.0, 0x64748b);
+  const atomicSideGeo = finalizeMergedParts(atomicParts);
+
+  // 5. Information Sleek White Cable-Stayed Pylons & Glass Wind-Barrier (Ep 5)
+  const infoParts: THREE.BufferGeometry[] = [];
+  addColoredBox(infoParts, 0.14, 0.42, 0.14, -0.44, -0.12, 0.0, 0xdbeafe);
+  addColoredBox(infoParts, 0.14, 0.42, 0.14, 0.44, -0.12, 0.0, 0xdbeafe);
+  addColoredBox(infoParts, 1.04, 0.12, 0.09, 0.0, 0.05, 0.0, 0xf1f5f9);
+  addColoredBox(infoParts, 0.98, 0.15, 0.035, 0.0, 0.18, 0.0, 0x38bdf8);
+  addColoredBox(infoParts, 0.07, 0.56, 0.07, 0.0, 0.34, 0.0, 0xf8fafc);
+  addColoredBox(infoParts, 0.04, 0.16, 0.04, -0.24, 0.34, 0.0, 0x93c5fd);
+  addColoredBox(infoParts, 0.04, 0.16, 0.04, 0.24, 0.34, 0.0, 0x93c5fd);
+  const infoSideGeo = finalizeMergedParts(infoParts);
+
+  // 6. Orbital Titanium Maglev Guideway Rail with Cyan Energy Strip (Ep 6)
+  const orbitalParts: THREE.BufferGeometry[] = [];
+  addColoredBox(orbitalParts, 1.04, 0.14, 0.13, 0.0, 0.05, 0.0, 0x334155);
+  addColoredBox(orbitalParts, 1.04, 0.05, 0.08, 0.0, 0.16, 0.0, 0x22d3ee);
+  addColoredBox(orbitalParts, 0.11, 0.38, 0.11, -0.44, 0.18, 0.0, 0xe2e8f0);
+  addColoredBox(orbitalParts, 0.11, 0.38, 0.11, 0.44, 0.18, 0.0, 0xe2e8f0);
+  addColoredBox(orbitalParts, 0.12, 0.07, 0.12, -0.44, 0.4, 0.0, 0x38bdf8);
+  addColoredBox(orbitalParts, 0.12, 0.07, 0.12, 0.44, 0.4, 0.0, 0x38bdf8);
+  const orbitalSideGeo = finalizeMergedParts(orbitalParts);
+
+  // 7. Star Age Gilded Golden-Cyan Hardlight Energy Span (Ep 7)
+  const starParts: THREE.BufferGeometry[] = [];
+  addColoredBox(starParts, 1.04, 0.11, 0.12, 0.0, 0.04, 0.0, 0xf59e0b);
+  addColoredBox(starParts, 1.04, 0.07, 0.05, 0.0, 0.18, 0.0, 0x67e8f9);
+  addColoredBox(starParts, 1.04, 0.045, 0.06, 0.0, 0.32, 0.0, 0xfde047);
+  addColoredBox(starParts, 0.11, 0.46, 0.11, -0.44, 0.22, 0.0, 0xfbbf24);
+  addColoredBox(starParts, 0.11, 0.46, 0.11, 0.44, 0.22, 0.0, 0xfbbf24);
+  addColoredBox(starParts, 0.13, 0.1, 0.13, -0.44, 0.48, 0.0, 0x67e8f9);
+  addColoredBox(starParts, 0.13, 0.1, 0.13, 0.44, 0.48, 0.0, 0x67e8f9);
+  const starSideGeo = finalizeMergedParts(starParts);
+
   return {
+    prehistoricSideGeo,
     woodSideGeo,
     woodDeckGeo,
     stoneSideGeo,
     ironSideGeo,
+    atomicSideGeo,
+    infoSideGeo,
+    orbitalSideGeo,
+    starSideGeo,
   };
 }
 

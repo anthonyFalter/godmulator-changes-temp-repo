@@ -1,10 +1,16 @@
 import {
   LightingPreset,
+  SeasonPreset,
   SimulationState,
   WorldRulesConfig,
   ZoneToggleState,
 } from './types';
-import { DEFAULT_WORLD_RULES } from './simulation';
+import {
+  DEFAULT_WORLD_RULES,
+  flushPendingBasinWaves,
+  recalculateRatesAndCaps,
+  reseedEntityIdCounterFromState,
+} from './simulation';
 import { DEFAULT_ZONE_TOGGLES } from './zones';
 
 export interface SavedWorldRecord {
@@ -19,6 +25,7 @@ export interface SavedWorldRecord {
   year: number;
   population: number;
   lightingPreset: LightingPreset;
+  seasonPreset?: SeasonPreset;
   activeZones: ZoneToggleState;
   simulation: SimulationState;
 }
@@ -29,6 +36,7 @@ export interface SaveWorldParams {
   description?: string;
   thumbnailDataUrl: string | null;
   lightingPreset: LightingPreset;
+  seasonPreset?: SeasonPreset;
   activeZones: ZoneToggleState;
   sim: SimulationState;
 }
@@ -37,6 +45,7 @@ export interface SavedWorldRulesUpdate {
   rules: WorldRulesConfig;
   epochIndex?: number;
   lightingPreset?: LightingPreset;
+  seasonPreset?: SeasonPreset;
 }
 
 export interface WorldStorageAdapter {
@@ -96,10 +105,13 @@ export function restoreSimulationFromSave(record: SavedWorldRecord): SimulationS
   restored.worldDescription = record.description ?? restored.worldDescription ?? '';
   restored.epochIndex =
     typeof restored.epochIndex === 'number' ? restored.epochIndex : record.epochIndex;
+  restored.seasonPreset = record.seasonPreset ?? restored.seasonPreset ?? 'auto';
   if (!Array.isArray(restored.chronicle)) restored.chronicle = [];
   if (!Array.isArray(restored.activeHazards)) restored.activeHazards = [];
   if (!Array.isArray(restored.vehicles)) restored.vehicles = [];
   if (!Array.isArray(restored.voidWisps)) restored.voidWisps = [];
+  reseedEntityIdCounterFromState(restored);
+  recalculateRatesAndCaps(restored);
   return restored;
 }
 
@@ -131,6 +143,18 @@ function readLocalStorageFallback(): SavedWorldRecord[] {
   }
 }
 
+function isQuotaExceededError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { name?: string; code?: number; message?: string };
+  return (
+    e.name === 'QuotaExceededError' ||
+    e.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    e.code === 22 ||
+    e.code === 1014 ||
+    (typeof e.message === 'string' && /quota/i.test(e.message))
+  );
+}
+
 function writeLocalStorageFallback(records: SavedWorldRecord[]): void {
   if (typeof window === 'undefined' || !window.localStorage) {
     memoryFallbackMap.clear();
@@ -139,10 +163,11 @@ function writeLocalStorageFallback(records: SavedWorldRecord[]): void {
   }
   try {
     window.localStorage.setItem(LOCAL_STORAGE_FALLBACK_KEY, JSON.stringify(records));
-  } catch {
-    // Fallback to memory if localStorage quota exceeded
-    memoryFallbackMap.clear();
-    for (const r of records) memoryFallbackMap.set(r.id, r);
+  } catch (err) {
+    if (isQuotaExceededError(err)) {
+      throw new Error('Local storage quota exceeded — delete an older saved world to free space.');
+    }
+    throw err instanceof Error ? err : new Error('Failed to write saved world to local storage.');
   }
 }
 
@@ -277,9 +302,13 @@ export async function saveWorldToLocalCache(
 ): Promise<SavedWorldRecord> {
   const cleanName = (params.name ?? params.sim.worldName ?? '').trim() || 'My World';
   const cleanDescription = (params.description ?? params.sim.worldDescription ?? '').trim();
+  flushPendingBasinWaves(params.sim);
   const sanitizedSim = sanitizeSimulationForSave(params.sim);
+  const effectiveSeasonPreset: SeasonPreset =
+    params.seasonPreset ?? params.sim.seasonPreset ?? 'auto';
   sanitizedSim.worldName = cleanName;
   sanitizedSim.worldDescription = cleanDescription;
+  sanitizedSim.seasonPreset = effectiveSeasonPreset;
   const record: SavedWorldRecord = {
     id: params.saveId || generateSaveId(sanitizedSim.seed),
     name: cleanName,
@@ -292,17 +321,18 @@ export async function saveWorldToLocalCache(
     year: Math.floor(sanitizedSim.year),
     population: sanitizedSim.population,
     lightingPreset: params.lightingPreset,
+    seasonPreset: effectiveSeasonPreset,
     activeZones: { ...DEFAULT_ZONE_TOGGLES, ...params.activeZones },
     simulation: sanitizedSim,
   };
 
   try {
     await adapter.put(record);
-  } catch {
+  } catch (err) {
     if (adapter !== fallbackAdapter) {
       await fallbackAdapter.put(record);
     } else {
-      throw new Error('Failed to store saved world locally');
+      throw err instanceof Error ? err : new Error('Failed to store saved world locally');
     }
   }
   return record;
@@ -363,6 +393,11 @@ export async function updateSavedWorldRules(
   };
   const nextEpochIndex =
     typeof updates.epochIndex === 'number' ? updates.epochIndex : existing.epochIndex;
+  if (typeof updates.epochIndex === 'number') {
+    mergedRules.startingEpochIndex = nextEpochIndex;
+  }
+  const nextSeasonPreset: SeasonPreset | undefined =
+    updates.seasonPreset ?? existing.seasonPreset ?? existing.simulation.seasonPreset;
   const nextLightingPreset: LightingPreset =
     updates.lightingPreset ??
     (mergedRules.dayNightCycle
@@ -379,6 +414,7 @@ export async function updateSavedWorldRules(
     worldRules: mergedRules,
     autoBuildEnabled: mergedRules.autoBuildEnabled,
     sandboxFreeMode: mergedRules.sandboxFreeMode,
+    ...(nextSeasonPreset ? { seasonPreset: nextSeasonPreset } : {}),
   };
 
   if (typeof updates.epochIndex === 'number') {
@@ -402,8 +438,16 @@ export async function updateSavedWorldRules(
         nextKingdomEpochs[kid] = nextEpochIndex;
         nextKingdomProgress[kid] = nextEpochIndex >= 7 ? 100 : 0;
       }
-      return { ...b, epochLevel: nextEpochIndex };
+      const prevEp = typeof b.epochLevel === 'number' ? b.epochLevel : existing.epochIndex;
+      const hpDelta = (nextEpochIndex - prevEp) * 40;
+      const nextMaxHp = Math.max(50, b.maxHp + hpDelta);
+      const nextHp = Math.max(1, Math.min(nextMaxHp, b.hp + hpDelta));
+      return { ...b, epochLevel: nextEpochIndex, maxHp: nextMaxHp, hp: nextHp };
     });
+    updatedSim.vehicles = (existing.simulation.vehicles ?? []).map((v) => ({
+      ...v,
+      epochLevel: nextEpochIndex,
+    }));
     for (const u of existing.simulation.units) {
       if (u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0) {
         const kid = resolveKid(u.settlementId, u.kingdomId);
@@ -423,13 +467,16 @@ export async function updateSavedWorldRules(
     ...existing,
     epochIndex: nextEpochIndex,
     lightingPreset: nextLightingPreset,
+    ...(nextSeasonPreset ? { seasonPreset: nextSeasonPreset } : {}),
     simulation: updatedSim,
   };
   try {
     await adapter.put(updated);
-  } catch {
+  } catch (err) {
     if (adapter !== fallbackAdapter) {
       await fallbackAdapter.put(updated);
+    } else {
+      throw err instanceof Error ? err : new Error('Failed to update saved world rules');
     }
   }
   return updated;

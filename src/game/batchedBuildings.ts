@@ -77,9 +77,10 @@ export interface BatchedBuildingEntry {
   animGroup: THREE.Group | null;
   flickerFlames: THREE.Object3D[];
   spinParts: THREE.Object3D[];
+  spinZParts: THREE.Object3D[];
 }
 
-const ANIMATED_PART_NAMES = new Set(['flicker_flame', 'spin_part']);
+const ANIMATED_PART_NAMES = new Set(['flicker_flame', 'spin_part', 'spin_z_part']);
 let nextMatTag = 1;
 const materialIds = new WeakMap<THREE.Material, number>();
 
@@ -694,6 +695,7 @@ export class BatchedBuildingSystem {
       let animGroup: THREE.Group | null = null;
       const flickerFlames: THREE.Object3D[] = [];
       const spinParts: THREE.Object3D[] = [];
+      const spinZParts: THREE.Object3D[] = [];
       if (tpl.animatedParts.length > 0) {
         animGroup = new THREE.Group();
         animGroup.position.set(x, y, z);
@@ -712,6 +714,7 @@ export class BatchedBuildingSystem {
           animGroup.add(m);
           if (ap.name === 'flicker_flame') flickerFlames.push(m);
           else if (ap.name === 'spin_part') spinParts.push(m);
+          else if (ap.name === 'spin_z_part') spinZParts.push(m);
         }
         this.group.add(animGroup);
       }
@@ -735,6 +738,7 @@ export class BatchedBuildingSystem {
         animGroup,
         flickerFlames,
         spinParts,
+        spinZParts,
       };
       this.entries.set(id, created);
       return created;

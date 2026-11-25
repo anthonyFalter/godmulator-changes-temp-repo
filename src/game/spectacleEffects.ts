@@ -125,8 +125,8 @@ export function createSpectacleEffectsSystem(initialTiles: TileData[]): Spectacl
 
     for (let i = 0; i < tiles.length && archCount < MAX_RUINS; i++) {
       const t = tiles[i];
-      if (!t || t.resourceNode !== 'ancient_ruin') continue;
-      const groundY = t.height > 0 ? t.height * 0.45 + 0.25 : 0.25;
+      if (!t || t.resourceNode !== 'ancient_ruin' || t.height <= 0) continue;
+      const groundY = t.height * 0.45 + 0.25;
       const yaw = ((t.x * 31 + t.z * 17) & 3) * (Math.PI / 2);
       const cosY = Math.cos(yaw);
       const sinY = Math.sin(yaw);

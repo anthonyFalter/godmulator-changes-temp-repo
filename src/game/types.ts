@@ -109,6 +109,7 @@ export interface TileData {
   claimedSettlementId?: string;
   isRiver?: boolean;
   isLake?: boolean;
+  isBridge?: boolean;
   waterKind?: 'lava' | 'poison' | 'floral';
   liquidLevel?: number; // Elevated stackable liquid surface height (1..10) when pooling in mountain holes/basins
   liquidKind?: 'water' | 'lava' | 'poison'; // Liquid type for elevated stacked pools
@@ -160,7 +161,11 @@ export type BuildingType =
   | 'cyber_institute'
   | 'airport'
   | 'launch_arcology'
-  | 'dyson_spire';
+  | 'dyson_spire'
+  | 'windmill'
+  | 'quarry_crane'
+  | 'ore_crusher'
+  | 'quarry_excavator';
 
 export interface BuildingDefinition {
   type: BuildingType;
@@ -190,6 +195,7 @@ export interface BuildingEntity {
   shieldTimer: number;
   settlementId?: string;
   species?: SpeciesId;
+  isWaterBuilt?: boolean;
 }
 
 export type SpeciesId = 'human' | 'elf' | 'orc' | 'dwarf' | 'lizardfolk';
@@ -606,6 +612,11 @@ export interface WorldWonder {
   tileZ: number;
   builtYear: number;
   bonusSummary: string;
+  hp?: number;
+  maxHp?: number;
+  constructionProgress?: number; // 0..100
+  epochLevel?: number;
+  shieldTimer?: number;
 }
 
 export interface BattleMemorial {
@@ -698,6 +709,7 @@ export type StrategicStrikeKind =
   | 'elf_astral_cataclysm'
   | 'orc_siege_boulder'
   | 'orc_waagh_rocket'
+  | 'orc_waagh_cataclysm'
   | 'dwarf_quake_mortar'
   | 'dwarf_seismic_hammer'
   | 'lizard_solar_lance'
@@ -1073,6 +1085,12 @@ export interface SimulationState {
   voidGooTimer?: number;
   voidWisps?: VoidWispEntity[];
   activeWorldEvent?: WorldEventState | null;
+  /** Active seasonal mode ('auto' | 'spring' | 'summer' | 'autumn' | 'winter') persisted across saves */
+  seasonPreset?: SeasonPreset;
+  /** Monotonic counter incremented only when a kingdom or empty-world epoch genuinely advances */
+  epochAdvanceSeq?: number;
+  /** Highest/latest epoch index reached by a genuine advancement event */
+  lastAdvancedEpochIndex?: number;
   /** Transient runtime flat TypedArray acceleration buffers (stripped on save, auto-rebuilt on load) */
   worldGrid?: unknown;
 }
