@@ -1695,6 +1695,324 @@ export function createDynamicWaterMaterial(): DynamicWaterMaterialHandle {
   return { material, updateFrame, dispose };
 }
 
+export interface DynamicSpecialLiquidMaterialHandle {
+  material: THREE.ShaderMaterial;
+  updateFrame: (elapsed: number) => void;
+  dispose: () => void;
+}
+
+/**
+ * Living pixel-art dynamic molten lava shader:
+ * - Top surfaces: cooling dark basalt crust plates drifting over incandescent crimson-orange magma
+ *   fissures, bright white-gold hotspots, and searing ember rims along basin walls.
+ * - Vertical walls: flowing incandescent lavafall curtains with bright orange-gold ribbons & plunge glow.
+ */
+export function createDynamicLavaMaterial(): DynamicSpecialLiquidMaterialHandle {
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    {
+      uTime: { value: 0 },
+    },
+  ]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    fog: true,
+    transparent: false,
+    depthWrite: true,
+    side: THREE.FrontSide,
+    vertexShader: /* glsl */ `
+      #include <fog_pars_vertex>
+      attribute float aDepth;
+      attribute float aEdgeMask;
+      attribute vec2 aFlowDir;
+
+      uniform float uTime;
+
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying float vDepth;
+      varying float vEdgeMask;
+      varying vec2 vFlowDir;
+      varying vec2 vUv;
+
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vec3 worldNormal = normalize(mat3(modelMatrix) * normal);
+
+        // Slow viscous magma swell on horizontal top surfaces
+        if (worldNormal.y > 0.5) {
+          float swell = sin(worldPos.x * 0.72 + uTime * 1.15) * 0.012
+                      + cos(worldPos.z * 0.68 - uTime * 0.95) * 0.010;
+          worldPos.y += swell;
+        }
+
+        vWorldPos = worldPos.xyz;
+        vWorldNormal = worldNormal;
+        vDepth = aDepth;
+        vEdgeMask = aEdgeMask;
+        vFlowDir = aFlowDir;
+        vUv = uv;
+
+        vec4 mvPosition = viewMatrix * worldPos;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      #include <fog_pars_fragment>
+      uniform float uTime;
+
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying float vDepth;
+      varying float vEdgeMask;
+      varying vec2 vFlowDir;
+      varying vec2 vUv;
+
+      float lvHash12(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      float lvNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = lvHash12(i);
+        float b = lvHash12(i + vec2(1.0, 0.0));
+        float c = lvHash12(i + vec2(0.0, 1.0));
+        float d = lvHash12(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      void main() {
+        vec3 crustDark   = vec3(0.11, 0.05, 0.04);
+        vec3 crustChar   = vec3(0.24, 0.08, 0.05);
+        vec3 magmaRed    = vec3(0.84, 0.14, 0.03);
+        vec3 magmaOrange = vec3(1.00, 0.44, 0.05);
+        vec3 magmaGold   = vec3(1.00, 0.84, 0.24);
+        vec3 magmaWhite  = vec3(1.00, 0.96, 0.72);
+
+        vec3 color;
+        if (vWorldNormal.y > 0.5) {
+          vec2 pixPos = floor(vWorldPos.xz * 12.0) / 12.0;
+          float flowMag = clamp(length(vFlowDir), 0.0, 1.0);
+          vec2 drift = flowMag > 0.08
+            ? normalize(vFlowDir) * (uTime * 1.15)
+            : vec2(uTime * 0.26, -uTime * 0.19);
+
+          float nA = lvNoise(pixPos * 1.05 - drift);
+          float nB = lvNoise(pixPos * 2.15 - drift * 1.45 + vec2(7.3, 3.1));
+          float heat = nA * 0.60 + nB * 0.40 + flowMag * 0.14;
+          float pulse = 0.82 + 0.18 * sin(uTime * 3.4 + (pixPos.x + pixPos.y) * 2.2);
+
+          // Stepped pixel-art cooling basalt crust rafts floating on glowing molten magma
+          color = mix(crustDark, crustChar, step(0.26, heat));
+          color = mix(color, magmaRed, step(0.42, heat));
+          color = mix(color, magmaOrange, step(0.58, heat) * pulse);
+          color = mix(color, magmaGold, step(0.76, heat) * pulse);
+          color = mix(color, magmaWhite, step(0.90, heat) * pulse);
+
+          // Searing glowing ember rim along basin/cliff walls
+          if (vEdgeMask > 0.05) {
+            float rimNoise = lvNoise(pixPos * 2.8 + vec2(uTime * 0.45, -uTime * 0.35));
+            float rimHeat = smoothstep(0.25, 0.88, vEdgeMask) * step(0.32, rimNoise + vEdgeMask * 0.4);
+            color = mix(color, magmaGold, rimHeat * 0.72);
+          }
+        } else {
+          // Vertical molten lavafalls: downward streaming orange-gold magma ribbons
+          float wallU = abs(vWorldNormal.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
+          vec2 lfPix = floor(vec2(wallU, vWorldPos.y) * 12.0) / 12.0;
+          float fallA = lvNoise(vec2(lfPix.x * 2.8, lfPix.y * 2.2 + uTime * 3.2));
+          float fallB = lvNoise(vec2(lfPix.x * 5.2 + 3.1, lfPix.y * 3.4 + uTime * 4.8));
+          float stream = fallA * 0.58 + fallB * 0.42;
+
+          float topLip = smoothstep(0.70, 0.98, vUv.y);
+          float baseGlow = smoothstep(0.26, 0.0, vUv.y);
+
+          color = mix(magmaRed, magmaOrange, step(0.36, stream));
+          color = mix(color, magmaGold, step(0.62, stream));
+          color = mix(color, magmaWhite, clamp(step(0.84, stream) * 0.85 + topLip * 0.55 + baseGlow * 0.70, 0.0, 1.0));
+        }
+
+        gl_FragColor = vec4(color, 1.0);
+        #include <fog_fragment>
+      }
+    `,
+  });
+
+  const updateFrame = (elapsed: number) => {
+    material.uniforms.uTime.value = wrapShaderTime(elapsed);
+  };
+
+  const dispose = () => {
+    material.dispose();
+  };
+
+  return { material, updateFrame, dispose };
+}
+
+/**
+ * Living pixel-art dynamic toxic poison shader:
+ * - Top surfaces: deep venomous viridian pools swirled with glowing chartreuse-lime acid veins,
+ *   popping toxic bubbles, dark necrotic blight undertones, and frothing acid rims along cliff walls.
+ * - Vertical walls: dripping radioactive lime-emerald slime cascades with bubbling splash froth.
+ */
+export function createDynamicPoisonMaterial(): DynamicSpecialLiquidMaterialHandle {
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    {
+      uTime: { value: 0 },
+    },
+  ]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    fog: true,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+    vertexShader: /* glsl */ `
+      #include <fog_pars_vertex>
+      attribute float aDepth;
+      attribute float aEdgeMask;
+      attribute vec2 aFlowDir;
+
+      uniform float uTime;
+
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying float vDepth;
+      varying float vEdgeMask;
+      varying vec2 vFlowDir;
+      varying vec2 vUv;
+
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vec3 worldNormal = normalize(mat3(modelMatrix) * normal);
+
+        if (worldNormal.y > 0.5) {
+          float swell = sin(worldPos.x * 0.82 - uTime * 1.75) * 0.014
+                      + cos(worldPos.z * 0.74 + uTime * 1.45) * 0.011;
+          worldPos.y += swell;
+        }
+
+        vWorldPos = worldPos.xyz;
+        vWorldNormal = worldNormal;
+        vDepth = aDepth;
+        vEdgeMask = aEdgeMask;
+        vFlowDir = aFlowDir;
+        vUv = uv;
+
+        vec4 mvPosition = viewMatrix * worldPos;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      #include <fog_pars_fragment>
+      uniform float uTime;
+
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying float vDepth;
+      varying float vEdgeMask;
+      varying vec2 vFlowDir;
+      varying vec2 vUv;
+
+      float psHash12(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      float psNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = psHash12(i);
+        float b = psHash12(i + vec2(1.0, 0.0));
+        float c = psHash12(i + vec2(0.0, 1.0));
+        float d = psHash12(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      void main() {
+        vec3 mireDeep   = vec3(0.11, 0.22, 0.09);
+        vec3 blightTint = vec3(0.24, 0.12, 0.34);
+        vec3 acidMid    = vec3(0.22, 0.62, 0.14);
+        vec3 acidBright = vec3(0.56, 0.88, 0.14);
+        vec3 acidFroth  = vec3(0.84, 1.00, 0.42);
+
+        vec3 color;
+        float alpha;
+        if (vWorldNormal.y > 0.5) {
+          vec2 pixPos = floor(vWorldPos.xz * 12.0) / 12.0;
+          float depthFrac = clamp((vDepth - 0.12) / 1.35, 0.0, 1.0);
+          float flowMag = clamp(length(vFlowDir), 0.0, 1.0);
+          vec2 drift = flowMag > 0.08
+            ? normalize(vFlowDir) * (uTime * 1.45)
+            : vec2(uTime * 0.35, uTime * 0.24);
+
+          float swirlA = psNoise(pixPos * 1.25 - drift);
+          float swirlB = psNoise(pixPos * 2.45 + drift * 0.85 + vec2(5.1, 9.7));
+          float field = swirlA * 0.56 + swirlB * 0.44;
+
+          // Deep toxic mire base with subtle necrotic violet undertone in deep pools
+          vec3 baseCol = mix(mireDeep, blightTint, depthFrac * 0.35);
+          color = mix(baseCol, acidMid, step(0.36, field));
+          color = mix(color, acidBright, step(0.60, field));
+
+          // Popping neon acid bubbles
+          float bubbleTime = floor(uTime * 2.6);
+          float bubble = step(0.935, psHash12(pixPos * 12.0 + vec2(bubbleTime * 1.7, bubbleTime * 0.9)));
+          color = mix(color, acidFroth, max(step(0.80, field) * 0.72, bubble * 0.95));
+
+          alpha = mix(0.82, 0.95, depthFrac);
+
+          // Frothing radioactive lime rim against basin/cliff walls
+          if (vEdgeMask > 0.04) {
+            float lap = sin(uTime * 3.1 + (pixPos.x + pixPos.y) * 2.6) * 0.14;
+            float rimN = psNoise(pixPos * 2.8 + vec2(uTime * 0.5, -uTime * 0.4));
+            float rim = smoothstep(0.24, 0.86, vEdgeMask + lap * 0.5) * step(0.34, rimN + vEdgeMask * 0.45);
+            color = mix(color, acidFroth, rim * 0.86);
+            alpha = max(alpha, rim * 0.96);
+          }
+        } else {
+          // Vertical dripping toxic slime cascades
+          float wallU = abs(vWorldNormal.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
+          vec2 pfPix = floor(vec2(wallU, vWorldPos.y) * 12.0) / 12.0;
+          float oozeA = psNoise(vec2(pfPix.x * 3.2, pfPix.y * 2.4 + uTime * 3.8));
+          float oozeB = psNoise(vec2(pfPix.x * 5.8 + 4.2, pfPix.y * 3.6 + uTime * 5.4));
+          float curtain = oozeA * 0.55 + oozeB * 0.45;
+
+          float topLip = smoothstep(0.72, 0.98, vUv.y);
+          float baseSplash = smoothstep(0.28, 0.0, vUv.y);
+
+          color = mix(acidMid, acidBright, step(0.42, curtain));
+          color = mix(color, acidFroth, clamp(step(0.72, curtain) * 0.85 + topLip * 0.55 + baseSplash * 0.88, 0.0, 1.0));
+          alpha = clamp(0.82 + step(0.50, curtain) * 0.12 + baseSplash * 0.06, 0.0, 0.96);
+        }
+
+        gl_FragColor = vec4(color, alpha);
+        #include <fog_fragment>
+      }
+    `,
+  });
+
+  const updateFrame = (elapsed: number) => {
+    material.uniforms.uTime.value = wrapShaderTime(elapsed);
+  };
+
+  const dispose = () => {
+    material.dispose();
+  };
+
+  return { material, updateFrame, dispose };
+}
+
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
   /** Unified lossless materials for greedy-meshed 32x32 terrain chunks (1 top + 1 cliff + single-draw unifiedMat) */

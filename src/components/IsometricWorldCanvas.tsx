@@ -60,6 +60,8 @@ import {
   wrapShaderTime,
 } from '../game/dayNightLighting';
 import {
+  createDynamicLavaMaterial,
+  createDynamicPoisonMaterial,
   createDynamicWaterMaterial,
   createOceanFoamSystem,
   createPixelSpaceSystem,
@@ -496,29 +498,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     oceanFoam.updateMap(sim.tiles);
     worldGroup.add(oceanFoam.mesh);
 
-    // 3D stackable elevated liquid volumes (ocean-matched living dynamic water shader + face-culled merged surfaces)
+    // 3D stackable elevated liquid volumes (ocean-matched living dynamic water, magma lava & toxic poison shaders)
     const dynamicWater = createDynamicWaterMaterial();
-    const elevatedLavaMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#ff5a00'),
-      emissive: new THREE.Color('#ff2e00'),
-      emissiveIntensity: 0.88,
-      roughness: 0.32,
-      metalness: 0.05,
-    });
-    const elevatedPoisonMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#84cc16'),
-      emissive: new THREE.Color('#4d7c0f'),
-      emissiveIntensity: 0.52,
-      roughness: 0.2,
-      metalness: 0.08,
-      transparent: true,
-      opacity: 0.86,
-      depthWrite: false,
-    });
+    const dynamicLava = createDynamicLavaMaterial();
+    const dynamicPoison = createDynamicPoisonMaterial();
 
     const elevatedWaterMesh = new THREE.Mesh(new THREE.BufferGeometry(), dynamicWater.material);
-    const elevatedLavaMesh = new THREE.Mesh(new THREE.BufferGeometry(), elevatedLavaMat);
-    const elevatedPoisonMesh = new THREE.Mesh(new THREE.BufferGeometry(), elevatedPoisonMat);
+    const elevatedLavaMesh = new THREE.Mesh(new THREE.BufferGeometry(), dynamicLava.material);
+    const elevatedPoisonMesh = new THREE.Mesh(new THREE.BufferGeometry(), dynamicPoison.material);
     elevatedWaterMesh.visible = false;
     elevatedLavaMesh.visible = false;
     elevatedPoisonMesh.visible = false;
@@ -554,7 +541,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const gs = Math.round(Math.sqrt(tiles.length));
       if (gs <= 0) return;
 
-      // Fast lookup arrays for neighbor face culling, rim foam, and downhill flow vectors
+      // Fast lookup arrays for neighbor face culling, rim foam/glow, and downhill flow vectors
       const kindGrid = new Uint8Array(gs * gs); // 0=none, 1=water, 2=lava, 3=poison
       const lvlGrid = new Float32Array(gs * gs);
       const topYGrid = new Float32Array(gs * gs);
@@ -577,23 +564,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       const buffers = [
-        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[] }, // 1: water
-        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[] }, // 2: lava
-        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[] }, // 3: poison
+        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[], depths: [] as number[], edges: [] as number[], flows: [] as number[] }, // 1: water
+        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[], depths: [] as number[], edges: [] as number[], flows: [] as number[] }, // 2: lava
+        { pos: [] as number[], norm: [] as number[], uv: [] as number[], idx: [] as number[], depths: [] as number[], edges: [] as number[], flows: [] as number[] }, // 3: poison
       ];
-      // Extra dynamic-water vertex attributes (depth, basin-wall edge foam mask, downhill flow vector)
-      const waterDepths: number[] = [];
-      const waterEdgeMasks: number[] = [];
-      const waterFlowDirs: number[] = [];
 
-      const pushWaterAttrs = (
+      const pushFluidAttrs = (
+        buf: (typeof buffers)[number],
         dA: number, dB: number, dC: number, dD: number,
         eA: number, eB: number, eC: number, eD: number,
         fx: number, fz: number,
       ) => {
-        waterDepths.push(dA, dB, dC, dD);
-        waterEdgeMasks.push(eA, eB, eC, eD);
-        waterFlowDirs.push(fx, fz, fx, fz, fx, fz, fx, fz);
+        buf.depths.push(dA, dB, dC, dD);
+        buf.edges.push(eA, eB, eC, eD);
+        buf.flows.push(fx, fz, fx, fz, fx, fz, fx, fz);
       };
 
       const isSolidWallAt = (nx: number, nz: number, topY: number, kind: number): boolean => {
@@ -625,42 +609,36 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const z0 = t.z - 0.5;
         const z1 = t.z + 0.5;
 
-        // Compute downhill flow vector & shoreline wall contact for dynamic water
+        // Compute downhill flow vector & shoreline wall contact for all 3 dynamic liquids
         let fx = 0;
         let fz = 0;
-        let eSW = 0;
-        let eSE = 0;
-        let eNE = 0;
-        let eNW = 0;
-        if (kind === 1) {
-          const sE = surfLevelAt(t.x + 1, t.z);
-          const sW = surfLevelAt(t.x - 1, t.z);
-          const sS = surfLevelAt(t.x, t.z + 1);
-          const sN = surfLevelAt(t.x, t.z - 1);
-          if (sE < lvl) fx += Math.min(2, lvl - sE);
-          if (sW < lvl) fx -= Math.min(2, lvl - sW);
-          if (sS < lvl) fz += Math.min(2, lvl - sS);
-          if (sN < lvl) fz -= Math.min(2, lvl - sN);
-          const fLen = Math.hypot(fx, fz);
-          if (fLen > 0.01) {
-            fx /= fLen;
-            fz /= fLen;
-          }
-
-          const wallW = isSolidWallAt(t.x - 1, t.z, topY, 1) ? 1 : 0;
-          const wallE = isSolidWallAt(t.x + 1, t.z, topY, 1) ? 1 : 0;
-          const wallN = isSolidWallAt(t.x, t.z - 1, topY, 1) ? 1 : 0;
-          const wallS = isSolidWallAt(t.x, t.z + 1, topY, 1) ? 1 : 0;
-          const wallNW = isSolidWallAt(t.x - 1, t.z - 1, topY, 1) ? 0.7 : 0;
-          const wallNE = isSolidWallAt(t.x + 1, t.z - 1, topY, 1) ? 0.7 : 0;
-          const wallSW = isSolidWallAt(t.x - 1, t.z + 1, topY, 1) ? 0.7 : 0;
-          const wallSE = isSolidWallAt(t.x + 1, t.z + 1, topY, 1) ? 0.7 : 0;
-
-          eSW = Math.max(wallW, wallS, wallSW);
-          eSE = Math.max(wallE, wallS, wallSE);
-          eNE = Math.max(wallE, wallN, wallNE);
-          eNW = Math.max(wallW, wallN, wallNW);
+        const sE = surfLevelAt(t.x + 1, t.z);
+        const sW = surfLevelAt(t.x - 1, t.z);
+        const sS = surfLevelAt(t.x, t.z + 1);
+        const sN = surfLevelAt(t.x, t.z - 1);
+        if (sE < lvl) fx += Math.min(2, lvl - sE);
+        if (sW < lvl) fx -= Math.min(2, lvl - sW);
+        if (sS < lvl) fz += Math.min(2, lvl - sS);
+        if (sN < lvl) fz -= Math.min(2, lvl - sN);
+        const fLen = Math.hypot(fx, fz);
+        if (fLen > 0.01) {
+          fx /= fLen;
+          fz /= fLen;
         }
+
+        const wallW = isSolidWallAt(t.x - 1, t.z, topY, kind) ? 1 : 0;
+        const wallE = isSolidWallAt(t.x + 1, t.z, topY, kind) ? 1 : 0;
+        const wallN = isSolidWallAt(t.x, t.z - 1, topY, kind) ? 1 : 0;
+        const wallS = isSolidWallAt(t.x, t.z + 1, topY, kind) ? 1 : 0;
+        const wallNW = isSolidWallAt(t.x - 1, t.z - 1, topY, kind) ? 0.7 : 0;
+        const wallNE = isSolidWallAt(t.x + 1, t.z - 1, topY, kind) ? 0.7 : 0;
+        const wallSW = isSolidWallAt(t.x - 1, t.z + 1, topY, kind) ? 0.7 : 0;
+        const wallSE = isSolidWallAt(t.x + 1, t.z + 1, topY, kind) ? 0.7 : 0;
+
+        const eSW = Math.max(wallW, wallS, wallSW);
+        const eSE = Math.max(wallE, wallS, wallSE);
+        const eNE = Math.max(wallE, wallN, wallNE);
+        const eNW = Math.max(wallW, wallN, wallNW);
 
         // 1. Seamless Top Surface Quad (continuous world-space UVs across adjacent tiles)
         pushLiquidQuad(
@@ -671,9 +649,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           x0, topY, z0, x0 * UV_SCALE, z0 * UV_SCALE,
           0, 1, 0,
         );
-        if (kind === 1) {
-          pushWaterAttrs(depth, depth, depth, depth, eSW, eSE, eNE, eNW, fx, fz);
-        }
+        pushFluidAttrs(buf, depth, depth, depth, depth, eSW, eSE, eNE, eNW, fx, fz);
 
         // 2. Exterior-Only Side Walls (culled against same liquid >= lvl or higher surrounding terrain)
         const emitSideIfExposed = (
@@ -693,7 +669,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             botY = Math.max(nTerrain, nLiquidTop, 0.14);
           }
           if (topY - botY <= 0.06) return;
-          // Normalized vertical V (0 at plunge base -> 1 at waterfall crest) for splash & lip foam
+          // Normalized vertical V (0 at plunge base -> 1 at cascade crest) for splash & lip foam/glow
           pushLiquidQuad(
             buf.pos, buf.norm, buf.uv, buf.idx,
             ax, botY, az, 0, 0,
@@ -702,9 +678,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             ax, topY, az, 0, 1,
             normX, 0, normZ,
           );
-          if (kind === 1) {
-            pushWaterAttrs(depth, depth, depth, depth, 0, 0, 0, 0, normX, normZ);
-          }
+          pushFluidAttrs(buf, depth, depth, depth, depth, 0, 0, 0, 0, normX, normZ);
         };
 
         // +Z (South), -Z (North), +X (East), -X (West)
@@ -726,11 +700,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
         geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.norm, 3));
         geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2));
-        if (k === 0) {
-          geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(waterDepths, 1));
-          geo.setAttribute('aEdgeMask', new THREE.Float32BufferAttribute(waterEdgeMasks, 1));
-          geo.setAttribute('aFlowDir', new THREE.Float32BufferAttribute(waterFlowDirs, 2));
-        }
+        geo.setAttribute('aDepth', new THREE.Float32BufferAttribute(b.depths, 1));
+        geo.setAttribute('aEdgeMask', new THREE.Float32BufferAttribute(b.edges, 1));
+        geo.setAttribute('aFlowDir', new THREE.Float32BufferAttribute(b.flows, 2));
         geo.setIndex(b.idx);
         mesh.geometry.dispose();
         mesh.geometry = geo;
@@ -16956,12 +16928,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           dynamicWater.updateFrame(shaderElapsed, preset, renderedSeasonWeights);
         }
         if (elevatedLavaMesh.visible) {
-          elevatedLavaMesh.position.y = Math.sin(shaderElapsed * 2.15) * 0.012;
-          elevatedLavaMat.emissiveIntensity = 0.8 + Math.sin(shaderElapsed * 3.1) * 0.16;
+          dynamicLava.updateFrame(shaderElapsed);
         }
         if (elevatedPoisonMesh.visible) {
-          elevatedPoisonMesh.position.y = Math.sin(shaderElapsed * 2.15 + 0.7) * 0.012;
-          elevatedPoisonMat.emissiveIntensity = 0.48 + Math.sin(shaderElapsed * 2.6 + 1.2) * 0.1;
+          dynamicPoison.updateFrame(shaderElapsed);
         }
       }
       zoneOverlay.updateFrame(shaderElapsed);
@@ -17530,8 +17500,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       elevatedLavaMesh.geometry.dispose();
       elevatedPoisonMesh.geometry.dispose();
       dynamicWater.dispose();
-      elevatedLavaMat.dispose();
-      elevatedPoisonMat.dispose();
+      dynamicLava.dispose();
+      dynamicPoison.dispose();
       zoneOverlay.dispose();
       warFrontArrows.dispose();
       styledTerrain.dispose();

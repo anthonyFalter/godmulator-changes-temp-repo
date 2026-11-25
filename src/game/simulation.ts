@@ -3109,6 +3109,24 @@ function applyElevatedLiquidToTile(
   delete t.treeBiomeOverride;
   if (finalKind === 'lava') {
     t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
+    if (t.height > 0 && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'void_goo') {
+      if ((t.terrain === 'snow' || t.terrain === 'tundra') && t.height > 1) {
+        t.height = Math.max(1, t.height - 1);
+      }
+      t.terrain = 'volcanic_wasteland';
+      syncTileToWorldGrid(ensureWorldGrid(state), t);
+    }
+  } else if (finalKind === 'poison') {
+    t.cursedTimer = Math.max(t.cursedTimer, 12);
+    if (
+      t.height > 0 &&
+      t.terrain !== 'blighted_mire' &&
+      t.terrain !== 'void_goo' &&
+      t.terrain !== 'volcanic_wasteland'
+    ) {
+      t.terrain = 'blighted_mire';
+      syncTileToWorldGrid(ensureWorldGrid(state), t);
+    }
   } else if (finalKind === 'water' && (t.tempOffset ?? 0) > 0) {
     t.tempOffset = Math.max(0, (t.tempOffset ?? 0) - 18);
   }
@@ -3434,7 +3452,7 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
         const kind: LiquidKind = t.liquidKind ?? 'water';
         const kindCode = kind === 'lava' ? 2 : kind === 'poison' ? 3 : 1;
 
-        // Flowing water extinguishes fire & hydrates; flowing lava scorches; flowing poison corrupts
+        // Flowing water extinguishes fire & hydrates; flowing lava melts into volcanic rock & ignites; flowing poison corrodes into Land of Blight
         if (kind === 'water') {
           if (t.onFireTimer > 0) t.onFireTimer = 0;
           if (t.terrain === 'scorched') {
@@ -3443,12 +3461,36 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           }
         } else if (kind === 'lava') {
           t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 35));
-          if (t.terrain === 'grass' || t.terrain === 'fertile' || t.terrain === 'forest' || t.terrain === 'jungle' || t.terrain === 'blossom' || t.terrain === 'floral_plains') {
-            t.terrain = 'scorched';
+          if (t.height > 0 && t.terrain !== 'volcanic_wasteland' && t.terrain !== 'void_goo') {
+            if ((t.terrain === 'snow' || t.terrain === 'tundra') && t.height > 1) {
+              t.height = Math.max(1, t.height - 1);
+            }
+            t.terrain = 'volcanic_wasteland';
             syncTileToWorldGrid(ensureWorldGrid(state), t);
           }
+          // Ignite adjacent flammable vegetation/forests along the lava stream
+          for (let d = 0; d < 4; d++) {
+            const nb = tiles[idx + nbOffsets[d]];
+            if (
+              nb &&
+              nb.height > 0 &&
+              (nb.liquidLevel ?? 0) <= nb.height &&
+              (nb.terrain === 'forest' || nb.terrain === 'grass' || nb.terrain === 'fertile' || nb.terrain === 'jungle' || nb.terrain === 'savanna' || nb.terrain === 'blossom' || nb.terrain === 'floral_plains')
+            ) {
+              nb.onFireTimer = Math.max(nb.onFireTimer, 8);
+            }
+          }
         } else if (kind === 'poison') {
-          t.cursedTimer = Math.max(t.cursedTimer, 8);
+          t.cursedTimer = Math.max(t.cursedTimer, 12);
+          if (
+            t.height > 0 &&
+            t.terrain !== 'blighted_mire' &&
+            t.terrain !== 'void_goo' &&
+            t.terrain !== 'volcanic_wasteland'
+          ) {
+            t.terrain = 'blighted_mire';
+            syncTileToWorldGrid(ensureWorldGrid(state), t);
+          }
         }
 
         const surf = t.height + vol;

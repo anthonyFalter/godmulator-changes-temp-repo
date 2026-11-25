@@ -338,6 +338,9 @@ test('lava_drop and poison_drop pour dynamic elevated liquid on hills and cascad
   const poisonDown = getTile(sim, 15, 22)!;
   assert.equal(lavaDown.liquidKind, 'lava', 'lava cascades downhill onto lower tile');
   assert.equal(poisonDown.liquidKind, 'poison', 'poison cascades downhill onto lower tile');
-  assert.equal(lavaSrc.terrain, 'scorched', 'flowing lava scorches grass beneath it');
+  assert.equal(lavaSrc.terrain, 'volcanic_wasteland', 'lava melts touched land into volcanic rock');
+  assert.equal(lavaDown.terrain, 'volcanic_wasteland', 'cascading lava turns downhill blocks into volcanic rock');
+  assert.equal(poisonSrc.terrain, 'blighted_mire', 'poison corrodes touched land into Land of Blight');
+  assert.equal(poisonDown.terrain, 'blighted_mire', 'cascading poison turns downhill blocks into Land of Blight');
   assert.ok(poisonSrc.cursedTimer > 0, 'flowing poison corrupts ground beneath it');
 });
