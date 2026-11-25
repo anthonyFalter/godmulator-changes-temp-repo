@@ -421,7 +421,6 @@ export default function App() {
     unit: 'human',
   });
   const [powerFilter, setPowerFilter] = useState<'all' | 'benevolent' | 'wrathful' | 'cosmic'>('all');
-  const [buildFilter, setBuildFilter] = useState<'all' | 'current' | 'advanced'>('all');
   const [unitFilter, setUnitFilter] = useState<'all' | 'races' | 'wildlife' | 'mythic'>('all');
   const [landFilter, setLandFilter] = useState<'all' | 'Sculpt' | 'Sky Rain' | 'Biomes' | 'Water'>('all');
   const [showGodRulesModal, setShowGodRulesModal] = useState<boolean>(false);
@@ -3764,7 +3763,6 @@ export default function App() {
                   [
                     { id: 'powers', label: 'Powers' },
                     { id: 'terrain', label: 'Land' },
-                    { id: 'build', label: 'Build' },
                     { id: 'spawn', label: 'Units' },
                     { id: 'zones', label: 'Zones' },
                     { id: 'epochs', label: 'World' },
@@ -3810,10 +3808,6 @@ export default function App() {
                             setActiveTool({ kind: 'power', power: 'blessing' });
                           } else if (tab.id === 'terrain' && activeTool.kind !== 'terrain') {
                             setActiveTool({ kind: 'terrain', tool: 'raise' });
-                          } else if (tab.id === 'build' && activeTool.kind !== 'build') {
-                            const epochBld =
-                              BUILDINGS.find((b) => b.epoch === currentEpoch.id)?.type || 'bonfire';
-                            setActiveTool({ kind: 'build', building: epochBld });
                           } else if (tab.id === 'spawn' && activeTool.kind !== 'spawn') {
                             setActiveTool({ kind: 'spawn', unit: 'human' });
                           }
@@ -3862,7 +3856,6 @@ export default function App() {
                 {/* Contextual Sub-Bar: Single non-wrapping row on mobile */}
                 {(activeCategory === 'powers' ||
                   activeCategory === 'terrain' ||
-                  activeCategory === 'build' ||
                   activeCategory === 'spawn') && (
                   <div className="flex flex-nowrap sm:flex-wrap items-center justify-between gap-1 sm:gap-2 pb-1 mb-1 sm:pb-2 sm:mb-2.5 border-b border-[#423229] overflow-x-auto no-scrollbar">
                     {/* Left: Digestible Category Filters or Active Brush Context */}
@@ -3902,29 +3895,6 @@ export default function App() {
                           ))}
                         </div>
                       )}
-
-                      {activeCategory === 'build' &&
-                        (
-                          [
-                            { id: 'all', label: 'All' },
-                            { id: 'current', label: currentEpoch.name },
-                            { id: 'advanced', label: 'Industrial+' },
-                          ] as const
-                        ).map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => {
-                              setBuildFilter(f.id);
-                              soundEngine.playClick();
-                            }}
-                            className={`h-6 sm:h-7 px-2 sm:px-2.5 text-[10px] sm:text-[11px] font-semibold cursor-pointer whitespace-nowrap shrink-0 ${
-                              buildFilter === f.id ? 'px-btn-active font-bold' : 'px-btn'
-                            }`}
-                          >
-                            {f.label}
-                          </button>
-                        ))}
 
                       {activeCategory === 'spawn' &&
                         (
@@ -4138,67 +4108,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* TAB 3: BUILD STRUCTURES */}
-                {activeCategory === 'build' && (
-                  <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
-                    {BUILDINGS.filter((bld) => {
-                      if (buildFilter === 'all') return true;
-                      if (buildFilter === 'current') return bld.epoch === currentEpoch.id;
-                      return (
-                        bld.epoch === 'industrial' ||
-                        bld.epoch === 'atomic' ||
-                        bld.epoch === 'information' ||
-                        bld.epoch === 'orbital' ||
-                        bld.epoch === 'interstellar'
-                      );
-                    }).map((bld) => {
-                      const isSelected =
-                        activeTool.kind === 'build' && activeTool.building === bld.type;
-                      const affordable = canAfford(sim.resources, bld.cost, sim.sandboxFreeMode);
-                      const badge = primaryCostNumber(bld.cost, sim.sandboxFreeMode);
-                      const isCurrentEpochBld = bld.epoch === currentEpoch.id;
-
-                      return (
-                        <button
-                          key={bld.type}
-                          type="button"
-                          onClick={() => {
-                            setMobilePanMode(false);
-                            setActiveTool({ kind: 'build', building: bld.type });
-                            soundEngine.playClick();
-                            setStatusFeedback(`${bld.name} — ${bld.roleSummary}`);
-                          }}
-                          onMouseEnter={() =>
-                            setHoveredHint({
-                              title: bld.name,
-                              cost: formatCompactCost(bld.cost, sim.sandboxFreeMode),
-                              detail: bld.roleSummary,
-                            })
-                          }
-                          aria-label={bld.name}
-                          className={`relative w-[38px] h-[38px] sm:w-11 sm:h-11 shrink-0 flex items-center justify-center cursor-pointer ${
-                            isSelected ? 'px-slot-active' : 'px-slot'
-                          } ${!affordable ? 'opacity-55' : ''}`}
-                        >
-                          <BuildingPixelIcon building={bld.type} className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
-                          {isCurrentEpochBld && (
-                            <span
-                              className="absolute top-1 left-1 w-1.5 h-1.5 bg-[#80ed99]"
-                              title={`Unlocked in ${currentEpoch.name}`}
-                            />
-                          )}
-                          {badge && (
-                            <span className="absolute bottom-0.5 right-0.5 sm:right-1 font-pixel-num text-[8px] text-[#f2c478] leading-none">
-                              {badge}
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* TAB 4: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
+                {/* TAB 3: SPECIES UNITS + ANIMALS & MYTHICAL BEASTS */}
                 {activeCategory === 'spawn' && (
                   <div className="flex flex-nowrap sm:flex-wrap items-center justify-start gap-1 sm:gap-1.5 overflow-x-auto sm:overflow-visible no-scrollbar">
                     {(unitFilter === 'all' || unitFilter === 'races') &&

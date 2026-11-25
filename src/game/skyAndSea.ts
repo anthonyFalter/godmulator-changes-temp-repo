@@ -1386,6 +1386,315 @@ export function createOceanFoamSystem(gridSize: number): OceanFoamSystem {
   return { mesh, updateMap, updateZones, updateFrame, dispose };
 }
 
+export interface DynamicWaterMaterialHandle {
+  material: THREE.ShaderMaterial;
+  updateFrame: (elapsed: number, preset: LightingPreset, seasonWeights?: THREE.Vector4) => void;
+  dispose: () => void;
+}
+
+/**
+ * Living pixel-art dynamic water shader matching `createOceanFoamSystem`:
+ * - Top surfaces: depth-layered turquoise-to-sapphire pools, directional downhill current streaks,
+ *   calm lake breeze wavelets, dancing sun sparkles, animated shoreline/basin-rim foam, and winter frost.
+ * - Vertical walls: animated downward-rushing waterfall curtains, whitewater ribbons, and splash mist.
+ */
+export function createDynamicWaterMaterial(): DynamicWaterMaterialHandle {
+  const uniforms = THREE.UniformsUtils.merge([
+    THREE.UniformsLib.fog,
+    {
+      uTime: { value: 0 },
+      uShallowColor: { value: new THREE.Color('#2896ab') },
+      uDeepColor: { value: new THREE.Color('#193f54') },
+      uCrestColor: { value: new THREE.Color('#5ce1e6') },
+      uReefWaterColor: { value: new THREE.Color('#12d6df') },
+      uFoamColor: { value: new THREE.Color('#f4fbff') },
+      uFoamMint: { value: new THREE.Color('#9ee6f5') },
+      uSeasonFrost: { value: 0.0 },
+    },
+  ]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    fog: true,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.FrontSide,
+    vertexShader: /* glsl */ `
+      #include <fog_pars_vertex>
+      attribute float aDepth;
+      attribute float aEdgeMask;
+      attribute vec2 aFlowDir;
+
+      uniform float uTime;
+
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying float vDepth;
+      varying float vEdgeMask;
+      varying vec2 vFlowDir;
+      varying vec2 vUv;
+
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vec3 worldNormal = normalize(mat3(modelMatrix) * normal);
+
+        // Gentle pixel-art surface swell on horizontal water tops (keeps waterfall walls anchored cleanly)
+        if (worldNormal.y > 0.5) {
+          float flowMag = length(aFlowDir);
+          float phase = dot(worldPos.xz, flowMag > 0.05 ? aFlowDir * 1.4 : vec2(0.55, 0.42));
+          float swell = sin(phase - uTime * (2.2 + flowMag * 2.4)) * 0.015
+                      + cos(worldPos.x * 0.65 - worldPos.z * 0.58 + uTime * 1.65) * 0.011;
+          worldPos.y += swell;
+        }
+
+        vWorldPos = worldPos.xyz;
+        vWorldNormal = worldNormal;
+        vDepth = aDepth;
+        vEdgeMask = aEdgeMask;
+        vFlowDir = aFlowDir;
+        vUv = uv;
+
+        vec4 mvPosition = viewMatrix * worldPos;
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      #include <fog_pars_fragment>
+      uniform float uTime;
+      uniform vec3 uShallowColor;
+      uniform vec3 uDeepColor;
+      uniform vec3 uCrestColor;
+      uniform vec3 uReefWaterColor;
+      uniform vec3 uFoamColor;
+      uniform vec3 uFoamMint;
+      uniform float uSeasonFrost;
+
+      varying vec3 vWorldPos;
+      varying vec3 vWorldNormal;
+      varying float vDepth;
+      varying float vEdgeMask;
+      varying vec2 vFlowDir;
+      varying vec2 vUv;
+
+      float dwHash12(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+      }
+
+      float dwNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        float a = dwHash12(i);
+        float b = dwHash12(i + vec2(1.0, 0.0));
+        float c = dwHash12(i + vec2(0.0, 1.0));
+        float d = dwHash12(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+      }
+
+      void main() {
+        vec3 color;
+        float alpha;
+
+        if (vWorldNormal.y > 0.5) {
+          // ---- TOP SURFACE: Living depth-layered lake / flowing stream ----
+          vec2 pixPos = floor(vWorldPos.xz * 12.0) / 12.0;
+          vec2 chunkPos = floor(vWorldPos.xz * 4.0) / 4.0;
+          float depthFrac = clamp((vDepth - 0.12) / 1.45, 0.0, 1.0);
+
+          vec3 shallowTint = mix(uShallowColor, uReefWaterColor, 0.42);
+          vec3 midTint = mix(uShallowColor, uDeepColor, 0.42);
+          vec3 deepTint = mix(uDeepColor, uShallowColor * 0.62, 0.18);
+          color = depthFrac < 0.45
+            ? mix(shallowTint, midTint, smoothstep(0.0, 0.45, depthFrac))
+            : mix(midTint, deepTint, smoothstep(0.45, 1.0, depthFrac));
+
+          float flowMag = clamp(length(vFlowDir), 0.0, 1.0);
+          if (flowMag > 0.08) {
+            // Directional flowing stream / spillway current ribbons
+            vec2 fDir = normalize(vFlowDir);
+            vec2 fPerp = vec2(-fDir.y, fDir.x);
+            float along = dot(pixPos, fDir);
+            float across = dot(pixPos, fPerp);
+            float wobble = (dwNoise(vec2(along * 0.6 - uTime * 0.9, across * 1.4)) - 0.5) * 0.72;
+            float ribA = dwNoise(vec2(along * 0.95 - uTime * 2.55, across * 3.0 + wobble));
+            float ribB = dwNoise(vec2(along * 1.75 - uTime * 3.40, across * 4.8 - wobble * 0.5));
+            float currentField = ribA * 0.58 + ribB * 0.42;
+            float streak = step(0.58, currentField);
+            float brightStreak = step(0.75, currentField);
+            float sparkle = step(0.86, dwNoise(vec2(along * 3.2 - uTime * 3.8, across * 4.0)) * 0.55 + ribB * 0.45);
+
+            color = mix(color, mix(uCrestColor, uFoamMint, 0.5), streak * 0.44 * flowMag);
+            color = mix(color, uFoamColor, max(brightStreak * 0.38, sparkle * 0.58) * flowMag);
+            alpha = mix(0.56, 0.84, depthFrac) + streak * 0.08 + brightStreak * 0.08;
+          } else {
+            // Calm enclosed pool / mountain lake: breeze wavelets, caustics & dancing sun sparkles
+            float waveA = dwNoise(chunkPos * 1.15 + vec2(uTime * 0.45, uTime * 0.22));
+            float waveB = dwNoise(chunkPos * 2.10 - vec2(uTime * 0.30, -uTime * 0.38));
+            float caustic = step(0.62, waveA * 0.55 + waveB * 0.45);
+            float ripple = step(0.76, dwNoise(pixPos * 1.85 + vec2(uTime * 0.75, -uTime * 0.52)));
+            float glint = step(0.92, dwNoise(pixPos * 3.6 + vec2(uTime * 1.4, uTime * 0.9)));
+
+            color = mix(color, uCrestColor, caustic * 0.28);
+            color = mix(color, uFoamMint, ripple * 0.32);
+            color = mix(color, uFoamColor, glint * 0.65);
+            alpha = mix(0.54, 0.86, depthFrac) + ripple * 0.06;
+          }
+
+          // Animated pixel-art shoreline / basin-rim foam lapping against surrounding terrain walls
+          if (vEdgeMask > 0.02) {
+            float lapWave = sin(uTime * 2.8 + (pixPos.x + pixPos.y) * 2.4) * 0.14;
+            float rimNoise = dwNoise(pixPos * 2.6 + vec2(uTime * 0.4, -uTime * 0.3));
+            float mintRim = smoothstep(0.18, 0.65, vEdgeMask + lapWave * 0.5) * step(0.34, rimNoise + vEdgeMask * 0.45);
+            float coreRim = smoothstep(0.52, 0.90, vEdgeMask + lapWave * 0.6) * step(0.46, rimNoise + vEdgeMask * 0.5);
+            color = mix(color, uFoamMint, mintRim * 0.72);
+            color = mix(color, uFoamColor, coreRim * 0.92);
+            alpha = max(alpha, max(mintRim * 0.78, coreRim * 0.92));
+          }
+
+          // Winter frost/ice crust along basin rims & shallow pools
+          if (uSeasonFrost > 0.01) {
+            float frostN = dwNoise(pixPos * 1.5 + vec2(4.1, 8.3));
+            float iceMask = clamp(max(vEdgeMask * 0.95, 0.45) * step(0.46 - uSeasonFrost * 0.25, frostN), 0.0, 1.0) * uSeasonFrost;
+            vec3 iceCol = mix(uFoamMint * 0.96, uFoamColor, step(0.60, frostN));
+            color = mix(color, iceCol, iceMask * 0.74);
+            alpha = max(alpha, iceMask * 0.86);
+          }
+        } else {
+          // ---- VERTICAL WALLS: Cascading whitewater waterfall curtains & splash froth ----
+          float wallU = abs(vWorldNormal.x) > 0.5 ? vWorldPos.z : vWorldPos.x;
+          vec2 wfPix = floor(vec2(wallU, vWorldPos.y) * 12.0) / 12.0;
+
+          float fallA = dwNoise(vec2(wfPix.x * 3.4, wfPix.y * 2.4 + uTime * 5.2));
+          float fallB = dwNoise(vec2(wfPix.x * 6.2 + 2.7, wfPix.y * 3.8 + uTime * 7.4));
+          float curtain = fallA * 0.56 + fallB * 0.44;
+          float foamRibbon = step(0.54, curtain);
+          float brightSpray = step(0.72, curtain);
+
+          // Frothy mist at waterfall crest (vUv.y near 1) and splash plunge base (vUv.y near 0)
+          float topLip = smoothstep(0.72, 0.98, vUv.y);
+          float baseSplash = smoothstep(0.28, 0.0, vUv.y) * (0.72 + 0.28 * sin(uTime * 8.0 + wfPix.x * 6.0));
+
+          color = mix(uShallowColor, uCrestColor, 0.52);
+          color = mix(color, uFoamMint, foamRibbon * 0.76);
+          color = mix(color, uFoamColor, clamp(brightSpray * 0.88 + topLip * 0.65 + baseSplash * 0.92, 0.0, 1.0));
+          if (uSeasonFrost > 0.01) {
+            color = mix(color, uFoamColor, uSeasonFrost * 0.35);
+          }
+          alpha = clamp(0.74 + foamRibbon * 0.14 + baseSplash * 0.12 + topLip * 0.10, 0.0, 0.96);
+        }
+
+        gl_FragColor = vec4(color, clamp(alpha, 0.0, 0.96));
+        #include <fog_fragment>
+      }
+    `,
+  });
+
+  const _shallowTarget = new THREE.Color('#2896ab');
+  const _deepTarget = new THREE.Color('#193f54');
+  const _crestTarget = new THREE.Color('#5ce1e6');
+  const _reefTarget = new THREE.Color('#12d6df');
+  const _foamTarget = new THREE.Color('#f4fbff');
+  const _mintTarget = new THREE.Color('#9ee6f5');
+
+  const updateFrame = (
+    elapsed: number,
+    preset: LightingPreset,
+    seasonWeights?: THREE.Vector4,
+  ) => {
+    const mu = material.uniforms;
+    mu.uTime.value = wrapShaderTime(elapsed);
+
+    if (preset === 'midnight') {
+      _shallowTarget.set('#102b3a');
+      _deepTarget.set('#06131d');
+      _crestTarget.set('#1d4b63');
+      _reefTarget.set('#135d6e');
+      _foamTarget.set('#8db2cc');
+      _mintTarget.set('#3f6b85');
+    } else if (preset === 'night') {
+      _shallowTarget.set('#1a4357');
+      _deepTarget.set('#0c212e');
+      _crestTarget.set('#2c6680');
+      _reefTarget.set('#187b8a');
+      _foamTarget.set('#b8d6ea');
+      _mintTarget.set('#5c8fa8');
+    } else if (preset === 'dusk') {
+      _shallowTarget.set('#376478');
+      _deepTarget.set('#1f384d');
+      _crestTarget.set('#d9886c');
+      _reefTarget.set('#29b3b8');
+      _foamTarget.set('#ffe9dc');
+      _mintTarget.set('#b3c4d4');
+    } else if (preset === 'dawn') {
+      _shallowTarget.set('#387487');
+      _deepTarget.set('#1d4459');
+      _crestTarget.set('#e8a3a0');
+      _reefTarget.set('#2ccbd0');
+      _foamTarget.set('#fff3f0');
+      _mintTarget.set('#b5dfe8');
+    } else {
+      _shallowTarget.set('#2896ab');
+      _deepTarget.set('#193f54');
+      _crestTarget.set('#5ce1e6');
+      _reefTarget.set('#12d6df');
+      _foamTarget.set('#f4fbff');
+      _mintTarget.set('#9ee6f5');
+    }
+
+    let targetFrost = 0.0;
+    if (seasonWeights) {
+      const wSpr = seasonWeights.x;
+      const wSum = seasonWeights.y;
+      const wAut = seasonWeights.z;
+      const wWin = seasonWeights.w;
+      const pSpr = SEASON_WATER_PROFILES.spring;
+      const pSum = SEASON_WATER_PROFILES.summer;
+      const pAut = SEASON_WATER_PROFILES.autumn;
+      const pWin = SEASON_WATER_PROFILES.winter;
+
+      const applyTint = (
+        c: THREE.Color,
+        a: [number, number, number],
+        b: [number, number, number],
+        d: [number, number, number],
+        e: [number, number, number],
+      ) => {
+        const r = a[0] * wSpr + b[0] * wSum + d[0] * wAut + e[0] * wWin;
+        const g = a[1] * wSpr + b[1] * wSum + d[1] * wAut + e[1] * wWin;
+        const bl = a[2] * wSpr + b[2] * wSum + d[2] * wAut + e[2] * wWin;
+        c.setRGB(Math.min(1.0, c.r * r), Math.min(1.0, c.g * g), Math.min(1.0, c.b * bl));
+      };
+
+      applyTint(_shallowTarget, pSpr.shallowTint, pSum.shallowTint, pAut.shallowTint, pWin.shallowTint);
+      applyTint(_deepTarget, pSpr.deepTint, pSum.deepTint, pAut.deepTint, pWin.deepTint);
+      applyTint(_crestTarget, pSpr.crestTint, pSum.crestTint, pAut.crestTint, pWin.crestTint);
+      applyTint(_foamTarget, pSpr.foamTint, pSum.foamTint, pAut.foamTint, pWin.foamTint);
+      targetFrost =
+        pSpr.frostStrength * wSpr +
+        pSum.frostStrength * wSum +
+        pAut.frostStrength * wAut +
+        pWin.frostStrength * wWin;
+    }
+
+    mu.uShallowColor.value.lerp(_shallowTarget, 0.08);
+    mu.uDeepColor.value.lerp(_deepTarget, 0.08);
+    mu.uCrestColor.value.lerp(_crestTarget, 0.08);
+    mu.uReefWaterColor.value.lerp(_reefTarget, 0.08);
+    mu.uFoamColor.value.lerp(_foamTarget, 0.08);
+    mu.uFoamMint.value.lerp(_mintTarget, 0.08);
+    mu.uSeasonFrost.value += (targetFrost - mu.uSeasonFrost.value) * 0.12;
+  };
+
+  const dispose = () => {
+    material.dispose();
+  };
+
+  return { material, updateFrame, dispose };
+}
+
 export interface StyledTerrainSystem {
   getMaterials: (terrain: TerrainType) => THREE.MeshStandardMaterial[];
   /** Unified lossless materials for greedy-meshed 32x32 terrain chunks (1 top + 1 cliff + single-draw unifiedMat) */

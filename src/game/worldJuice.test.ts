@@ -15,7 +15,13 @@ import {
   computeElasticPopScale,
   computeHitRecoil,
 } from './worldJuice';
-import { createInitialSimulationState } from './simulation';
+import { TERRAIN_TOOLS } from './catalog';
+import {
+  createInitialSimulationState,
+  executeTerrainDropTileImpact,
+  getTile,
+  stepSimulation,
+} from './simulation';
 import {
   DEFAULT_ZONE_TOGGLES,
   buildZoneOverlayTextures,
@@ -197,4 +203,51 @@ test('computeWorldZones shifts temperature bands with seasons and anchors labels
     assert.equal(bandInfo?.hexColor, lbl.hexColor);
     assert.ok(lbl.subtitle?.endsWith('°C'), 'temperature label should show local °C subtitle');
   }
+});
+
+test('TERRAIN_TOOLS is ordered by player usage frequency with all tools preserved', () => {
+  const types = TERRAIN_TOOLS.map((t) => t.type);
+  assert.equal(types.length, 33);
+  assert.deepEqual(types.slice(0, 8), [
+    'raise',
+    'lower',
+    'flatten',
+    'smooth_terrain',
+    'island_bridge',
+    'water_drop',
+    'carve_river',
+    'abyssal_trench',
+  ]);
+  assert.equal(new Set(types).size, 33, 'all terrain tool types must be unique');
+});
+
+test('water_drop pours dynamic elevated water on slopes without carving height-0 holes and cascades downhill', () => {
+  const sim = createInitialSimulationState(48, 'DYNAMIC-WATER-FLOW-TEST');
+  for (const t of sim.tiles) {
+    t.buildingId = null;
+    t.resourceNode = 'none';
+    t.onFireTimer = 0;
+    delete t.liquidLevel;
+    delete t.liquidKind;
+    // Build a stepped slope from height 4 at x=20 down to height 1 at x=26
+    if (t.x <= 20) t.height = 4;
+    else if (t.x === 21) t.height = 3;
+    else if (t.x === 22) t.height = 2;
+    else t.height = 1;
+    t.terrain = 'grass';
+  }
+
+  const peak = getTile(sim, 20, 24)!;
+  const ok = executeTerrainDropTileImpact(sim, 'water_drop', 20, 24);
+  assert.equal(ok, true);
+  assert.equal(peak.height, 4, 'pouring water on a hilltop must not destroy the hill down to height 0');
+  assert.ok((peak.liquidLevel ?? 0) > peak.height, 'hilltop receives dynamic elevated water');
+
+  // Step simulation so water cascades downhill onto the lower terrace at x=21
+  stepSimulation(sim, 0.2);
+  const lowerStep = getTile(sim, 21, 24)!;
+  assert.ok(
+    (lowerStep.liquidLevel ?? 0) > lowerStep.height,
+    'dynamic water must cascade downhill onto lower neighboring terraces',
+  );
 });

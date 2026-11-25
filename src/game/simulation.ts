@@ -3372,7 +3372,7 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
 
   const prevTimer = liquidFlowTimerByState.get(state) ?? 0;
   const nextTimer = prevTimer + dt;
-  if (nextTimer < 0.35) {
+  if (nextTimer < 0.15) {
     liquidFlowTimerByState.set(state, nextTimer);
     return;
   }
@@ -3383,7 +3383,7 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
   const pendingSea: Array<{ tile: TileData; kind: LiquidKind }> = [];
   const pendingElevated: Array<{ tile: TileData; level: number; kind: LiquidKind }> = [];
   const pendingDrain: Array<{ tile: TileData; nextLevel: number }> = [];
-  const MAX_FLOW_PER_PULSE = 24;
+  const MAX_FLOW_PER_PULSE = 96;
 
   for (let z = 1; z < gs - 1; z++) {
     const rowOff = z * gs;
@@ -3397,7 +3397,7 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
         delete t.liquidKind;
       }
 
-      // A. Elevated stacked liquid spreading / breaching downhill
+      // A. Elevated stacked liquid spreading / cascading downhill under gravity
       if ((t.liquidLevel ?? 0) > t.height && pendingElevated.length < MAX_FLOW_PER_PULSE) {
         const curLevel = t.liquidLevel!;
         const kind: LiquidKind = t.liquidKind ?? 'water';
@@ -3407,10 +3407,27 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
           tiles[rowOff + gs + x],
           tiles[rowOff - gs + x],
         ];
+
+        // Flowing water extinguishes fire and hydrates scorched land beneath it
+        if (kind === 'water') {
+          if (t.onFireTimer > 0) t.onFireTimer = 0;
+          if (t.terrain === 'scorched') {
+            t.terrain = 'grass';
+            syncTileToWorldGrid(ensureWorldGrid(state), t);
+          }
+        }
+
         let spilledDownhill = false;
+        let hasOpenFlatEscape = false;
+        let sameKindNeighbors = 0;
+
         for (let d = 0; d < 4; d++) {
           const nb = nbs[d];
           if (!nb || nb.buildingId) continue;
+          const nbHasSame =
+            (nb.liquidLevel ?? 0) > nb.height && (nb.liquidKind ?? 'water') === kind;
+          if (nbHasSame) sameKindNeighbors++;
+
           const nbSurf = getTileSurfaceHeight(nb);
           if (nbSurf < curLevel) {
             if (nb.height === 0 && getTileLiquidKind(nb) !== null) {
@@ -3420,19 +3437,25 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
               pendingSea.push({ tile: nb, kind });
               spilledDownhill = true;
             } else {
-              // Spread horizontally into a carved gap at the same level, or spill 1 step down a breach
+              // Prioritize gravity drop over cliffs, or equalize horizontally across basins/terraces
+              const isDrop = nb.height < t.height;
               const spreadLevel =
                 nb.height < curLevel - 1 && nbSurf === nb.height
                   ? Math.min(curLevel, nb.height + 1)
                   : curLevel;
               pendingElevated.push({ tile: nb, level: spreadLevel, kind });
-              if (nb.height < t.height) {
+              if (isDrop) {
                 spilledDownhill = true;
+              } else if (curLevel === t.height + 1 && nbSurf === nb.height) {
+                hasOpenFlatEscape = true;
               }
             }
           }
         }
-        if (spilledDownhill) {
+
+        // Drain source when spilling downhill over a cliff/breach, or when a thin 1-layer sheet
+        // on flat open land spreads out and soaks into the soil (enclosed basins stay permanently full!)
+        if (spilledDownhill || (kind === 'water' && hasOpenFlatEscape && curLevel === t.height + 1 && sameKindNeighbors <= 2)) {
           const nextLvl = curLevel - 1;
           pendingDrain.push({ tile: t, nextLevel: nextLvl > t.height ? nextLvl : 0 });
         }
@@ -3518,6 +3541,11 @@ function stepDynamicLiquidFlow(state: SimulationState, dt: number): void {
     } else {
       d.tile.liquidLevel = d.nextLevel;
     }
+    changed++;
+    if (d.tile.x < minX) minX = d.tile.x;
+    if (d.tile.x > maxX) maxX = d.tile.x;
+    if (d.tile.z < minZ) minZ = d.tile.z;
+    if (d.tile.z > maxZ) maxZ = d.tile.z;
   }
 
   for (let i = 0; i < pendingElevated.length; i++) {
@@ -3877,9 +3905,13 @@ export function executeTerrainDropTileImpact(
     const filled = fillLiquidBasin(state, tileX, tileZ, 'water', 220);
     if (filled > 0) {
       changed = true;
-    } else if ((t.liquidLevel ?? 0) > t.height) {
-      // Basin is already brim-full to its rim — do not erode or punch through its floor
-      changed = false;
+    } else if (t.height > 0 && !t.buildingId) {
+      // Pour dynamic elevated water on hills, slopes, terraces, or brim-full basins so it cascades downhill!
+      const nextLvl = Math.min(10, Math.max(t.height + 1, (t.liquidLevel ?? t.height) + 1));
+      changed = applyElevatedLiquidToTile(state, t, nextLvl, 'water');
+      if (changed) {
+        resolveLiquidReactionsAround(state, tileX, tileZ, 3);
+      }
     } else {
       changed = applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height, 0, state);
       if (changed) {
@@ -3952,8 +3984,21 @@ export function executeTerrainDropBatchImpact(
           continue;
         }
       }
-      if (anyBasinHandled || (t.liquidLevel ?? 0) > t.height) {
-        // Already stacked this basin or basin is brim-full: don't carve through its floor or rim
+      if (anyBasinHandled) {
+        // Already stacked this basin during this batch
+        continue;
+      }
+      if (t.height > 0 && !t.buildingId) {
+        // Pour dynamic elevated water onto hills, slopes, or open plains so it cascades & pools naturally!
+        const curLvl = t.liquidLevel ?? t.height;
+        const nextLvl = Math.min(10, Math.max(t.height + 1, curLvl + 1));
+        if (applyElevatedLiquidToTile(state, t, nextLvl, 'water')) {
+          changedCount++;
+          if (t.x < minX) minX = t.x;
+          if (t.x > maxX) maxX = t.x;
+          if (t.z < minZ) minZ = t.z;
+          if (t.z > maxZ) maxZ = t.z;
+        }
         continue;
       }
       if (applyTerrainToolTileMutation(t, toolType, Math.max(1, t.height), t.height, 0, state)) {
