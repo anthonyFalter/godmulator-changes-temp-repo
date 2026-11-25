@@ -6625,6 +6625,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
       } else {
         t.height = 0;
         t.terrain = 'shallow_water';
+        delete t.waterKind;
         t.tempOffset = 0;
       }
     }
@@ -6636,7 +6637,7 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   const skyToolTypes = skyTools.map((d) => d.type).sort();
   assert.deepEqual(
     skyToolTypes,
-    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'lava_drop', 'plant_forest', 'poison_drop', 'salvage_drop', 'seed_ore', 'water_drop'],
+    ['blossom_rain', 'boulder_rain', 'crystal_shower', 'floral_rain', 'lava_drop', 'plant_forest', 'poison_drop', 'salvage_drop', 'seed_ore', 'water_drop'],
     'Only physical sky-dropped items should come from the sky',
   );
 
