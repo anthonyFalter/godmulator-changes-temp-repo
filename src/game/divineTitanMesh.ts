@@ -22,26 +22,26 @@ function createArmorPlateTextures(): {
   colorCanvas.height = size;
   const ctx = colorCanvas.getContext('2d')!;
 
-  // Bright imperial sci-fi brushed titanium / silver-white hull plating (never black)
+  // Tactical military sci-fi greenish-grey (olive-slate) titanium hull plating
   const bg = ctx.createLinearGradient(0, 0, size, size);
-  bg.addColorStop(0, '#eef3f8');
-  bg.addColorStop(0.5, '#dde5ef');
-  bg.addColorStop(1, '#cad4e2');
+  bg.addColorStop(0, '#7c8a7f');
+  bg.addColorStop(0.5, '#68766c');
+  bg.addColorStop(1, '#546158');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, size, size);
 
-  // Brushed directional alloy grain & metallic micro-scratches
+  // Brushed directional alloy grain & battle micro-scratches
   for (let i = 0; i < 2400; i++) {
     const x = (i * 197) % size;
     const y = (i * 353) % size;
     const w = 10 + (i % 42);
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.14)' : 'rgba(70,86,108,0.06)';
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(210,226,214,0.09)' : 'rgba(26,34,29,0.10)';
     ctx.fillRect(x, y, w, 1.5);
   }
 
   // Crisp armored panel seams with chamfered bevel highlights
   const grid = [0, 128, 256, 384, 512];
-  ctx.strokeStyle = 'rgba(54, 68, 88, 0.72)';
+  ctx.strokeStyle = 'rgba(28, 36, 31, 0.78)';
   ctx.lineWidth = 4;
   for (const g of grid) {
     ctx.beginPath();
@@ -53,8 +53,8 @@ function createArmorPlateTextures(): {
     ctx.lineTo(size, g);
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-  ctx.lineWidth = 1.8;
+  ctx.strokeStyle = 'rgba(195, 212, 198, 0.42)';
+  ctx.lineWidth = 1.6;
   for (const g of [131, 259, 387]) {
     ctx.beginPath();
     ctx.moveTo(g, 0);
@@ -73,21 +73,21 @@ function createArmorPlateTextures(): {
       const by = gy * 128;
       if ((gx + gy) % 2 === 0) {
         // Louvered exhaust vent
-        ctx.fillStyle = '#4f5d70';
+        ctx.fillStyle = '#313a34';
         ctx.fillRect(bx + 22, by + 26, 84, 34);
         for (let lv = 0; lv < 5; lv++) {
-          ctx.fillStyle = '#bcc8d8';
+          ctx.fillStyle = '#7e8c81';
           ctx.fillRect(bx + 25, by + 29 + lv * 6, 78, 3);
         }
       } else {
-        // Diagonal conquest hazard stripe band (crimson & silver-steel)
+        // Diagonal tactical hazard stripe band (crimson-amber & olive-slate)
         ctx.save();
         ctx.beginPath();
         ctx.rect(bx + 14, by + 92, 100, 18);
         ctx.clip();
-        ctx.fillStyle = '#5a687b';
+        ctx.fillStyle = '#38423b';
         ctx.fillRect(bx + 14, by + 92, 100, 18);
-        ctx.fillStyle = '#c82824';
+        ctx.fillStyle = '#b43428';
         for (let s = -20; s < 120; s += 20) {
           ctx.beginPath();
           ctx.moveTo(bx + 14 + s, by + 110);
@@ -109,11 +109,11 @@ function createArmorPlateTextures(): {
         [64, 12],
         [64, 116],
       ]) {
-        ctx.fillStyle = '#48566a';
+        ctx.fillStyle = '#2b342e';
         ctx.beginPath();
         ctx.arc(bx + ox, by + oy, 3.4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = '#b8c7bc';
         ctx.beginPath();
         ctx.arc(bx + ox - 0.8, by + oy - 0.8, 1.5, 0, Math.PI * 2);
         ctx.fill();
@@ -122,7 +122,7 @@ function createArmorPlateTextures(): {
   }
 
   // Metallic edge wear highlights
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+  ctx.strokeStyle = 'rgba(205, 222, 210, 0.28)';
   ctx.lineWidth = 2;
   for (let i = 0; i < 18; i++) {
     const sx = (i * 89) % size;
@@ -204,18 +204,18 @@ function createMechFrameTextures(): {
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
 
-  // Brushed industrial steel (readable metallic grey, not black)
-  ctx.fillStyle = '#627083';
+  // Weathered greenish-slate industrial steel frame
+  ctx.fillStyle = '#48544c';
   ctx.fillRect(0, 0, size, size);
 
   // Heavy industrial hydraulic ribs & cross-braced steel mesh
   for (let y = 0; y < size; y += 12) {
-    ctx.fillStyle = 'rgba(38, 48, 62, 0.58)';
+    ctx.fillStyle = 'rgba(24, 31, 27, 0.62)';
     ctx.fillRect(0, y, size, 4);
-    ctx.fillStyle = 'rgba(220, 232, 246, 0.25)';
+    ctx.fillStyle = 'rgba(175, 194, 180, 0.22)';
     ctx.fillRect(0, y + 4, size, 2);
   }
-  ctx.strokeStyle = 'rgba(205, 220, 236, 0.24)';
+  ctx.strokeStyle = 'rgba(165, 184, 170, 0.22)';
   ctx.lineWidth = 2;
   for (let i = -size; i < size * 2; i += 32) {
     ctx.beginPath();
@@ -383,6 +383,11 @@ const TITAN_CHASSIS_Y = 2.75;
 interface TitanLegRig {
   side: -1 | 1; // -1 left, +1 right
   front: -1 | 1; // +1 front, -1 rear
+  hipX: number;
+  hipY: number;
+  hipZ: number;
+  homeLocalX: number;
+  homeLocalZ: number;
   baseYaw: number;
   femurBaseZ: number;
   kneeBaseZ: number;
@@ -391,6 +396,19 @@ interface TitanLegRig {
   femurPivot: THREE.Group;
   kneePivot: THREE.Group;
   anklePivot: THREE.Group;
+  // World-space foot-locked Inverse Kinematics state
+  ikInitialized: boolean;
+  footX: number;
+  footY: number;
+  footZ: number;
+  isStepping: boolean;
+  stepProgress: number;
+  stepFromX: number;
+  stepFromY: number;
+  stepFromZ: number;
+  stepToX: number;
+  stepToY: number;
+  stepToZ: number;
 }
 
 interface TitanModelRig {
@@ -425,48 +443,48 @@ function buildDivineTitanModel(): TitanModelRig {
   track(frameTex.map);
   track(frameTex.bumpMap);
 
-  // Imperial sci-fi conqueror materials: bright brushed titanium silver-white, machined steel, burnished gold, crimson plasma (never black!)
+  // Tactical military sci-fi greenish-grey (olive-slate) armor palette
   const armorDarkMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xd5deea,
+      color: 0x8a9a8e,
       map: armorTex.map,
       bumpMap: armorTex.bumpMap,
-      bumpScale: 0.06,
-      metalness: 0.42,
-      roughness: 0.32,
+      bumpScale: 0.065,
+      metalness: 0.48,
+      roughness: 0.36,
     }),
   );
 
   const armorHighlightMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xeef3f9,
+      color: 0xa4b4a8,
       map: armorTex.map,
       bumpMap: armorTex.bumpMap,
       bumpScale: 0.055,
-      metalness: 0.38,
-      roughness: 0.28,
+      metalness: 0.44,
+      roughness: 0.32,
     }),
   );
 
   const armorObsidianMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0x8d9bad,
+      color: 0x5c6960,
       map: armorTex.map,
       bumpMap: armorTex.bumpMap,
-      bumpScale: 0.05,
-      metalness: 0.56,
-      roughness: 0.34,
+      bumpScale: 0.055,
+      metalness: 0.58,
+      roughness: 0.38,
     }),
   );
 
   const frameMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0x6b7a8e,
+      color: 0x627066,
       map: frameTex.map,
       bumpMap: frameTex.bumpMap,
       bumpScale: 0.06,
-      metalness: 0.68,
-      roughness: 0.34,
+      metalness: 0.7,
+      roughness: 0.35,
     }),
   );
 
@@ -806,53 +824,67 @@ function buildDivineTitanModel(): TitanModelRig {
   }
 
   // =========================================================================
-  // 6. FOUR ULTRA-DETAILED MECHANICAL SPIDER-TANK LEGS (Radial X-Stance!)
+  // 6. FOUR CHUNKY ARMORED HEAVY WAR-MECH SPIDER LEGS (Radial X-Stance + IK!)
   // =========================================================================
   const legs: TitanLegRig[] = [];
-  const coxaTurretGeo = track(new THREE.CylinderGeometry(0.46, 0.52, 0.72, 24));
-  const coxaGearGeo = track(new THREE.TorusGeometry(0.5, 0.08, 10, 24));
-  const hipSkirtGeo = track(new THREE.BoxGeometry(0.76, 0.44, 0.82));
-  const femurTrussGeo = track(new THREE.BoxGeometry(2.05, 0.36, 0.42));
-  const femurArmorGeo = track(new THREE.BoxGeometry(1.75, 0.54, 0.62));
-  const femurVeinGeo = track(new THREE.BoxGeometry(1.55, 0.1, 0.68));
-  const pistonOuterGeo = track(new THREE.CylinderGeometry(0.11, 0.11, 1.15, 16));
-  const pistonInnerGeo = track(new THREE.CylinderGeometry(0.068, 0.068, 1.48, 16));
-  const kneeDrumGeo = track(new THREE.CylinderGeometry(0.42, 0.42, 0.68, 24));
-  const kneeCapGeo = track(new THREE.CylinderGeometry(0.25, 0.25, 0.76, 20));
-  const kneeSpikeGeo = track(new THREE.ConeGeometry(0.26, 0.85, 6));
-  const tibiaRailGeo = track(new THREE.BoxGeometry(3.55, 0.16, 0.2));
-  const tibiaGreaveGeo = track(new THREE.BoxGeometry(2.45, 0.34, 0.54));
-  const tibiaPistonGeo = track(new THREE.CylinderGeometry(0.072, 0.072, 2.75, 14));
-  const ankleDrumGeo = track(new THREE.CylinderGeometry(0.28, 0.28, 0.58, 20));
+  const COXA_OFFSET = 0.48;
+  const FEMUR_LEN = 2.15;
+  const TIBIA_LEN = 3.65;
+  const FEMUR_BASE_Z = 0.51;
+  const KNEE_BASE_Z = -1.77;
+  const HOME_RADIAL = COXA_OFFSET + 3.0; // ~3.48 local units radially from hip
 
-  // Heavy central siege-toe blade pointing along +X (radially outward!)
+  // Heavy chunky mechanical geometries
+  const coxaTurretGeo = track(new THREE.CylinderGeometry(0.64, 0.72, 0.92, 24));
+  const coxaGearGeo = track(new THREE.TorusGeometry(0.68, 0.11, 12, 24));
+  const hipSkirtGeo = track(new THREE.BoxGeometry(1.05, 0.64, 1.16));
+
+  // Massive armored femur box + beveled outer side shields + rib collars + thick hydraulics
+  const femurCoreGeo = track(new THREE.BoxGeometry(FEMUR_LEN, 0.64, 0.74));
+  const femurArmorShellGeo = track(new THREE.BoxGeometry(1.88, 0.84, 1.02));
+  const femurCapPlateGeo = track(new THREE.BoxGeometry(1.52, 0.24, 1.12));
+  const femurRibGeo = track(new THREE.BoxGeometry(0.24, 0.94, 1.08));
+  const femurVeinGeo = track(new THREE.BoxGeometry(1.5, 0.14, 1.08));
+  const pistonOuterGeo = track(new THREE.CylinderGeometry(0.16, 0.16, 1.25, 16));
+  const pistonInnerGeo = track(new THREE.CylinderGeometry(0.1, 0.1, 1.65, 16));
+
+  // Massive knee joint block with heavy calipers & armored knee cowl
+  const kneeDrumGeo = track(new THREE.CylinderGeometry(0.62, 0.62, 1.08, 24));
+  const kneeCapGeo = track(new THREE.CylinderGeometry(0.38, 0.38, 1.2, 20));
+  const kneeShieldGeo = track(new THREE.BoxGeometry(1.05, 0.92, 1.18));
+  const kneeSpikeGeo = track(new THREE.ConeGeometry(0.34, 0.95, 6));
+
+  // Chunky armored siege-tibia (thick tapered armor housing, NOT thin sticks!)
+  const tibiaCoreGeo = track(new THREE.BoxGeometry(TIBIA_LEN, 0.52, 0.64));
+  const tibiaUpperArmorGeo = track(new THREE.BoxGeometry(1.85, 0.86, 0.96));
+  const tibiaLowerArmorGeo = track(new THREE.BoxGeometry(1.65, 0.72, 0.82));
+  const tibiaSidePlateGeo = track(new THREE.BoxGeometry(2.65, 0.56, 0.18));
+  const tibiaPistonOuterGeo = track(new THREE.CylinderGeometry(0.15, 0.15, 1.85, 16));
+  const tibiaPistonInnerGeo = track(new THREE.CylinderGeometry(0.095, 0.095, 2.85, 14));
+  const ankleDrumGeo = track(new THREE.CylinderGeometry(0.42, 0.42, 0.86, 20));
+
+  // Wide heavy armored mechanical spider foot
   const footToeShape = new THREE.Shape();
-  footToeShape.moveTo(-0.32, 0);
-  footToeShape.lineTo(1.48, 0.02);
-  footToeShape.lineTo(1.22, 0.3);
-  footToeShape.lineTo(0.32, 0.48);
-  footToeShape.lineTo(-0.34, 0.4);
+  footToeShape.moveTo(-0.42, 0);
+  footToeShape.lineTo(1.58, 0.02);
+  footToeShape.lineTo(1.34, 0.38);
+  footToeShape.lineTo(0.36, 0.62);
+  footToeShape.lineTo(-0.46, 0.52);
   footToeShape.closePath();
   const footToeGeo = track(
     new THREE.ExtrudeGeometry(footToeShape, {
-      depth: 0.44,
+      depth: 0.78,
       bevelEnabled: true,
-      bevelThickness: 0.06,
-      bevelSize: 0.05,
+      bevelThickness: 0.08,
+      bevelSize: 0.06,
       bevelSegments: 3,
     }),
   );
   footToeGeo.center();
 
-  const sideTalonGeo = track(new THREE.BoxGeometry(0.92, 0.22, 0.2));
-  const heelClawGeo = track(new THREE.BoxGeometry(0.76, 0.26, 0.42));
-  const footPadGlowGeo = track(new THREE.BoxGeometry(0.44, 0.09, 0.34));
-
-  // Radial X-stance spider corners (+X in local leg space points radially outward)
-  const FEMUR_LEN = 2.05;
-  const TIBIA_LEN = 3.62;
-  const FEMUR_BASE_Z = 0.52;   // Arches UPWARD & OUTWARD like a spider femur!
-  const KNEE_BASE_Z = -1.78;   // Drops steeply DOWNWARD like a spider tibia!
+  const sideTalonGeo = track(new THREE.BoxGeometry(1.12, 0.34, 0.36));
+  const heelClawGeo = track(new THREE.BoxGeometry(0.95, 0.38, 0.74));
+  const footPadGlowGeo = track(new THREE.BoxGeometry(0.54, 0.12, 0.52));
 
   const legSpecs: Array<{
     side: -1 | 1;
@@ -863,19 +895,20 @@ function buildDivineTitanModel(): TitanModelRig {
     phaseOffset: number;
   }> = [
     // Front-Right (+X, +Z)
-    { side: 1, front: 1, x: 1.38, z: 1.08, baseYaw: -Math.PI * 0.26, phaseOffset: 0 },
-    // Rear-Left (-X, -Z) — paired diagonally with Front-Right
-    { side: -1, front: -1, x: -1.38, z: -1.08, baseYaw: Math.PI * 0.74, phaseOffset: 0.35 },
+    { side: 1, front: 1, x: 1.42, z: 1.1, baseYaw: -Math.PI * 0.26, phaseOffset: 0 },
+    // Rear-Left (-X, -Z)
+    { side: -1, front: -1, x: -1.42, z: -1.1, baseYaw: Math.PI * 0.74, phaseOffset: 0.35 },
     // Front-Left (-X, +Z)
-    { side: -1, front: 1, x: -1.38, z: 1.08, baseYaw: -Math.PI * 0.74, phaseOffset: Math.PI },
-    // Rear-Right (+X, -Z) — paired diagonally with Front-Left
-    { side: 1, front: -1, x: 1.38, z: -1.08, baseYaw: Math.PI * 0.26, phaseOffset: Math.PI + 0.35 },
+    { side: -1, front: 1, x: -1.42, z: 1.1, baseYaw: -Math.PI * 0.74, phaseOffset: Math.PI },
+    // Rear-Right (+X, -Z)
+    { side: 1, front: -1, x: 1.42, z: -1.1, baseYaw: Math.PI * 0.26, phaseOffset: Math.PI + 0.35 },
   ];
 
   for (const spec of legSpecs) {
-    // 1. Vertical Coxa Yaw Turret (swivels horizontally like a real spider-tank!)
+    const hipY = CHASSIS_Y - 0.14;
+    // 1. Heavy Vertical Coxa Yaw Turret
     const coxaYawPivot = new THREE.Group();
-    coxaYawPivot.position.set(spec.x, CHASSIS_Y - 0.14, spec.z);
+    coxaYawPivot.position.set(spec.x, hipY, spec.z);
     coxaYawPivot.rotation.y = spec.baseYaw;
     bodyGroup.add(coxaYawPivot);
 
@@ -885,51 +918,63 @@ function buildDivineTitanModel(): TitanModelRig {
 
     const coxaGear = new THREE.Mesh(coxaGearGeo, bronzeTrimMat);
     coxaGear.rotation.x = Math.PI / 2;
-    coxaGear.position.y = -0.22;
+    coxaGear.position.y = -0.28;
     coxaYawPivot.add(coxaGear);
 
     const hipSkirt = new THREE.Mesh(hipSkirtGeo, armorHighlightMat);
-    hipSkirt.position.set(0.32, 0.22, 0);
+    hipSkirt.position.set(0.36, 0.26, 0);
     hipSkirt.rotation.z = -0.22;
     hipSkirt.castShadow = true;
     coxaYawPivot.add(hipSkirt);
 
-    // 2. High-Arched Spider Femur Pivot (rotates around local Z to lift leg up & down!)
+    // 2. Massive Chunky Armored Femur
     const femurPivot = new THREE.Group();
-    femurPivot.position.set(0.42, 0, 0);
+    femurPivot.position.set(COXA_OFFSET, 0, 0);
     femurPivot.rotation.z = FEMUR_BASE_Z;
     coxaYawPivot.add(femurPivot);
 
-    const femurTruss = new THREE.Mesh(femurTrussGeo, frameMat);
-    femurTruss.position.set(FEMUR_LEN * 0.5, 0, 0);
-    femurTruss.castShadow = true;
-    femurPivot.add(femurTruss);
+    const femurCore = new THREE.Mesh(femurCoreGeo, frameMat);
+    femurCore.position.set(FEMUR_LEN * 0.5, 0, 0);
+    femurCore.castShadow = true;
+    femurPivot.add(femurCore);
 
-    const femurArmor = new THREE.Mesh(femurArmorGeo, armorDarkMat);
-    femurArmor.position.set(FEMUR_LEN * 0.5, 0.16, 0);
+    const femurArmor = new THREE.Mesh(femurArmorShellGeo, armorDarkMat);
+    femurArmor.position.set(FEMUR_LEN * 0.5, 0.14, 0);
     femurArmor.castShadow = true;
     femurArmor.receiveShadow = true;
     femurPivot.add(femurArmor);
 
-    // Glowing crimson hydraulic conduit along femur sides
+    const femurCap = new THREE.Mesh(femurCapPlateGeo, armorHighlightMat);
+    femurCap.position.set(FEMUR_LEN * 0.48, 0.54, 0);
+    femurCap.castShadow = true;
+    femurPivot.add(femurCap);
+
+    // Heavy bolted rib collars wrapping the femur
+    for (const rx of [0.55, 1.55]) {
+      const rib = new THREE.Mesh(femurRibGeo, armorObsidianMat);
+      rib.position.set(rx, 0.14, 0);
+      femurPivot.add(rib);
+    }
+
+    // Glowing crimson hydraulic conduit recessed on femur sides
     const femurVein = new THREE.Mesh(femurVeinGeo, glowCrimsonMat);
     femurVein.position.set(FEMUR_LEN * 0.5, 0.08, 0);
     femurPivot.add(femurVein);
 
-    // Dual chrome hydraulic lift rams underneath femur
-    for (const pz of [-0.24, 0.24]) {
+    // Dual thick chrome hydraulic lift rams underneath femur
+    for (const pz of [-0.36, 0.36]) {
       const pOuter = new THREE.Mesh(pistonOuterGeo, armorObsidianMat);
       pOuter.rotation.z = Math.PI / 2;
-      pOuter.position.set(0.68, -0.26, pz);
+      pOuter.position.set(0.72, -0.38, pz);
       femurPivot.add(pOuter);
 
       const pInner = new THREE.Mesh(pistonInnerGeo, chromeMat);
       pInner.rotation.z = Math.PI / 2;
-      pInner.position.set(1.18, -0.26, pz);
+      pInner.position.set(1.24, -0.38, pz);
       femurPivot.add(pInner);
     }
 
-    // 3. Raised Mechanical Spider Knee Joint (rotates around local Z to reach & stomp!)
+    // 3. Colossal Armored Knee Joint & Chunky Siege-Tibia
     const kneePivot = new THREE.Group();
     kneePivot.position.set(FEMUR_LEN, 0, 0);
     kneePivot.rotation.z = KNEE_BASE_Z;
@@ -944,36 +989,58 @@ function buildDivineTitanModel(): TitanModelRig {
     kneeCap.rotation.x = Math.PI / 2;
     kneePivot.add(kneeCap);
 
-    // Aggressive spiked armor crest atop the high spider knee
+    const kneeShield = new THREE.Mesh(kneeShieldGeo, armorHighlightMat);
+    kneeShield.position.set(-0.18, 0.24, 0);
+    kneeShield.rotation.z = -0.35;
+    kneeShield.castShadow = true;
+    kneePivot.add(kneeShield);
+
     const kneeSpike = new THREE.Mesh(kneeSpikeGeo, crimsonArmorMat);
-    kneeSpike.rotation.z = -0.55;
-    kneeSpike.position.set(-0.36, 0.48, 0);
+    kneeSpike.rotation.z = -0.58;
+    kneeSpike.position.set(-0.55, 0.68, 0);
     kneeSpike.castShadow = true;
     kneePivot.add(kneeSpike);
 
-    // Dual-rail skeletal spider tibia dropping steeply to the ground
-    for (const rz of [-0.18, 0.18]) {
-      const rail = new THREE.Mesh(tibiaRailGeo, frameMat);
-      rail.position.set(TIBIA_LEN * 0.5, 0, rz);
-      rail.castShadow = true;
-      kneePivot.add(rail);
+    // Thick inner tibia frame + upper & lower heavy armor greaves
+    const tibiaCore = new THREE.Mesh(tibiaCoreGeo, frameMat);
+    tibiaCore.position.set(TIBIA_LEN * 0.5, 0, 0);
+    tibiaCore.castShadow = true;
+    kneePivot.add(tibiaCore);
+
+    const tibiaUpper = new THREE.Mesh(tibiaUpperArmorGeo, armorDarkMat);
+    tibiaUpper.position.set(1.12, 0.14, 0);
+    tibiaUpper.castShadow = true;
+    tibiaUpper.receiveShadow = true;
+    kneePivot.add(tibiaUpper);
+
+    const tibiaLower = new THREE.Mesh(tibiaLowerArmorGeo, armorHighlightMat);
+    tibiaLower.position.set(2.58, 0.1, 0);
+    tibiaLower.castShadow = true;
+    tibiaLower.receiveShadow = true;
+    kneePivot.add(tibiaLower);
+
+    // Heavy side armor plates flanking the tibia
+    for (const sz of [-0.46, 0.46]) {
+      const sidePlate = new THREE.Mesh(tibiaSidePlateGeo, armorObsidianMat);
+      sidePlate.position.set(1.78, 0.1, sz);
+      sidePlate.castShadow = true;
+      kneePivot.add(sidePlate);
     }
 
-    const tibiaGreave = new THREE.Mesh(tibiaGreaveGeo, armorHighlightMat);
-    tibiaGreave.position.set(TIBIA_LEN * 0.44, 0.22, 0);
-    tibiaGreave.castShadow = true;
-    tibiaGreave.receiveShadow = true;
-    kneePivot.add(tibiaGreave);
+    // Thick rear tibia hydraulic shock-absorber rams
+    for (const sz of [-0.32, 0.32]) {
+      const pOut = new THREE.Mesh(tibiaPistonOuterGeo, armorObsidianMat);
+      pOut.rotation.z = Math.PI / 2;
+      pOut.position.set(1.15, -0.36, sz);
+      kneePivot.add(pOut);
 
-    // Twin chrome tibia shock-absorber pistons
-    for (const sz of [-0.24, 0.24]) {
-      const shock = new THREE.Mesh(tibiaPistonGeo, chromeMat);
-      shock.rotation.z = Math.PI / 2;
-      shock.position.set(TIBIA_LEN * 0.46, -0.2, sz);
-      kneePivot.add(shock);
+      const pIn = new THREE.Mesh(tibiaPistonInnerGeo, chromeMat);
+      pIn.rotation.z = Math.PI / 2;
+      pIn.position.set(1.88, -0.36, sz);
+      kneePivot.add(pIn);
     }
 
-    // 4. Auto-Leveling Ankle & 3-Clawed Mechanical Spider Foot
+    // 4. Heavy Auto-Leveling Ankle & Wide 3-Clawed Siege Spider Foot
     const anklePivot = new THREE.Group();
     anklePivot.position.set(TIBIA_LEN, 0, 0);
     anklePivot.rotation.z = -(FEMUR_BASE_Z + KNEE_BASE_Z);
@@ -984,32 +1051,40 @@ function buildDivineTitanModel(): TitanModelRig {
     anklePivot.add(ankleDrum);
 
     const footToe = new THREE.Mesh(footToeGeo, armorDarkMat);
-    footToe.position.set(0.54, -0.1, 0);
+    footToe.position.set(0.56, -0.1, 0);
     footToe.castShadow = true;
     footToe.receiveShadow = true;
     anklePivot.add(footToe);
 
-    // Flanking splayed mechanical spider talons
     for (const ts of [-1, 1] as const) {
       const talon = new THREE.Mesh(sideTalonGeo, armorHighlightMat);
-      talon.position.set(0.36, -0.14, ts * 0.42);
+      talon.position.set(0.38, -0.14, ts * 0.56);
       talon.rotation.y = ts * -0.36;
       talon.castShadow = true;
       anklePivot.add(talon);
     }
 
     const heelClaw = new THREE.Mesh(heelClawGeo, armorObsidianMat);
-    heelClaw.position.set(-0.42, -0.12, 0);
+    heelClaw.position.set(-0.48, -0.12, 0);
     heelClaw.castShadow = true;
     anklePivot.add(heelClaw);
 
     const footGlow = new THREE.Mesh(footPadGlowGeo, glowCrimsonMat);
-    footGlow.position.set(0.28, 0.08, 0);
+    footGlow.position.set(0.3, 0.14, 0);
     anklePivot.add(footGlow);
+
+    // Ideal rest foot position in bodyGroup local space (for world-space IK foot locking!)
+    const homeLocalX = spec.x + Math.cos(spec.baseYaw) * HOME_RADIAL;
+    const homeLocalZ = spec.z - Math.sin(spec.baseYaw) * HOME_RADIAL;
 
     legs.push({
       side: spec.side,
       front: spec.front,
+      hipX: spec.x,
+      hipY,
+      hipZ: spec.z,
+      homeLocalX,
+      homeLocalZ,
       baseYaw: spec.baseYaw,
       femurBaseZ: FEMUR_BASE_Z,
       kneeBaseZ: KNEE_BASE_Z,
@@ -1018,6 +1093,18 @@ function buildDivineTitanModel(): TitanModelRig {
       femurPivot,
       kneePivot,
       anklePivot,
+      ikInitialized: false,
+      footX: 0,
+      footY: 0,
+      footZ: 0,
+      isStepping: false,
+      stepProgress: 0,
+      stepFromX: 0,
+      stepFromY: 0,
+      stepFromZ: 0,
+      stepToX: 0,
+      stepToY: 0,
+      stepToZ: 0,
     });
   }
 
@@ -1556,7 +1643,7 @@ export class DivineTitanRenderer {
 
   public update(
     sim: SimulationState,
-    _dt: number,
+    dt: number,
     elapsedTotal: number,
     sampleGroundY: (x: number, z: number) => number,
   ): void {
@@ -1566,6 +1653,10 @@ export class DivineTitanRenderer {
       this.cursorReticle.visible = false;
       this.leapPreviewRing.visible = false;
       this.skyBeamGroup.visible = false;
+      for (const leg of this.rig.legs) {
+        leg.ikInitialized = false;
+        leg.isStepping = false;
+      }
       this.clearDynamicEffects();
       return;
     }
@@ -1584,8 +1675,8 @@ export class DivineTitanRenderer {
     (this.rig.muzzleFlashRight.material as THREE.MeshBasicMaterial).opacity =
       titan.recoilRight > 0.65 ? (titan.recoilRight - 0.65) * 2.8 : 0;
 
-    // Animate 4-legged heavy walker gait & jump poses
-    this.animateRig(titan, elapsedTotal);
+    // Animate 4-legged heavy spider-mech with true world-space foot-locked IK
+    this.animateRig(titan, dt, elapsedTotal, sampleGroundY);
 
     // Cursor red target icon on the ground
     if (titan.phase === 'active' || titan.phase === 'jumping') {
@@ -1621,7 +1712,12 @@ export class DivineTitanRenderer {
     this.syncOrbitalStrikes(titan.orbitalStrikes, elapsedTotal, sampleGroundY);
   }
 
-  private animateRig(titan: DivineTitanState, elapsedTotal: number): void {
+  private animateRig(
+    titan: DivineTitanState,
+    dt: number,
+    elapsedTotal: number,
+    sampleGroundY: (x: number, z: number) => number,
+  ): void {
     const isMoving = titan.phase === 'active' && titan.moveSpeed > 0.25;
     let bodyBobY = 0;
     let bodyPitch = 0;
@@ -1634,7 +1730,6 @@ export class DivineTitanRenderer {
       bodyBobY = (1 - t) * 2.4;
     } else if (titan.phase === 'exiting') {
       const t = Math.min(1, titan.phaseTimer / TITAN_EXIT_DURATION);
-      // First 0.35s laser strikes down onto Titan; then Titan dissolves & shrinks into light
       const dissolveT = Math.max(0, (t - 0.35) / 0.65);
       scaleFactor = Math.max(0.01, TITAN_BASE_SCALE * (1 - dissolveT * dissolveT));
       bodyBobY = dissolveT * 1.6;
@@ -1648,14 +1743,12 @@ export class DivineTitanRenderer {
         bodyPitch = (0.5 - flightT) * 0.45;
       }
     } else if (isMoving) {
-      // Heavy stomp-weighted war-walker lurch: slow rise, sharp heavy compression dip on stomp
       const stepWave = Math.abs(Math.sin(titan.walkCycle));
-      bodyBobY = Math.pow(stepWave, 0.72) * 0.34 - 0.12;
-      bodyPitch = Math.sin(titan.walkCycle * 2) * 0.055;
-      bodyRoll = Math.cos(titan.walkCycle) * 0.065;
+      bodyBobY = Math.pow(stepWave, 0.72) * 0.24 - 0.08;
+      bodyPitch = Math.sin(titan.walkCycle * 2) * 0.035;
+      bodyRoll = Math.cos(titan.walkCycle) * 0.04;
     } else {
-      // Slow ominous mechanical idle thrum
-      bodyBobY = Math.sin(elapsedTotal * 1.8) * 0.05;
+      bodyBobY = Math.sin(elapsedTotal * 1.8) * 0.045;
     }
 
     this.rig.root.scale.setScalar(scaleFactor);
@@ -1680,54 +1773,190 @@ export class DivineTitanRenderer {
       flame.scale.set(flameScale * 0.68, flameScale, flameScale * 0.68);
     }
 
-    // 4-leg mechanical SPIDER-TANK gait: horizontal coxa yaw sweep + high vertical femur lift + hydraulic stomp
-    for (const leg of this.rig.legs) {
-      let targetYaw = leg.baseYaw;
-      let targetFemurZ = leg.femurBaseZ;
-      let targetKneeZ = leg.kneeBaseZ;
+    // =========================================================================
+    // WORLD-SPACE FOOT-LOCKED 3-DOF ANALYTICAL SPIDER INVERSE KINEMATICS
+    // Feet stay planted on exact world coordinates while walking AND rotating!
+    // =========================================================================
+    const COXA_OFFSET = 0.48;
+    const FEMUR_LEN = 2.15;
+    const TIBIA_LEN = 3.65;
+    const FOOT_H = 0.22;
 
-      if (titan.phase === 'jumping') {
-        if (titan.jumpElapsed < titan.jumpWindup) {
-          // Deep arachnid coil crouch before leap
-          const w = titan.jumpElapsed / Math.max(0.01, titan.jumpWindup);
-          targetFemurZ = leg.femurBaseZ + 0.42 * w;
-          targetKneeZ = leg.kneeBaseZ - 0.36 * w;
-        } else {
-          // Dynamic airborne spider-leg splay/tuck
-          targetFemurZ = leg.femurBaseZ - 0.34;
-          targetKneeZ = leg.kneeBaseZ + 0.48;
-        }
-      } else if (isMoving) {
-        const cyc = titan.walkCycle + leg.phaseOffset;
-        const liftSin = Math.sin(cyc);
-        // Horizontal sweep: -cos(cyc) moves from rear (-1) -> front (+1) while lifted (sin > 0),
-        // and pushes from front (+1) -> rear (-1) while planted on ground (sin <= 0).
-        const sweep = -Math.cos(cyc) * 0.32;
-        targetYaw = leg.baseYaw - leg.side * sweep;
+    // During jump flight / summoning / exiting, use posed legs and reset IK for clean landing
+    if (titan.phase === 'jumping' && titan.jumpElapsed >= titan.jumpWindup) {
+      for (const leg of this.rig.legs) {
+        leg.ikInitialized = false;
+        leg.isStepping = false;
+        leg.coxaYawPivot.rotation.y += (leg.baseYaw - leg.coxaYawPivot.rotation.y) * 0.25;
+        leg.femurPivot.rotation.z += (leg.femurBaseZ - 0.34 - leg.femurPivot.rotation.z) * 0.25;
+        leg.kneePivot.rotation.z += (leg.kneeBaseZ + 0.48 - leg.kneePivot.rotation.z) * 0.25;
+        leg.anklePivot.rotation.z = -(leg.femurPivot.rotation.z + leg.kneePivot.rotation.z);
+      }
+      return;
+    }
 
-        if (liftSin > 0) {
-          // High mechanical spider lift & sharp knee reach before driving straight down
-          const lift = Math.pow(liftSin, 0.72);
-          targetFemurZ = leg.femurBaseZ + lift * 0.56;
-          targetKneeZ = leg.kneeBaseZ - lift * 0.24;
-        } else {
-          // Firmly planted stance compressing slightly under the Titan's immense mass
-          const stance = -liftSin;
-          targetFemurZ = leg.femurBaseZ - stance * 0.06;
-          targetKneeZ = leg.kneeBaseZ + stance * 0.08;
-        }
-      } else {
-        // Subtle hydraulic idle stabilization
-        const idleBreath = Math.sin(elapsedTotal * 1.8 + leg.phaseOffset) * 0.025;
-        targetFemurZ = leg.femurBaseZ + idleBreath;
-        targetKneeZ = leg.kneeBaseZ - idleBreath;
+    if (titan.phase === 'summoning' || titan.phase === 'exiting') {
+      for (const leg of this.rig.legs) {
+        leg.ikInitialized = false;
+        leg.isStepping = false;
+        leg.coxaYawPivot.rotation.y = leg.baseYaw;
+        leg.femurPivot.rotation.z = leg.femurBaseZ;
+        leg.kneePivot.rotation.z = leg.kneeBaseZ;
+        leg.anklePivot.rotation.z = -(leg.femurBaseZ + leg.kneeBaseZ);
+      }
+      return;
+    }
+
+    const clampedDt = Math.min(0.08, Math.max(0.001, dt));
+    const cosYaw = Math.cos(titan.bodyYaw);
+    const sinYaw = Math.sin(titan.bodyYaw);
+
+    // Lead foot targets slightly ahead of movement direction so steps plant forward naturally
+    const leadMag = isMoving ? Math.min(1.35, titan.moveSpeed * 0.34) : 0;
+    const leadX = Math.sin(titan.bodyYaw) * leadMag;
+    const leadZ = Math.cos(titan.bodyYaw) * leadMag;
+
+    // 1. Compute ideal world-space home position for each leg
+    const homeTargets: Array<{ x: number; y: number; z: number; err: number }> = [];
+    for (let i = 0; i < this.rig.legs.length; i++) {
+      const leg = this.rig.legs[i];
+      const hx = titan.x + (leg.homeLocalX * cosYaw + leg.homeLocalZ * sinYaw) * scaleFactor + leadX;
+      const hz = titan.z + (-leg.homeLocalX * sinYaw + leg.homeLocalZ * cosYaw) * scaleFactor + leadZ;
+      const hy = sampleGroundY(hx, hz);
+
+      if (!leg.ikInitialized) {
+        leg.footX = hx;
+        leg.footY = hy;
+        leg.footZ = hz;
+        leg.isStepping = false;
+        leg.stepProgress = 0;
+        leg.ikInitialized = true;
       }
 
-      leg.coxaYawPivot.rotation.y += (targetYaw - leg.coxaYawPivot.rotation.y) * 0.32;
-      leg.femurPivot.rotation.z += (targetFemurZ - leg.femurPivot.rotation.z) * 0.32;
-      leg.kneePivot.rotation.z += (targetKneeZ - leg.kneePivot.rotation.z) * 0.32;
-      // Keep the 3-clawed mechanical foot level with the ground
-      leg.anklePivot.rotation.z = -(leg.femurPivot.rotation.z + leg.kneePivot.rotation.z);
+      const err = Math.hypot(hx - leg.footX, hz - leg.footZ);
+      homeTargets.push({ x: hx, y: hy, z: hz, err });
+    }
+
+    // 2. Trigger new steps for legs that stretched past threshold (works for BOTH walking & rotating!)
+    // Stability rule: do not lift a leg if either of its adjacent (non-diagonal) neighbors is mid-step.
+    // Diagonal pairs: (0 & 1) and (2 & 3). Adjacent pairs: 0<->{2,3}, 1<->{2,3}.
+    const stepThreshold = isMoving ? 1.85 : 1.05;
+    const stepDuration = 0.36;
+
+    for (let i = 0; i < this.rig.legs.length; i++) {
+      const leg = this.rig.legs[i];
+      const ht = homeTargets[i];
+      if (!leg.isStepping && ht.err > stepThreshold) {
+        const myGroup = i < 2 ? 0 : 1;
+        let adjacentStepping = false;
+        for (let j = 0; j < this.rig.legs.length; j++) {
+          const otherGroup = j < 2 ? 0 : 1;
+          if (otherGroup !== myGroup && this.rig.legs[j].isStepping && this.rig.legs[j].stepProgress < 0.78) {
+            adjacentStepping = true;
+            break;
+          }
+        }
+        // Always step immediately if severely overstretched (> 4.2) even if adjacent is stepping
+        if (!adjacentStepping || ht.err > 4.2) {
+          leg.isStepping = true;
+          leg.stepProgress = 0;
+          leg.stepFromX = leg.footX;
+          leg.stepFromY = leg.footY;
+          leg.stepFromZ = leg.footZ;
+          leg.stepToX = ht.x;
+          leg.stepToY = ht.y;
+          leg.stepToZ = ht.z;
+        }
+      }
+    }
+
+    // 3. Advance active steps & solve exact 3-DOF Analytical Spider IK for every leg!
+    for (let i = 0; i < this.rig.legs.length; i++) {
+      const leg = this.rig.legs[i];
+      let targetFX = leg.footX;
+      let targetFY = leg.footY;
+      let targetFZ = leg.footZ;
+
+      if (leg.isStepping) {
+        leg.stepProgress += clampedDt / stepDuration;
+        if (leg.stepProgress >= 1) {
+          leg.isStepping = false;
+          leg.stepProgress = 1;
+          leg.footX = leg.stepToX;
+          leg.footZ = leg.stepToZ;
+          leg.footY = sampleGroundY(leg.footX, leg.footZ);
+          targetFX = leg.footX;
+          targetFY = leg.footY;
+          targetFZ = leg.footZ;
+        } else {
+          // Smooth S-curve horizontally + high crisp hydraulic spider lift arc vertically
+          const t = leg.stepProgress;
+          const smooth = t * t * (3 - 2 * t);
+          // Slightly track updated home target during early swing so fast turns feel tight
+          if (t < 0.45) {
+            leg.stepToX = homeTargets[i].x;
+            leg.stepToZ = homeTargets[i].z;
+            leg.stepToY = homeTargets[i].y;
+          }
+          targetFX = leg.stepFromX + (leg.stepToX - leg.stepFromX) * smooth;
+          targetFZ = leg.stepFromZ + (leg.stepToZ - leg.stepFromZ) * smooth;
+          const baseGroundY = leg.stepFromY + (leg.stepToY - leg.stepFromY) * smooth;
+          const liftArc = Math.pow(Math.sin(t * Math.PI), 0.7) * 1.85;
+          targetFY = baseGroundY + liftArc;
+        }
+      } else {
+        // Keep planted foot locked to ground elevation (zero horizontal sliding!)
+        leg.footY = sampleGroundY(leg.footX, leg.footZ);
+        targetFY = leg.footY;
+      }
+
+      // Transform world-space ankle target into bodyGroup local space
+      const dxW = targetFX - titan.x;
+      const dyW = targetFY + FOOT_H * scaleFactor - (titan.y + bodyBobY * scaleFactor);
+      const dzW = targetFZ - titan.z;
+      const localX = (dxW * cosYaw - dzW * sinYaw) / scaleFactor;
+      const localY = dyW / scaleFactor;
+      const localZ = (dxW * sinYaw + dzW * cosYaw) / scaleFactor;
+
+      // Vector from hip turret to ankle target
+      const rx = localX - leg.hipX;
+      const ry = localY - leg.hipY;
+      const rz = localZ - leg.hipZ;
+
+      // 1) Coxa horizontal yaw toward target foot
+      const coxaYaw = Math.atan2(-rz, rx);
+
+      // 2) 2-Bone planar Law of Cosines (elbow-UP spider arch!)
+      const radialDist = Math.hypot(rx, rz);
+      const horiz = Math.max(0.3, radialDist - COXA_OFFSET);
+      const vert = ry;
+      const rawDist = Math.hypot(horiz, vert);
+      const maxReach = FEMUR_LEN + TIBIA_LEN - 0.08;
+      const minReach = Math.abs(TIBIA_LEN - FEMUR_LEN) + 0.18;
+      const d = Math.max(minReach, Math.min(maxReach, rawDist));
+
+      const alpha = Math.atan2(vert, horiz);
+      const cosBeta = Math.max(
+        -1,
+        Math.min(1, (FEMUR_LEN * FEMUR_LEN + d * d - TIBIA_LEN * TIBIA_LEN) / (2 * FEMUR_LEN * d)),
+      );
+      const beta = Math.acos(cosBeta);
+      const femurZ = alpha + beta;
+
+      const cosGamma = Math.max(
+        -1,
+        Math.min(
+          1,
+          (FEMUR_LEN * FEMUR_LEN + TIBIA_LEN * TIBIA_LEN - d * d) / (2 * FEMUR_LEN * TIBIA_LEN),
+        ),
+      );
+      const gamma = Math.acos(cosGamma);
+      const kneeZ = -(Math.PI - gamma);
+
+      leg.coxaYawPivot.rotation.y = coxaYaw;
+      leg.femurPivot.rotation.z = femurZ;
+      leg.kneePivot.rotation.z = kneeZ;
+      leg.anklePivot.rotation.z = -(femurZ + kneeZ);
     }
   }
 
