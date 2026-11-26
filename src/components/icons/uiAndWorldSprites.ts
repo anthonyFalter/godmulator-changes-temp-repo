@@ -1296,7 +1296,12 @@ export const HUD_SPRITES: Record<
   | 'close'
   | 'unpin'
   | 'pencil'
-  | 'document',
+  | 'document'
+  | 'titanOrbital'
+  | 'titanLeap'
+  | 'titanDeathBeam'
+  | 'titanMissiles'
+  | 'titanExit',
   CompiledSprite
 > = {
   rotateLeft: cluster16(
@@ -1857,6 +1862,121 @@ export const HUD_SPRITES: Record<
       '................',
     ],
     MAT.hud,
+    MATS,
+  ),
+
+  titanOrbital: cluster16(
+    [
+      '.......R........',
+      '......mSm.......',
+      '.CCc..SYs..cCC..',
+      '.ccuSsmYmsSucc..',
+      '.uuU..mRm..Uuu..',
+      '......qRq.......',
+      '......rIr.......',
+      '......rIr.......',
+      '......rIr.......',
+      '.....rrIrr......',
+      '.....rrIrr......',
+      '....fFrIrFf.....',
+      '...fFYrIrYFf....',
+      '..aFFFYIYFFFa...',
+      '...aaFFFFFaa....',
+      '................',
+    ],
+    MAT.steel,
+    MATS,
+  ),
+
+  titanLeap: cluster16(
+    [
+      '.......S........',
+      '......sSs.......',
+      '......mSm.......',
+      '......mSm.......',
+      '....s.mSm.s.....',
+      '.....smSms......',
+      '......mSm.......',
+      '.......m........',
+      '....F..Y..F.....',
+      '..fF..FYF..Ff...',
+      '.aFF.fFYFf.FFa..',
+      '.FFaFFYIYFFaFF..',
+      '..aaFFYYYFFaa...',
+      '...mmmAAAmmm....',
+      '....MmmmmMM.....',
+      '................',
+    ],
+    MAT.steel,
+    MATS,
+  ),
+
+  titanDeathBeam: cluster16(
+    [
+      '.....mmssmm.....',
+      '...mmssssssmm...',
+      '..msssmmmmsssm..',
+      '.msmmmsmmmsmmms.',
+      '.mMmmsmmmmmsMmM.',
+      '..mFFYYYYYYFFm..',
+      '...EFFYIIYFFE...',
+      '.....rFIFr......',
+      '......rIr.......',
+      '....iirIrii.....',
+      '......rIr.......',
+      '.....rrIrr......',
+      '....mFrIrFm.....',
+      '...mmFYIYFFm....',
+      '..mMMaFFFaMMm...',
+      '................',
+    ],
+    MAT.steel,
+    MATS,
+  ),
+
+  titanMissiles: cluster16(
+    [
+      '...........RR...',
+      '..........RRSs..',
+      '....RR...SSsm...',
+      '...RRSs.Fssm....',
+      '..SSsm.FYf......',
+      '.Fssm.ff....RR..',
+      'FYf........RRSs.',
+      'ff....RR..SSsm..',
+      '.....RRSsFssm...',
+      '....SSsmFYf.....',
+      '...Fssm.ff......',
+      '..FYf...........',
+      '.ffa............',
+      '..a.............',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    MATS,
+  ),
+
+  titanExit: cluster16(
+    [
+      '......cIc.......',
+      '.....cCICc......',
+      '....cCIYICc.....',
+      '...cCIcIcICc....',
+      '......cIc.......',
+      '.....cCICc......',
+      '....cCI.ICc.....',
+      '......cIc.......',
+      '......cIc.......',
+      '......cIc.......',
+      '.....ccIcc......',
+      '.....ccIcc......',
+      '....uucIcuu.....',
+      '...uuccIccuu....',
+      '....UUUUUUU.....',
+      '................',
+    ],
+    MAT.azure,
     MATS,
   ),
 };

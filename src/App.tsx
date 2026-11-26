@@ -3130,25 +3130,17 @@ export default function App() {
         </div>
       )}
 
-      {/* DIVINE TITAN MODE OVERLAY: Hides all normal HUDs except Settings/Pause + Exit Titan button (and movie letterbox bars during Death Beam cutscene) */}
+      {/* DIVINE TITAN MODE OVERLAY */}
       {gameState !== 'title' && isTitanActive && activeTitan && !hasInGameOverlayModal && (
         <>
-          {/* Cinematic Widescreen Movie Letterbox Bars during Skill 3 Death Beam Cutscene */}
+          {/* Clean widescreen letterbox bars during Skill 3 Death Beam */}
           {activeTitan.phase === 'death_beam' && activeTitan.deathBeam && (
             <div
               data-testid="titan-death-beam-cutscene"
               className="fixed inset-0 z-30 pointer-events-none flex flex-col justify-between"
             >
-              <div className="w-full h-[9vh] min-h-[48px] bg-black/95 border-b border-[#ff2a1a]/45 flex items-center justify-center px-4">
-                <span className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.28em] text-[#ff5a4f] animate-pulse">
-                  {activeTitan.deathBeam.subPhase === 'combining'
-                    ? 'FUSING TWIN RAIL-CANNONS...'
-                    : activeTitan.deathBeam.subPhase === 'firing'
-                      ? `EXTERMINATUS DEATH BEAM // ${(Math.max(0, activeTitan.deathBeam.fireDuration - activeTitan.deathBeam.elapsed)).toFixed(1)}S`
-                      : 'CATACLYSMIC DETONATION'}
-                </span>
-              </div>
-              <div className="w-full h-[9vh] min-h-[48px] bg-black/95 border-t border-[#ff2a1a]/45" />
+              <div className="w-full h-[9vh] min-h-[44px] bg-black/95" />
+              <div className="w-full h-[9vh] min-h-[44px] bg-black/95" />
             </div>
           )}
 
@@ -3157,9 +3149,9 @@ export default function App() {
               data-testid="titan-control-overlay"
               className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3"
             >
-              {/* Top-right: Settings / Pause button ONLY */}
+              {/* Top-right: Settings / Pause */}
               <div className="flex justify-end w-full">
-                <div className="pointer-events-auto px-panel px-1.5 py-1 flex items-center gap-1.5">
+                <div className="pointer-events-auto px-panel px-1.5 py-1 flex items-center">
                   <button
                     type="button"
                     tabIndex={-1}
@@ -3170,17 +3162,17 @@ export default function App() {
                       setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
                     }}
                     className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer"
-                    aria-label="Settings / Pause"
-                    title="Settings / Pause (Esc)"
+                    aria-label="Settings"
+                    title="Settings"
                   >
                     <HudPixelIcon kind="settings" className="w-4 h-4 pixelated-canvas" />
                   </button>
                 </div>
               </div>
 
-              {/* Bottom-center: Exit Titan button + compact Skill 1-4 triggers */}
-              <div className="flex flex-col items-center gap-2 w-full">
-                <div className="pointer-events-auto px-panel px-2.5 py-2 flex flex-wrap items-center justify-center gap-2">
+              {/* Bottom-center: Pixel-icon skill hotbar + exit icon */}
+              <div className="flex justify-center w-full">
+                <div className="pointer-events-auto px-panel p-1.5 flex items-center gap-1.5">
                   <button
                     type="button"
                     tabIndex={-1}
@@ -3191,17 +3183,21 @@ export default function App() {
                       soundEngine.playClick();
                       titanActionRef.current?.skill1();
                     }}
-                    className={`px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider cursor-pointer disabled:opacity-50 ${
-                      activeTitan.skill1Targeting ? 'px-btn-active text-[#ff6b6b]' : 'px-btn text-[#ffd3b6]'
+                    className={`relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer disabled:opacity-60 ${
+                      activeTitan.skill1Targeting ? 'px-btn-active ring-2 ring-[#ef4444]' : 'px-btn'
                     }`}
-                    title="Skill 1: Summon Orbital Satellite Laser at target position (Key 1)"
+                    aria-label="Orbital"
+                    title="Orbital"
                   >
-                    [1] Orbital Laser
-                    {activeTitan.skill1Cooldown > 0
-                      ? ` (${activeTitan.skill1Cooldown.toFixed(1)}s)`
-                      : activeTitan.skill1Targeting
-                        ? ' · CLICK TARGET'
-                        : ''}
+                    <HudPixelIcon kind="titanOrbital" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
+                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#f4e7d4]/85">
+                      1
+                    </span>
+                    {activeTitan.skill1Cooldown > 0 && (
+                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#ffd3b6]">
+                        {activeTitan.skill1Cooldown.toFixed(1)}
+                      </span>
+                    )}
                   </button>
 
                   <button
@@ -3214,11 +3210,19 @@ export default function App() {
                       soundEngine.playClick();
                       titanActionRef.current?.skill2();
                     }}
-                    className="px-btn px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#fde68a] cursor-pointer disabled:opacity-50"
-                    title="Skill 2: Leap & Cataclysmic Crater/Tsunami Slam (Key 2 / Space)"
+                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer disabled:opacity-60"
+                    aria-label="Leap"
+                    title="Leap"
                   >
-                    [2] Titan Leap
-                    {activeTitan.skill2Cooldown > 0 ? ` (${activeTitan.skill2Cooldown.toFixed(1)}s)` : ''}
+                    <HudPixelIcon kind="titanLeap" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
+                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#f4e7d4]/85">
+                      2
+                    </span>
+                    {activeTitan.skill2Cooldown > 0 && (
+                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#fde68a]">
+                        {activeTitan.skill2Cooldown.toFixed(1)}
+                      </span>
+                    )}
                   </button>
 
                   <button
@@ -3231,11 +3235,19 @@ export default function App() {
                       soundEngine.playOrbitalLaser();
                       titanActionRef.current?.skill3();
                     }}
-                    className="px-btn px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#ff6b6b] border-[#ef4444] cursor-pointer disabled:opacity-50"
-                    title="Skill 3: Fuse twin cannons for a 4s Death Beam + Nuclear Mushroom Cloud (Key 3)"
+                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer border-[#ef4444]/80 disabled:opacity-60"
+                    aria-label="Death Beam"
+                    title="Death Beam"
                   >
-                    [3] Death Beam
-                    {activeTitan.skill3Cooldown > 0 ? ` (${activeTitan.skill3Cooldown.toFixed(1)}s)` : ''}
+                    <HudPixelIcon kind="titanDeathBeam" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
+                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#fca5a5]">
+                      3
+                    </span>
+                    {activeTitan.skill3Cooldown > 0 && (
+                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#ff6b6b]">
+                        {activeTitan.skill3Cooldown.toFixed(1)}
+                      </span>
+                    )}
                   </button>
 
                   <button
@@ -3248,12 +3260,22 @@ export default function App() {
                       soundEngine.playHeavyImpact();
                       titanActionRef.current?.skill4();
                     }}
-                    className="px-btn px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#fdba74] cursor-pointer disabled:opacity-50"
-                    title="Skill 4: Launch 18 homing plasma missiles from shoulder pauldrons (Key 4)"
+                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer disabled:opacity-60"
+                    aria-label="Missiles"
+                    title="Missiles"
                   >
-                    [4] Missile Barrage
-                    {activeTitan.skill4Cooldown > 0 ? ` (${activeTitan.skill4Cooldown.toFixed(1)}s)` : ''}
+                    <HudPixelIcon kind="titanMissiles" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
+                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#f4e7d4]/85">
+                      4
+                    </span>
+                    {activeTitan.skill4Cooldown > 0 && (
+                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#fdba74]">
+                        {activeTitan.skill4Cooldown.toFixed(1)}
+                      </span>
+                    )}
                   </button>
+
+                  <div className="w-px h-8 bg-[#f59e0b]/25 mx-0.5" />
 
                   <button
                     type="button"
@@ -3265,14 +3287,12 @@ export default function App() {
                       soundEngine.playOrbitalLaser();
                       titanActionRef.current?.exit();
                     }}
-                    className="px-btn px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[#7dd3fc] border-[#38bdf8] cursor-pointer disabled:opacity-60"
-                    title="Exit God Titan — summons sky extraction beam"
+                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer border-[#38bdf8]/80 disabled:opacity-60"
+                    aria-label="Exit"
+                    title="Exit"
                   >
-                    {activeTitan.phase === 'exiting' ? 'Extracting...' : 'Exit Titan'}
+                    <HudPixelIcon kind="titanExit" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
                   </button>
-                </div>
-                <div className="pointer-events-none px-3 py-1 bg-[#120d0b]/75 border border-[#f59e0b]/35 text-[10px] sm:text-[11px] font-semibold tracking-wide text-[#f4e7d4]/90">
-                  WASD Move · Mouse Aim · M1 Laser · [1] Orbital · [2] Leap · [3] Death Beam · [4] Missiles
                 </div>
               </div>
             </div>
