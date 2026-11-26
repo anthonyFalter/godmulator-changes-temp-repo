@@ -22,8 +22,50 @@ interface StickProps {
   ) => void;
 }
 
-const STICK_SIZE = 108;
+const STICK_SIZE = 112;
+const KNOB_SIZE = 44;
 const MAX_RADIUS = 44;
+
+interface PixelCell {
+  x: number;
+  y: number;
+  kind: 'outline' | 'rimLight' | 'rimDark' | 'fill' | 'dash';
+}
+
+function buildPixelCircleCells(
+  grid: number,
+  outerMax: number,
+  outerMin: number,
+  rimMin: number,
+  dashMin?: number,
+  dashMax?: number,
+): PixelCell[] {
+  const cells: PixelCell[] = [];
+  const c = (grid - 1) * 0.5;
+  for (let y = 0; y < grid; y++) {
+    for (let x = 0; x < grid; x++) {
+      const d = Math.hypot(x - c, y - c);
+      if (d > outerMax) continue;
+      if (d >= outerMin) {
+        cells.push({ x, y, kind: 'outline' });
+      } else if (d >= rimMin) {
+        cells.push({ x, y, kind: x + y <= grid - 1 ? 'rimLight' : 'rimDark' });
+      } else if (dashMin !== undefined && dashMax !== undefined && d >= dashMin && d <= dashMax && (x + y) % 2 === 0) {
+        cells.push({ x, y, kind: 'dash' });
+      } else {
+        cells.push({ x, y, kind: 'fill' });
+      }
+    }
+  }
+  return cells;
+}
+
+const BASE_GRID = 28;
+const BASE_CELLS_MOVE = buildPixelCircleCells(BASE_GRID, 13.75, 12.65, 11.45);
+const BASE_CELLS_CANNON = buildPixelCircleCells(BASE_GRID, 13.75, 12.65, 11.45, 8.8, 9.75);
+
+const KNOB_GRID = 11;
+const KNOB_CELLS = buildPixelCircleCells(KNOB_GRID, 5.25, 4.35, 3.25);
 
 const VirtualStick: React.FC<StickProps> = ({ variant, onUpdate }) => {
   const baseRef = useRef<HTMLDivElement | null>(null);
@@ -97,19 +139,58 @@ const VirtualStick: React.FC<StickProps> = ({ variant, onUpdate }) => {
   };
 
   const isCannon = variant === 'cannon';
-  const frameStyle = thumb.firing
-    ? 'border-[#ef4444] bg-[#3a1212]/75 shadow-[inset_2px_2px_0_rgba(253,224,71,0.35),inset_-2px_-2px_0_rgba(0,0,0,0.7),0_0_0_2px_#0b0807,0_0_16px_rgba(239,68,68,0.7)]'
-    : isCannon
-      ? 'border-[#c2410c] bg-[#18110e]/75 shadow-[inset_2px_2px_0_rgba(255,255,255,0.12),inset_-2px_-2px_0_rgba(0,0,0,0.7),0_0_0_2px_#0b0807]'
-      : 'border-[#b4833e] bg-[#18110e]/75 shadow-[inset_2px_2px_0_rgba(255,255,255,0.12),inset_-2px_-2px_0_rgba(0,0,0,0.7),0_0_0_2px_#0b0807]';
+  const baseCells = isCannon ? BASE_CELLS_CANNON : BASE_CELLS_MOVE;
 
-  const thumbStyle = thumb.firing
-    ? 'bg-[#dc2626] border-[#fde047] shadow-[inset_2px_2px_0_rgba(255,255,255,0.4),inset_-2px_-2px_0_rgba(127,29,29,0.9),0_0_0_2px_#0b0807,0_0_10px_rgba(239,68,68,0.85)]'
+  const baseColors = thumb.firing
+    ? {
+        outline: '#0b0807',
+        rimLight: '#fde047',
+        rimDark: '#ef4444',
+        fill: 'rgba(58, 18, 18, 0.72)',
+        dash: '#fde047',
+        pip: '#fde047',
+      }
     : isCannon
-      ? 'bg-[#991b1b] border-[#fca5a5] shadow-[inset_2px_2px_0_rgba(255,255,255,0.28),inset_-2px_-2px_0_rgba(69,10,10,0.85),0_0_0_2px_#0b0807]'
-      : 'bg-[#5c6b60] border-[#e7cfa0] shadow-[inset_2px_2px_0_rgba(255,255,255,0.28),inset_-2px_-2px_0_rgba(30,38,32,0.85),0_0_0_2px_#0b0807]';
+      ? {
+          outline: '#0b0807',
+          rimLight: '#f97316',
+          rimDark: '#991b1b',
+          fill: 'rgba(24, 17, 14, 0.68)',
+          dash: 'rgba(239, 68, 68, 0.55)',
+          pip: '#fca5a5',
+        }
+      : {
+          outline: '#0b0807',
+          rimLight: '#e7cfa0',
+          rimDark: '#8c622c',
+          fill: 'rgba(24, 17, 14, 0.68)',
+          dash: 'transparent',
+          pip: '#e7cfa0',
+        };
 
-  const pipColor = thumb.firing ? 'bg-[#fde047]' : isCannon ? 'bg-[#fca5a5]/70' : 'bg-[#e7cfa0]/70';
+  const knobColors = thumb.firing
+    ? {
+        outline: '#0b0807',
+        rimLight: '#fde047',
+        rimDark: '#991b1b',
+        fill: '#dc2626',
+        dot: '#fffbeb',
+      }
+    : isCannon
+      ? {
+          outline: '#0b0807',
+          rimLight: '#fca5a5',
+          rimDark: '#5c1111',
+          fill: '#b91c1c',
+          dot: '#ffe4e6',
+        }
+      : {
+          outline: '#0b0807',
+          rimLight: '#e7cfa0',
+          rimDark: '#2b342d',
+          fill: '#5c6b60',
+          dot: '#f5efe2',
+        };
 
   return (
     <div
@@ -119,42 +200,69 @@ const VirtualStick: React.FC<StickProps> = ({ variant, onUpdate }) => {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
-      style={{ width: STICK_SIZE, height: STICK_SIZE }}
-      className={`pointer-events-auto relative border-2 touch-none select-none flex items-center justify-center transition-colors duration-75 ${frameStyle}`}
+      style={{
+        width: STICK_SIZE,
+        height: STICK_SIZE,
+        filter: thumb.firing ? 'drop-shadow(0 0 10px rgba(239,68,68,0.8))' : undefined,
+      }}
+      className="pointer-events-auto relative touch-none select-none flex items-center justify-center"
     >
-      {/* Crisp 4px corner pixel rivets */}
-      <span className={`pointer-events-none absolute top-1 left-1 w-1 h-1 ${pipColor}`} />
-      <span className={`pointer-events-none absolute top-1 right-1 w-1 h-1 ${pipColor}`} />
-      <span className={`pointer-events-none absolute bottom-1 left-1 w-1 h-1 ${pipColor}`} />
-      <span className={`pointer-events-none absolute bottom-1 right-1 w-1 h-1 ${pipColor}`} />
+      {/* Crisp stepped pixelated circular base */}
+      <svg
+        viewBox={`0 0 ${BASE_GRID} ${BASE_GRID}`}
+        width={STICK_SIZE}
+        height={STICK_SIZE}
+        shapeRendering="crispEdges"
+        className="pointer-events-none absolute inset-0 pixelated-canvas"
+      >
+        {baseCells.map((cell, idx) => (
+          <rect
+            key={idx}
+            x={cell.x}
+            y={cell.y}
+            width={1}
+            height={1}
+            fill={baseColors[cell.kind]}
+          />
+        ))}
+        {/* Pixelated N/S/E/W directional pips */}
+        <rect x={13} y={3} width={2} height={1} fill={baseColors.pip} fillOpacity={0.85} />
+        <rect x={13} y={24} width={2} height={1} fill={baseColors.pip} fillOpacity={0.85} />
+        <rect x={3} y={13} width={1} height={2} fill={baseColors.pip} fillOpacity={0.85} />
+        <rect x={24} y={13} width={1} height={2} fill={baseColors.pip} fillOpacity={0.85} />
+        {/* Subtle pixel center crosshair */}
+        <rect x={12} y={13} width={4} height={2} fill="#ffffff" fillOpacity={0.14} />
+        <rect x={13} y={12} width={2} height={4} fill="#ffffff" fillOpacity={0.14} />
+      </svg>
 
-      {/* Inner firing-bound pixel box on Cannon stick */}
-      {isCannon && (
-        <div
-          className={`pointer-events-none absolute inset-2.5 border border-dashed ${
-            thumb.firing ? 'border-[#fde047]/85' : 'border-[#ef4444]/40'
-          }`}
-        />
-      )}
-
-      {/* Pixel directional ticks */}
-      <span className={`pointer-events-none absolute top-1.5 w-1.5 h-1.5 ${pipColor}`} />
-      <span className={`pointer-events-none absolute bottom-1.5 w-1.5 h-1.5 ${pipColor}`} />
-      <span className={`pointer-events-none absolute left-1.5 w-1.5 h-1.5 ${pipColor}`} />
-      <span className={`pointer-events-none absolute right-1.5 w-1.5 h-1.5 ${pipColor}`} />
-
-      {/* Pixelated center crosshairs */}
-      <span className="pointer-events-none absolute w-4 h-0.5 bg-white/15" />
-      <span className="pointer-events-none absolute h-4 w-0.5 bg-white/15" />
-
-      {/* Blocky pixelated joystick knob */}
+      {/* Crisp stepped pixelated circular knob */}
       <div
         style={{
+          width: KNOB_SIZE,
+          height: KNOB_SIZE,
           transform: `translate3d(${Math.round(thumb.x)}px, ${Math.round(thumb.y)}px, 0)`,
         }}
-        className={`pointer-events-none w-10 h-10 border-2 flex items-center justify-center ${thumbStyle}`}
+        className="pointer-events-none relative flex items-center justify-center"
       >
-        <div className="w-2 h-2 bg-white/80" />
+        <svg
+          viewBox={`0 0 ${KNOB_GRID} ${KNOB_GRID}`}
+          width={KNOB_SIZE}
+          height={KNOB_SIZE}
+          shapeRendering="crispEdges"
+          className="pixelated-canvas"
+        >
+          {KNOB_CELLS.map((cell, idx) => (
+            <rect
+              key={idx}
+              x={cell.x}
+              y={cell.y}
+              width={1}
+              height={1}
+              fill={cell.kind === 'dash' ? knobColors.fill : knobColors[cell.kind]}
+            />
+          ))}
+          <rect x={5} y={5} width={1} height={1} fill={knobColors.dot} />
+        </svg>
       </div>
     </div>
   );
