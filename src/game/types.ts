@@ -1188,6 +1188,15 @@ export interface TitanMissile {
   duration: number;
 }
 
+export interface TitanImpactFrameEvent {
+  kind: 'death_beam_mushroom' | 'orbital_strike';
+  worldX: number;
+  worldY: number;
+  worldZ: number;
+  duration: number;
+  hitstop: number;
+}
+
 export interface DivineTitanState {
   id: string;
   phase: 'summoning' | 'active' | 'jumping' | 'death_beam' | 'exiting';
@@ -1232,4 +1241,5 @@ export interface DivineTitanState {
   orbitalStrikes: TitanOrbitalStrike[];
   shockwaves: TitanShockwaveEffect[];
   pendingTrauma: number;
+  pendingImpactFrame?: TitanImpactFrameEvent | null;
 }

@@ -366,4 +366,38 @@ describe('Divine Titan controllable god power', () => {
     assert.equal(sim.divineTitan!.missileSalvoRemaining, 0);
     assert.equal(sim.divineTitan!.missiles.length, 0, 'All missiles should have landed and detonated');
   });
+
+  it('Death Beam mushroom cloud detonation and Orbital Strike impact emit pendingImpactFrame events', () => {
+    const sim = createFlatTestSim();
+    castGodPower(sim, 'divine_titan', 14, 14);
+    sim.divineTitan!.phase = 'active';
+    sim.divineTitan!.pendingImpactFrame = null;
+
+    const readImpactFrame = () => sim.divineTitan?.pendingImpactFrame ?? null;
+
+    // 1. Orbital Strike impact
+    assert.equal(triggerTitanOrbitalStrike(sim, 22, 18), true);
+    let orbitalImpact = readImpactFrame();
+    for (let i = 0; i < 40; i++) {
+      stepDivineTitan(sim, 0.05, { moveForward: 0, moveRight: 0, camYaw: 0, aimX: 22, aimZ: 18 });
+      orbitalImpact = readImpactFrame();
+      if (orbitalImpact) break;
+    }
+    assert.ok(orbitalImpact, 'Orbital Strike must emit pendingImpactFrame on beam impact');
+    assert.equal(orbitalImpact.kind, 'orbital_strike');
+    assert.ok(orbitalImpact.duration >= 0.2 && orbitalImpact.hitstop >= 0.08);
+
+    // 2. Death Beam mushroom cloud detonation
+    sim.divineTitan!.pendingImpactFrame = null;
+    let mushroomImpact = readImpactFrame();
+    assert.equal(triggerTitanDeathBeam(sim, 24, 20), true);
+    for (let i = 0; i < 200; i++) {
+      stepDivineTitan(sim, 0.05, { moveForward: 0, moveRight: 0, camYaw: 0, aimX: null, aimZ: null });
+      mushroomImpact = readImpactFrame();
+      if (mushroomImpact) break;
+    }
+    assert.ok(mushroomImpact, 'Death Beam mushroom cloud detonation must emit pendingImpactFrame');
+    assert.equal(mushroomImpact.kind, 'death_beam_mushroom');
+    assert.ok(mushroomImpact.duration >= 0.25 && mushroomImpact.hitstop >= 0.12);
+  });
 });

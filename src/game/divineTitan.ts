@@ -1256,6 +1256,14 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
   titan.mushroomClouds.push(cloud);
 
   titan.pendingTrauma = 1.0;
+  titan.pendingImpactFrame = {
+    kind: 'death_beam_mushroom',
+    worldX: gx,
+    worldY: gy + 2.5,
+    worldZ: gz,
+    duration: 0.32,
+    hitstop: 0.14,
+  };
   pushChronicle(
     state,
     'The God Titan Death Beam detonated in a nuclear mushroom cloud, igniting firestorms and irradiating the land!',
@@ -1578,10 +1586,11 @@ export function stepDivineTitan(
         st.damageTickTimer = 0;
         st.impactBurstDone = true;
         applyOrbitalLaserDamage(state, st);
+        const strikeGroundY = getTitanGroundY(state, st.targetX, st.targetZ);
         titan.shockwaves.push({
           id: nextTitanFxId('tsw'),
           x: st.targetX,
-          y: getTitanGroundY(state, st.targetX, st.targetZ),
+          y: strikeGroundY,
           z: st.targetZ,
           maxRadius: st.radius * 2.1,
           elapsed: 0,
@@ -1590,6 +1599,14 @@ export function stepDivineTitan(
           color: '#ef4444',
         });
         titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.85);
+        titan.pendingImpactFrame = {
+          kind: 'orbital_strike',
+          worldX: st.targetX,
+          worldY: strikeGroundY + 1.5,
+          worldZ: st.targetZ,
+          duration: 0.25,
+          hitstop: 0.1,
+        };
       }
     } else if (st.phase === 'firing') {
       st.damageTickTimer += clampedDt;
