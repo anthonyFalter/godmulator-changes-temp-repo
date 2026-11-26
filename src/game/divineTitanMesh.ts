@@ -1298,21 +1298,62 @@ function buildDivineTitanModel(): TitanModelRig {
 }
 
 // ---------------------------------------------------------------------------
-// Orbital Satellite + Laser Beam VFX Rig (Skill 1)
+// Helical Plasma Coil Geometry Helper (for Orbital, M1, and Death Beam VFX)
+// ---------------------------------------------------------------------------
+
+function createHelixTubeGeometry(
+  length: number,
+  radius: number,
+  turns: number,
+  tubeRadius: number,
+  axis: 'y' | 'z',
+  phaseOffset = 0,
+  tubularSegments = 56,
+  radialSegments = 6,
+): THREE.TubeGeometry {
+  const pts: THREE.Vector3[] = [];
+  const steps = Math.max(24, tubularSegments);
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    const angle = f * Math.PI * 2 * turns + phaseOffset;
+    const c = Math.cos(angle) * radius;
+    const s = Math.sin(angle) * radius;
+    if (axis === 'y') {
+      pts.push(new THREE.Vector3(c, f * length, s));
+    } else {
+      pts.push(new THREE.Vector3(c, s, f * length));
+    }
+  }
+  const curve = new THREE.CatmullRomCurve3(pts);
+  return new THREE.TubeGeometry(curve, tubularSegments, tubeRadius, radialSegments, false);
+}
+
+// ---------------------------------------------------------------------------
+// Orbital Exterminatus Battle-Satellite + Helical Laser Beam VFX Rig (Skill 1)
 // ---------------------------------------------------------------------------
 
 interface OrbitalStrikeVisual {
   group: THREE.Group;
   satellite: THREE.Group;
-  leftWing: THREE.Mesh;
-  rightWing: THREE.Mesh;
-  gyroRing: THREE.Mesh;
+  leftWingGroup: THREE.Group;
+  rightWingGroup: THREE.Group;
+  innerGyroRing: THREE.Group;
+  outerGyroRing: THREE.Group;
+  emitterProngs: THREE.Group[];
+  emitterLens: THREE.Mesh;
+  beaconOrb: THREE.Mesh;
   targetIcon: THREE.Mesh;
   lockLines: THREE.Mesh;
+  lockLasers: THREE.Mesh[];
   beamGroup: THREE.Group;
   beamCore: THREE.Mesh;
+  beamMid: THREE.Mesh;
   beamOuter: THREE.Mesh;
+  beamHelixA: THREE.Mesh;
+  beamHelixB: THREE.Mesh;
   impactFlare: THREE.Mesh;
+  impactPillar: THREE.Mesh;
+  impactDisc: THREE.Mesh;
   pulseRings: THREE.Mesh[];
 }
 
@@ -1323,7 +1364,7 @@ function buildOrbitalStrikeVisual(
   const group = new THREE.Group();
 
   // 1. Ground Red Target Icon (prominent, high-contrast, animated)
-  const targetGeo = new THREE.PlaneGeometry(11.6, 11.6);
+  const targetGeo = new THREE.PlaneGeometry(12.2, 12.2);
   targetGeo.rotateX(-Math.PI / 2);
   const targetMat = new THREE.MeshBasicMaterial({
     map: redTargetTex,
@@ -1336,13 +1377,13 @@ function buildOrbitalStrikeVisual(
   targetIcon.position.y = 0.22;
   group.add(targetIcon);
 
-  // Vertical crimson lock-on targeting cone/lines
-  const lockGeo = new THREE.CylinderGeometry(0.18, 4.2, 26, 16, 1, true);
+  // Translucent crimson lock-on targeting cone
+  const lockGeo = new THREE.CylinderGeometry(0.22, 4.8, 26, 20, 1, true);
   lockGeo.translate(0, 13, 0);
   const lockMat = new THREE.MeshBasicMaterial({
-    color: 0xff2a2a,
+    color: 0xff1e2d,
     transparent: true,
-    opacity: 0.24,
+    opacity: 0.22,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -1350,116 +1391,353 @@ function buildOrbitalStrikeVisual(
   const lockLines = new THREE.Mesh(lockGeo, lockMat);
   group.add(lockLines);
 
-  // 2. Detailed 3D Orbital Satellite hovering high in the sky
+  // 4 razor-sharp converging targeting laser sightlines during lock-on
+  const lockLasers: THREE.Mesh[] = [];
+  for (let i = 0; i < 4; i++) {
+    const lGeo = new THREE.CylinderGeometry(0.08, 0.08, 26.5, 6, 1, true);
+    lGeo.translate(0, -13.25, 0);
+    const lMesh = new THREE.Mesh(
+      lGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xff3040,
+        transparent: true,
+        opacity: 0.85,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    lMesh.position.y = 26;
+    group.add(lMesh);
+    lockLasers.push(lMesh);
+  }
+
+  // 2. Detailed Sci-Fi Exterminatus Battle-Satellite hovering high in orbit
   const satellite = new THREE.Group();
   satellite.position.y = 26;
   group.add(satellite);
 
-  const satBodyMat = new THREE.MeshStandardMaterial({
-    color: 0xf5c851,
-    metalness: 0.82,
-    roughness: 0.25,
+  const satArmorMat = new THREE.MeshStandardMaterial({
+    color: 0x5c6b60,
+    metalness: 0.78,
+    roughness: 0.28,
   });
-  const satMetalMat = new THREE.MeshStandardMaterial({
-    color: 0xdbe4ee,
-    metalness: 0.72,
-    roughness: 0.3,
+  const satDarkMat = new THREE.MeshStandardMaterial({
+    color: 0x2c3430,
+    metalness: 0.86,
+    roughness: 0.26,
+  });
+  const satGoldMat = new THREE.MeshStandardMaterial({
+    color: 0xeab308,
+    metalness: 0.88,
+    roughness: 0.22,
+  });
+  const satSteelMat = new THREE.MeshStandardMaterial({
+    color: 0x9aa8a0,
+    metalness: 0.8,
+    roughness: 0.25,
   });
   const wingMat = new THREE.MeshStandardMaterial({
     map: solarTex,
-    metalness: 0.45,
-    roughness: 0.3,
-    emissive: 0x0a2e5c,
-    emissiveIntensity: 0.4,
+    metalness: 0.48,
+    roughness: 0.26,
+    emissive: 0x0b3a6e,
+    emissiveIntensity: 0.55,
   });
-  const lensMat = new THREE.MeshBasicMaterial({
-    color: 0xff3b30,
+  const crimsonGlowMat = new THREE.MeshBasicMaterial({
+    color: 0xff2233,
+  });
+  const coreHotMat = new THREE.MeshBasicMaterial({
+    color: 0xfff0dd,
   });
 
-  const satCore = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.35, 2.2, 8), satBodyMat);
-  satellite.add(satCore);
+  // Multi-tiered hexagonal armored core hull
+  const upperHull = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.55, 1.25, 6), satArmorMat);
+  upperHull.position.y = 0.85;
+  satellite.add(upperHull);
 
-  const satCap = new THREE.Mesh(new THREE.ConeGeometry(1.15, 1.1, 8), satMetalMat);
-  satCap.position.y = 1.65;
-  satellite.add(satCap);
+  const midReactor = new THREE.Mesh(new THREE.CylinderGeometry(1.68, 1.68, 1.05, 6), satDarkMat);
+  midReactor.position.y = -0.15;
+  satellite.add(midReactor);
 
-  const emitterDish = new THREE.Mesh(new THREE.CylinderGeometry(1.45, 0.75, 0.9, 16), satMetalMat);
-  emitterDish.position.y = -1.45;
+  const lowerHull = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 1.05, 1.0, 6), satArmorMat);
+  lowerHull.position.y = -1.05;
+  satellite.add(lowerHull);
+
+  // Gold thermal foil shielding collar + 6 glowing crimson reactor vents around equator
+  const foilCollar = new THREE.Mesh(new THREE.CylinderGeometry(1.42, 1.42, 0.36, 12), satGoldMat);
+  foilCollar.position.y = 0.42;
+  satellite.add(foilCollar);
+
+  for (let v = 0; v < 6; v++) {
+    const a = (v / 6) * Math.PI * 2;
+    const rib = new THREE.Mesh(new THREE.BoxGeometry(0.32, 2.35, 0.45), satDarkMat);
+    rib.position.set(Math.cos(a) * 1.62, -0.05, Math.sin(a) * 1.62);
+    rib.rotation.y = -a;
+    satellite.add(rib);
+
+    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.65, 0.34), crimsonGlowMat);
+    vent.position.set(Math.cos(a + Math.PI / 6) * 1.58, -0.15, Math.sin(a + Math.PI / 6) * 1.58);
+    vent.rotation.y = -(a + Math.PI / 6);
+    satellite.add(vent);
+  }
+
+  // Tall upper command comms & targeting antenna spire
+  const spireBase = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.95, 0.7, 6), satDarkMat);
+  spireBase.position.y = 1.78;
+  satellite.add(spireBase);
+
+  const spireMast = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.28, 2.2, 8), satSteelMat);
+  spireMast.position.y = 3.1;
+  satellite.add(spireMast);
+
+  const radarBar = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.14, 0.22), satSteelMat);
+  radarBar.position.y = 2.85;
+  satellite.add(radarBar);
+
+  const radarDish = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.18, 0.28, 12), satGoldMat);
+  radarDish.rotation.x = Math.PI / 3;
+  radarDish.position.set(0, 2.55, 0.72);
+  satellite.add(radarDish);
+
+  const beaconOrb = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 10), crimsonGlowMat.clone());
+  beaconOrb.position.y = 4.35;
+  satellite.add(beaconOrb);
+
+  // Underside focusing emitter housing & blinding core lens
+  const emitterDish = new THREE.Mesh(new THREE.CylinderGeometry(1.38, 0.85, 0.75, 12), satDarkMat);
+  emitterDish.position.y = -1.75;
   satellite.add(emitterDish);
 
-  const emitterLens = new THREE.Mesh(new THREE.SphereGeometry(0.75, 16, 12), lensMat);
-  emitterLens.position.y = -1.8;
+  const emitterLens = new THREE.Mesh(new THREE.SphereGeometry(0.82, 16, 12), coreHotMat.clone());
+  emitterLens.position.y = -2.05;
   satellite.add(emitterLens);
 
-  const gyroRing = new THREE.Mesh(
-    new THREE.TorusGeometry(2.35, 0.14, 12, 32),
-    satMetalMat,
-  );
-  gyroRing.rotation.x = Math.PI / 2;
-  gyroRing.position.y = -0.5;
-  satellite.add(gyroRing);
+  // 4 articulated armored focusing claws/prongs around the laser aperture
+  const emitterProngs: THREE.Group[] = [];
+  for (let p = 0; p < 4; p++) {
+    const a = (p / 4) * Math.PI * 2 + Math.PI / 4;
+    const prongPivot = new THREE.Group();
+    prongPivot.position.set(Math.cos(a) * 1.18, -1.65, Math.sin(a) * 1.18);
+    prongPivot.rotation.y = -a + Math.PI / 2;
 
-  // Unfolding solar wings
-  const wingGeo = new THREE.BoxGeometry(5.6, 0.12, 2.1);
-  const leftWing = new THREE.Mesh(wingGeo, wingMat);
-  leftWing.position.set(-4.0, 0.15, 0);
-  satellite.add(leftWing);
+    const clawUpper = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.35, 0.42), satDarkMat);
+    clawUpper.position.set(0, -0.62, 0.12);
+    clawUpper.rotation.x = 0.22;
+    prongPivot.add(clawUpper);
 
-  const rightWing = new THREE.Mesh(wingGeo, wingMat);
-  rightWing.position.set(4.0, 0.15, 0);
-  satellite.add(rightWing);
+    const clawTip = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.95, 0.28), satSteelMat);
+    clawTip.position.set(0, -1.48, -0.02);
+    clawTip.rotation.x = -0.35;
+    prongPivot.add(clawTip);
 
-  // 3. Towering Orbital Laser Beam
+    const innerRail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.1), crimsonGlowMat);
+    innerRail.position.set(0, -0.95, -0.14);
+    prongPivot.add(innerRail);
+
+    satellite.add(prongPivot);
+    emitterProngs.push(prongPivot);
+  }
+
+  // Dual counter-rotating concentric gyro-accelerator rings
+  const innerGyroRing = new THREE.Group();
+  innerGyroRing.position.y = -0.7;
+  const innerTorus = new THREE.Mesh(new THREE.TorusGeometry(2.25, 0.14, 10, 32), satGoldMat);
+  innerTorus.rotation.x = Math.PI / 2;
+  innerGyroRing.add(innerTorus);
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2;
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.18, 0.24), satSteelMat);
+    fin.position.set(Math.cos(a) * 2.25, 0, Math.sin(a) * 2.25);
+    fin.rotation.y = -a;
+    innerGyroRing.add(fin);
+  }
+  satellite.add(innerGyroRing);
+
+  const outerGyroRing = new THREE.Group();
+  outerGyroRing.position.y = -1.15;
+  const outerTorus = new THREE.Mesh(new THREE.TorusGeometry(3.25, 0.18, 12, 36), satDarkMat);
+  outerTorus.rotation.x = Math.PI / 2;
+  outerGyroRing.add(outerTorus);
+  for (let n = 0; n < 8; n++) {
+    const a = (n / 8) * Math.PI * 2;
+    const nodeHousing = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 0.42), satArmorMat);
+    nodeHousing.position.set(Math.cos(a) * 3.25, 0, Math.sin(a) * 3.25);
+    nodeHousing.rotation.y = -a;
+    outerGyroRing.add(nodeHousing);
+
+    const plasmaNode = new THREE.Mesh(new THREE.SphereGeometry(0.18, 10, 8), crimsonGlowMat);
+    plasmaNode.position.set(Math.cos(a) * 3.25, -0.22, Math.sin(a) * 3.25);
+    outerGyroRing.add(plasmaNode);
+  }
+  satellite.add(outerGyroRing);
+
+  // Articulated Dual-Tier Solar Wing Arrays (Left & Right)
+  const buildWingArray = (side: -1 | 1): THREE.Group => {
+    const wg = new THREE.Group();
+    wg.position.set(side * 1.65, 0.2, 0);
+
+    // Heavy truss boom spine
+    const boom = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.22, 0.32), satDarkMat);
+    boom.position.x = side * 3.4;
+    wg.add(boom);
+
+    const goldBus = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.08, 0.14), satGoldMat);
+    goldBus.position.set(side * 3.4, 0.14, 0);
+    wg.add(goldBus);
+
+    // Dual photovoltaic panels (front & rear bays) with armored border frames
+    for (const zOff of [-1.25, 1.25]) {
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(5.8, 0.09, 1.85), wingMat);
+      panel.position.set(side * 3.55, 0.02, zOff);
+      wg.add(panel);
+
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.13, 0.16), satSteelMat);
+      frame.position.set(side * 3.55, 0.02, zOff + Math.sign(zOff) * 0.94);
+      wg.add(frame);
+    }
+
+    // Wingtip stabilizer pylon + glowing red navigation strobe
+    const tipPylon = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.55, 4.4), satArmorMat);
+    tipPylon.position.set(side * 6.75, 0.05, 0);
+    wg.add(tipPylon);
+
+    const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), crimsonGlowMat);
+    strobe.position.set(side * 6.95, 0.32, 0);
+    wg.add(strobe);
+
+    return wg;
+  };
+
+  const leftWingGroup = buildWingArray(-1);
+  const rightWingGroup = buildWingArray(1);
+  satellite.add(leftWingGroup);
+  satellite.add(rightWingGroup);
+
+  // 3. Towering Ultra-Lasery Orbital Beam (Triple-Layer + Double Plasma Helix)
   const beamGroup = new THREE.Group();
   beamGroup.visible = false;
   group.add(beamGroup);
 
-  const beamCoreMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0.96,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  const beamOuterMat = new THREE.MeshBasicMaterial({
-    color: 0xff2a1a,
-    transparent: true,
-    opacity: 0.65,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
-
-  const beamCore = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.15, 26, 20, 1, true), beamCoreMat);
-  beamCore.position.y = 13;
-  beamGroup.add(beamCore);
-
-  const beamOuter = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.85, 26, 24, 1, true), beamOuterMat);
-  beamOuter.position.y = 13;
-  beamGroup.add(beamOuter);
-
-  const impactFlare = new THREE.Mesh(
-    new THREE.SphereGeometry(3.8, 20, 16),
+  const beamCore = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.85, 1.05, 26, 20, 1, true),
     new THREE.MeshBasicMaterial({
-      color: 0xff6b35,
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.78,
+      opacity: 0.98,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
   );
-  impactFlare.scale.set(1.25, 0.45, 1.25);
-  impactFlare.position.y = 0.5;
+  beamCore.position.y = 13;
+  beamGroup.add(beamCore);
+
+  const beamMid = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.75, 2.05, 26, 24, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xff1e56,
+      transparent: true,
+      opacity: 0.78,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  beamMid.position.y = 13;
+  beamGroup.add(beamMid);
+
+  const beamOuter = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.95, 3.55, 26, 24, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xb91c1c,
+      transparent: true,
+      opacity: 0.48,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  beamOuter.position.y = 13;
+  beamGroup.add(beamOuter);
+
+  // Double-helix twisting plasma energy spirals around the orbital laser
+  const beamHelixA = new THREE.Mesh(
+    createHelixTubeGeometry(26, 2.35, 3.5, 0.24, 'y', 0, 64, 6),
+    new THREE.MeshBasicMaterial({
+      color: 0xffaa33,
+      transparent: true,
+      opacity: 0.92,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  beamGroup.add(beamHelixA);
+
+  const beamHelixB = new THREE.Mesh(
+    createHelixTubeGeometry(26, 2.65, 3.5, 0.2, 'y', Math.PI, 64, 6),
+    new THREE.MeshBasicMaterial({
+      color: 0xff2255,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  beamGroup.add(beamHelixB);
+
+  // Blazing molten ground impact core, vertical eruption pillar & scorch ring
+  const impactFlare = new THREE.Mesh(
+    new THREE.SphereGeometry(4.2, 22, 16),
+    new THREE.MeshBasicMaterial({
+      color: 0xff6b2b,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  impactFlare.scale.set(1.3, 0.5, 1.3);
+  impactFlare.position.y = 0.55;
   beamGroup.add(impactFlare);
 
+  const impactPillar = new THREE.Mesh(
+    new THREE.CylinderGeometry(3.4, 1.2, 7.5, 20, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0xff3b1f,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  impactPillar.position.y = 3.75;
+  beamGroup.add(impactPillar);
+
+  const impactDiscGeo = new THREE.RingGeometry(2.2, 6.4, 36);
+  impactDiscGeo.rotateX(-Math.PI / 2);
+  const impactDisc = new THREE.Mesh(
+    impactDiscGeo,
+    new THREE.MeshBasicMaterial({
+      color: 0xff451a,
+      transparent: true,
+      opacity: 0.78,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  impactDisc.position.y = 0.26;
+  beamGroup.add(impactDisc);
+
+  // 6 high-speed descending laser shock-rings
   const pulseRings: THREE.Mesh[] = [];
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 6; i++) {
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(2.6, 0.18, 10, 28),
+      new THREE.TorusGeometry(2.8, 0.2, 10, 32),
       new THREE.MeshBasicMaterial({
-        color: 0xffaa44,
+        color: i % 2 === 0 ? 0xffcc55 : 0xff2a44,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.9,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -1472,15 +1750,25 @@ function buildOrbitalStrikeVisual(
   return {
     group,
     satellite,
-    leftWing,
-    rightWing,
-    gyroRing,
+    leftWingGroup,
+    rightWingGroup,
+    innerGyroRing,
+    outerGyroRing,
+    emitterProngs,
+    emitterLens,
+    beaconOrb,
     targetIcon,
     lockLines,
+    lockLasers,
     beamGroup,
     beamCore,
+    beamMid,
     beamOuter,
+    beamHelixA,
+    beamHelixB,
     impactFlare,
+    impactPillar,
+    impactDisc,
     pulseRings,
   };
 }
@@ -1537,6 +1825,8 @@ export class DivineTitanRenderer {
   private slashGeo: THREE.BufferGeometry;
   private shockTorusGeo: THREE.TorusGeometry;
   private shockDiscGeo: THREE.RingGeometry;
+  private m1HelixGeo: THREE.TubeGeometry;
+  private m1MuzzleRingGeo: THREE.TorusGeometry;
 
   private cursorReticle: THREE.Mesh;
   private leapPreviewRing: THREE.Mesh;
@@ -1547,7 +1837,20 @@ export class DivineTitanRenderer {
   private skyBeamOuter: THREE.Mesh;
   private skyBeamRing: THREE.Mesh;
 
-  private slashMeshes = new Map<string, { group: THREE.Group; core: THREE.Mesh; aura: THREE.Mesh }>();
+  private slashMeshes = new Map<
+    string,
+    {
+      group: THREE.Group;
+      core: THREE.Mesh;
+      mid: THREE.Mesh;
+      outer: THREE.Mesh;
+      helix: THREE.Mesh;
+      muzzleRing: THREE.Mesh;
+      impactCore: THREE.Mesh;
+      impactDome: THREE.Mesh;
+      impactRing: THREE.Mesh;
+    }
+  >();
   private shockwaveMeshes = new Map<string, { group: THREE.Group; torus: THREE.Mesh; ring: THREE.Mesh }>();
   private orbitalVisuals = new Map<string, OrbitalStrikeVisual>();
   private mushroomMeshes = new Map<string, THREE.Group>();
@@ -1557,9 +1860,16 @@ export class DivineTitanRenderer {
   private deathBeamGroup: THREE.Group;
   private dbChargeOrb: THREE.Mesh;
   private dbChargeRings: THREE.Mesh[] = [];
+  private dbChargeArcs: THREE.Mesh[] = [];
+  private dbRangeLaser: THREE.Mesh;
   private dbBeamCore: THREE.Mesh;
+  private dbBeamMid: THREE.Mesh;
   private dbBeamOuter: THREE.Mesh;
+  private dbHelixA: THREE.Mesh;
+  private dbHelixB: THREE.Mesh;
   private dbEndSphere: THREE.Mesh;
+  private dbEndVortex: THREE.Mesh;
+  private dbEndPillar: THREE.Mesh;
   private dbPulseRings: THREE.Mesh[] = [];
 
   constructor(scene: THREE.Scene) {
@@ -1578,6 +1888,8 @@ export class DivineTitanRenderer {
     this.shockTorusGeo.rotateX(Math.PI / 2);
     this.shockDiscGeo = new THREE.RingGeometry(0.68, 1.0, 40);
     this.shockDiscGeo.rotateX(-Math.PI / 2);
+    this.m1HelixGeo = createHelixTubeGeometry(1.0, 0.48, 2.75, 0.085, 'z', 0, 44, 5);
+    this.m1MuzzleRingGeo = new THREE.TorusGeometry(0.72, 0.11, 8, 24);
 
     // Cursor red target icon on the ground (aim indicator for cannons & Skill 1)
     const reticleGeo = new THREE.PlaneGeometry(5.6, 5.6);
@@ -1659,11 +1971,11 @@ export class DivineTitanRenderer {
     this.group.add(this.deathBeamGroup);
 
     this.dbChargeOrb = new THREE.Mesh(
-      new THREE.SphereGeometry(1.6, 20, 16),
+      new THREE.SphereGeometry(1.65, 22, 16),
       new THREE.MeshBasicMaterial({
-        color: 0xfff5e0,
+        color: 0xfff8e6,
         transparent: true,
-        opacity: 0.95,
+        opacity: 0.96,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
@@ -1672,11 +1984,11 @@ export class DivineTitanRenderer {
 
     for (let i = 0; i < 3; i++) {
       const rMesh = new THREE.Mesh(
-        new THREE.TorusGeometry(2.2 + i * 0.8, 0.14, 10, 32),
+        new THREE.TorusGeometry(2.3 + i * 0.85, 0.15, 10, 36),
         new THREE.MeshBasicMaterial({
-          color: i === 0 ? 0xffffff : 0xff331a,
+          color: i === 0 ? 0xffffff : i === 1 ? 0xff2255 : 0xffaa22,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.88,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         }),
@@ -1685,7 +1997,42 @@ export class DivineTitanRenderer {
       this.dbChargeRings.push(rMesh);
     }
 
-    const dbCoreGeo = new THREE.CylinderGeometry(1.1, 1.3, 1.0, 20, 1, true);
+    // 4 crackling converging energy filaments during cannon fusion
+    for (let i = 0; i < 4; i++) {
+      const arcGeo = new THREE.CylinderGeometry(0.05, 0.18, 4.4, 6, 1, true);
+      arcGeo.translate(0, 2.2, 0);
+      const arc = new THREE.Mesh(
+        arcGeo,
+        new THREE.MeshBasicMaterial({
+          color: i % 2 === 0 ? 0xff3355 : 0xffcc44,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      this.deathBeamGroup.add(arc);
+      this.dbChargeArcs.push(arc);
+    }
+
+    // Pulsing crimson rangefinder lock-on sightline laser during combining phase
+    const rangeGeo = new THREE.CylinderGeometry(0.11, 0.11, 1.0, 8, 1, true);
+    rangeGeo.rotateX(Math.PI / 2);
+    rangeGeo.translate(0, 0, 0.5);
+    this.dbRangeLaser = new THREE.Mesh(
+      rangeGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xff1a33,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbRangeLaser);
+
+    // Triple-layered colossal Death Beam (Core + Crimson-Magenta Mid + Deep Blood-Red Outer)
+    const dbCoreGeo = new THREE.CylinderGeometry(1.05, 1.25, 1.0, 20, 1, true);
     dbCoreGeo.rotateX(Math.PI / 2);
     dbCoreGeo.translate(0, 0, 0.5);
     this.dbBeamCore = new THREE.Mesh(
@@ -1700,15 +2047,31 @@ export class DivineTitanRenderer {
     );
     this.deathBeamGroup.add(this.dbBeamCore);
 
-    const dbOuterGeo = new THREE.CylinderGeometry(2.65, 3.1, 1.0, 24, 1, true);
+    const dbMidGeo = new THREE.CylinderGeometry(2.1, 2.45, 1.0, 24, 1, true);
+    dbMidGeo.rotateX(Math.PI / 2);
+    dbMidGeo.translate(0, 0, 0.5);
+    this.dbBeamMid = new THREE.Mesh(
+      dbMidGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xff1e4d,
+        transparent: true,
+        opacity: 0.82,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbBeamMid);
+
+    const dbOuterGeo = new THREE.CylinderGeometry(3.35, 3.95, 1.0, 24, 1, true);
     dbOuterGeo.rotateX(Math.PI / 2);
     dbOuterGeo.translate(0, 0, 0.5);
     this.dbBeamOuter = new THREE.Mesh(
       dbOuterGeo,
       new THREE.MeshBasicMaterial({
-        color: 0xff2211,
+        color: 0xb91c1c,
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.5,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -1716,25 +2079,79 @@ export class DivineTitanRenderer {
     );
     this.deathBeamGroup.add(this.dbBeamOuter);
 
-    this.dbEndSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(3.8, 22, 16),
+    // Twin counter-rotating helical plasma ribbons racing along the Death Beam
+    this.dbHelixA = new THREE.Mesh(
+      createHelixTubeGeometry(1.0, 2.45, 4.5, 0.24, 'z', 0, 72, 6),
       new THREE.MeshBasicMaterial({
-        color: 0xff5a1a,
+        color: 0xffbb33,
+        transparent: true,
+        opacity: 0.94,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbHelixA);
+
+    this.dbHelixB = new THREE.Mesh(
+      createHelixTubeGeometry(1.0, 2.85, 4.5, 0.2, 'z', Math.PI, 72, 6),
+      new THREE.MeshBasicMaterial({
+        color: 0xff2255,
         transparent: true,
         opacity: 0.88,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       }),
     );
+    this.deathBeamGroup.add(this.dbHelixB);
+
+    // Apocalyptic endpoint: molten plasma core + spinning vortex ring + eruption plume
+    this.dbEndSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(4.1, 22, 16),
+      new THREE.MeshBasicMaterial({
+        color: 0xff6a1f,
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
     this.deathBeamGroup.add(this.dbEndSphere);
 
-    for (let i = 0; i < 5; i++) {
+    this.dbEndVortex = new THREE.Mesh(
+      new THREE.TorusGeometry(4.8, 0.48, 12, 36),
+      new THREE.MeshBasicMaterial({
+        color: 0xff2244,
+        transparent: true,
+        opacity: 0.88,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbEndVortex);
+
+    const endPillarGeo = new THREE.CylinderGeometry(4.2, 1.4, 11.5, 20, 1, true);
+    endPillarGeo.translate(0, 5.75, 0);
+    this.dbEndPillar = new THREE.Mesh(
+      endPillarGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xff451a,
+        transparent: true,
+        opacity: 0.68,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbEndPillar);
+
+    // 7 Mach-diamond laser shock rings racing down the Death Beam
+    for (let i = 0; i < 7; i++) {
       const pr = new THREE.Mesh(
-        new THREE.TorusGeometry(2.8, 0.22, 10, 28),
+        new THREE.TorusGeometry(3.0, 0.24, 10, 32),
         new THREE.MeshBasicMaterial({
-          color: 0xffb347,
+          color: i % 2 === 0 ? 0xffcc55 : 0xff2a44,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.88,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         }),
@@ -1833,11 +2250,11 @@ export class DivineTitanRenderer {
     this.updateDeathBeam(titan, elapsedTotal);
 
     // Sync M1 Lasers, Shockwaves, Skill 1 Orbital Satellite, Skill 3 Mushroom Clouds, and Skill 4 Missiles
-    this.syncSlashes(titan.slashes);
+    this.syncSlashes(titan.slashes, elapsedTotal);
     this.syncShockwaves(titan.shockwaves);
     this.syncOrbitalStrikes(titan.orbitalStrikes, elapsedTotal, sampleGroundY);
     this.syncMushroomClouds(titan.mushroomClouds, elapsedTotal);
-    this.syncMissiles(titan.missiles);
+    this.syncMissiles(titan.missiles, elapsedTotal);
   }
 
   private animateRig(
@@ -2135,15 +2552,16 @@ export class DivineTitanRenderer {
     }
   }
 
-  private syncSlashes(slashes: TitanSlashEffect[]): void {
+  private syncSlashes(slashes: TitanSlashEffect[], elapsedTotal: number): void {
     const aliveIds = new Set<string>();
     for (const s of slashes) {
       aliveIds.add(s.id);
       let vis = this.slashMeshes.get(s.id);
       if (!vis) {
         const grp = new THREE.Group();
-        // Unit-length beam cylinder oriented along +Z from 0..1
-        const coreGeo = new THREE.CylinderGeometry(0.24, 0.24, 1.0, 12, 1, true);
+
+        // Blinding white-hot central laser lance (unit-length along +Z)
+        const coreGeo = new THREE.CylinderGeometry(0.2, 0.2, 1.0, 12, 1, true);
         coreGeo.rotateX(Math.PI / 2);
         coreGeo.translate(0, 0, 0.5);
         const core = new THREE.Mesh(
@@ -2157,39 +2575,106 @@ export class DivineTitanRenderer {
           }),
         );
 
-        const auraGeo = new THREE.CylinderGeometry(0.62, 0.62, 1.0, 14, 1, true);
-        auraGeo.rotateX(Math.PI / 2);
-        auraGeo.translate(0, 0, 0.5);
-        const aura = new THREE.Mesh(
-          auraGeo,
+        // Electric crimson-magenta mid-plasma sheath
+        const midGeo = new THREE.CylinderGeometry(0.52, 0.52, 1.0, 14, 1, true);
+        midGeo.rotateX(Math.PI / 2);
+        midGeo.translate(0, 0, 0.5);
+        const mid = new THREE.Mesh(
+          midGeo,
           new THREE.MeshBasicMaterial({
-            color: 0xff2414,
+            color: 0xff1e4d,
             transparent: true,
-            opacity: 0.78,
+            opacity: 0.85,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             side: THREE.DoubleSide,
           }),
         );
 
-        // Fiery plasma impact detonation sphere at the hit point (local z = 1 when scaled)
-        const impactSphere = new THREE.Mesh(
-          new THREE.SphereGeometry(1.45, 14, 10),
+        // Deep blood-red outer ionized heat halo
+        const outerGeo = new THREE.CylinderGeometry(0.95, 0.95, 1.0, 14, 1, true);
+        outerGeo.rotateX(Math.PI / 2);
+        outerGeo.translate(0, 0, 0.5);
+        const outer = new THREE.Mesh(
+          outerGeo,
           new THREE.MeshBasicMaterial({
-            color: 0xff5a1f,
+            color: 0xb91c1c,
             transparent: true,
-            opacity: 0.9,
+            opacity: 0.45,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          }),
+        );
+
+        // Spinning helical plasma coil twisting along the laser (shared geometry)
+        const helix = new THREE.Mesh(
+          this.m1HelixGeo,
+          new THREE.MeshBasicMaterial({
+            color: 0xffbb33,
+            transparent: true,
+            opacity: 0.92,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
           }),
         );
-        impactSphere.name = 'laser_impact';
 
-        grp.add(aura);
+        // Expanding muzzle shock-ring bursting from the cannon barrel (shared geometry)
+        const muzzleRing = new THREE.Mesh(
+          this.m1MuzzleRingGeo,
+          new THREE.MeshBasicMaterial({
+            color: 0xffcc66,
+            transparent: true,
+            opacity: 0.92,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+
+        // Multi-layered impact detonation at hit point (white flash + fiery dome + shock ring)
+        const impactCore = new THREE.Mesh(
+          new THREE.SphereGeometry(0.9, 12, 10),
+          new THREE.MeshBasicMaterial({
+            color: 0xfff8e6,
+            transparent: true,
+            opacity: 0.96,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+
+        const impactDome = new THREE.Mesh(
+          new THREE.SphereGeometry(1.75, 16, 12),
+          new THREE.MeshBasicMaterial({
+            color: 0xff3b1a,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+
+        const impactRing = new THREE.Mesh(
+          this.m1MuzzleRingGeo,
+          new THREE.MeshBasicMaterial({
+            color: 0xff8822,
+            transparent: true,
+            opacity: 0.88,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+
+        grp.add(outer);
+        grp.add(mid);
         grp.add(core);
-        grp.add(impactSphere);
+        grp.add(helix);
+        grp.add(muzzleRing);
+        grp.add(impactDome);
+        grp.add(impactCore);
+        grp.add(impactRing);
         this.group.add(grp);
-        vis = { group: grp, core, aura };
+        vis = { group: grp, core, mid, outer, helix, muzzleRing, impactCore, impactDome, impactRing };
         this.slashMeshes.set(s.id, vis);
       }
 
@@ -2202,35 +2687,53 @@ export class DivineTitanRenderer {
       vis.group.position.set(s.x, s.y, s.z);
       vis.group.lookAt(s.targetX, s.targetY, s.targetZ);
 
-      const widthFade = 1.25 - t * 0.95;
+      const widthFade = 1.3 - t * 1.0;
       vis.core.scale.set(widthFade, widthFade, beamLen);
-      vis.aura.scale.set(widthFade * 1.15, widthFade * 1.15, beamLen);
+      vis.mid.scale.set(widthFade * 1.12, widthFade * 1.12, beamLen);
+      vis.outer.scale.set(widthFade * 1.25, widthFade * 1.25, beamLen);
 
-      const impact = vis.group.getObjectByName('laser_impact') as THREE.Mesh | undefined;
-      if (impact) {
-        impact.position.set(0, 0, beamLen);
-        const impScale = 0.7 + t * 1.45;
-        impact.scale.setScalar(impScale);
-        (impact.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.92;
-      }
+      vis.helix.scale.set(widthFade * 1.15, widthFade * 1.15, beamLen);
+      vis.helix.rotation.z = elapsedTotal * 26 + s.elapsed * 18;
+
+      vis.muzzleRing.position.set(0, 0, 0.25 + t * 2.2);
+      vis.muzzleRing.scale.setScalar(0.65 + t * 1.75);
+
+      vis.impactCore.position.set(0, 0, beamLen);
+      vis.impactCore.scale.setScalar(0.95 + t * 0.9);
+
+      vis.impactDome.position.set(0, 0, beamLen);
+      vis.impactDome.scale.setScalar(0.75 + t * 1.75);
+
+      vis.impactRing.position.set(0, 0, beamLen);
+      vis.impactRing.scale.setScalar(0.85 + t * 2.8);
 
       const alpha = 1 - t * t;
       (vis.core.material as THREE.MeshBasicMaterial).opacity = alpha * 0.98;
-      (vis.aura.material as THREE.MeshBasicMaterial).opacity = alpha * 0.76;
+      (vis.mid.material as THREE.MeshBasicMaterial).opacity = alpha * 0.85;
+      (vis.outer.material as THREE.MeshBasicMaterial).opacity = alpha * 0.45;
+      (vis.helix.material as THREE.MeshBasicMaterial).opacity = alpha * 0.92;
+      (vis.muzzleRing.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.9;
+      (vis.impactCore.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.96;
+      (vis.impactDome.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.86;
+      (vis.impactRing.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.85;
     }
 
     for (const [id, vis] of this.slashMeshes.entries()) {
       if (!aliveIds.has(id)) {
         this.group.remove(vis.group);
         vis.core.geometry.dispose();
-        vis.aura.geometry.dispose();
+        vis.mid.geometry.dispose();
+        vis.outer.geometry.dispose();
+        vis.impactCore.geometry.dispose();
+        vis.impactDome.geometry.dispose();
         (vis.core.material as THREE.Material).dispose();
-        (vis.aura.material as THREE.Material).dispose();
-        const impact = vis.group.getObjectByName('laser_impact') as THREE.Mesh | undefined;
-        if (impact) {
-          impact.geometry.dispose();
-          (impact.material as THREE.Material).dispose();
-        }
+        (vis.mid.material as THREE.Material).dispose();
+        (vis.outer.material as THREE.Material).dispose();
+        (vis.helix.material as THREE.Material).dispose();
+        (vis.muzzleRing.material as THREE.Material).dispose();
+        (vis.impactCore.material as THREE.Material).dispose();
+        (vis.impactDome.material as THREE.Material).dispose();
+        (vis.impactRing.material as THREE.Material).dispose();
         this.slashMeshes.delete(id);
       }
     }
@@ -2312,61 +2815,121 @@ export class DivineTitanRenderer {
       const gy = sampleGroundY(st.targetX, st.targetZ);
       vis.group.position.set(st.targetX, gy, st.targetZ);
 
-      // Animate spinning Red Target Icon on the ground
-      vis.targetIcon.rotation.z = elapsedTotal * 2.4;
-      vis.gyroRing.rotation.z = elapsedTotal * 3.8;
+      // Animate spinning Red Target Icon & counter-rotating satellite gyro-accelerator rings
+      vis.targetIcon.rotation.z = elapsedTotal * 2.6;
+      const spinMult = st.phase === 'firing' ? 2.4 : 1.0;
+      vis.innerGyroRing.rotation.y = elapsedTotal * 3.8 * spinMult;
+      vis.outerGyroRing.rotation.y = -elapsedTotal * 2.5 * spinMult;
+
+      // Pulsing top spire beacon strobe
+      const beaconPulse = 0.75 + Math.sin(elapsedTotal * 14) * 0.45;
+      vis.beaconOrb.scale.setScalar(beaconPulse);
 
       if (st.phase === 'lockon') {
         const t = Math.min(1, st.elapsed / st.lockonDuration);
         const ease = 1 - (1 - t) * (1 - t);
-        // Satellite descends into orbital position & unfolds solar wings
-        vis.satellite.position.y = 38 - 12 * ease;
-        vis.leftWing.scale.x = 0.25 + 0.75 * ease;
-        vis.rightWing.scale.x = 0.25 + 0.75 * ease;
-        vis.targetIcon.scale.setScalar(1.35 - 0.35 * ease);
+        const satY = 38 - 12 * ease;
+        vis.satellite.position.y = satY;
+
+        // Smoothly unfold articulated dual-tier solar wing arrays & flare focusing prongs
+        vis.leftWingGroup.scale.x = 0.22 + 0.78 * ease;
+        vis.rightWingGroup.scale.x = 0.22 + 0.78 * ease;
+        for (const prong of vis.emitterProngs) {
+          prong.rotation.x = -0.15 - ease * 0.45;
+        }
+        vis.emitterLens.scale.setScalar(0.7 + ease * 0.65 + Math.sin(elapsedTotal * 30) * 0.1);
+
+        vis.targetIcon.scale.setScalar(1.38 - 0.38 * ease);
         (vis.targetIcon.material as THREE.MeshBasicMaterial).opacity = 0.98;
         vis.lockLines.visible = true;
-        vis.lockLines.scale.set(1.2 - 0.8 * ease, 1, 1.2 - 0.8 * ease);
+        vis.lockLines.scale.set(1.25 - 0.85 * ease, 1, 1.25 - 0.85 * ease);
+
+        // 4 converging red targeting laser sightlines sweeping inward onto the ground target
+        const spreadRadius = (1 - ease) * 5.2 + 0.35;
+        for (let i = 0; i < vis.lockLasers.length; i++) {
+          const laser = vis.lockLasers[i];
+          laser.visible = true;
+          laser.position.y = satY - 2.0;
+          const angle = (i / 4) * Math.PI * 2 + elapsedTotal * 1.4;
+          const tilt = Math.atan2(spreadRadius, satY - 2.0);
+          laser.rotation.set(Math.sin(angle) * tilt, 0, Math.cos(angle) * tilt);
+          (laser.material as THREE.MeshBasicMaterial).opacity = 0.45 + ease * 0.55;
+        }
         vis.beamGroup.visible = false;
       } else if (st.phase === 'firing') {
-        vis.satellite.position.y = 26 + Math.sin(elapsedTotal * 18) * 0.15;
-        vis.leftWing.scale.x = 1;
-        vis.rightWing.scale.x = 1;
-        vis.targetIcon.scale.setScalar(1.05 + Math.sin(elapsedTotal * 20) * 0.08);
-        (vis.targetIcon.material as THREE.MeshBasicMaterial).opacity = 0.92;
+        vis.satellite.position.y = 26 + Math.sin(elapsedTotal * 22) * 0.16;
+        vis.leftWingGroup.scale.x = 1;
+        vis.rightWingGroup.scale.x = 1;
+        for (const prong of vis.emitterProngs) {
+          prong.rotation.x = -0.68 + Math.sin(elapsedTotal * 32) * 0.06;
+        }
+        vis.emitterLens.scale.setScalar(1.35 + Math.sin(elapsedTotal * 40) * 0.18);
+
+        vis.targetIcon.scale.setScalar(1.08 + Math.sin(elapsedTotal * 22) * 0.1);
+        (vis.targetIcon.material as THREE.MeshBasicMaterial).opacity = 0.94;
         vis.lockLines.visible = false;
+        for (const laser of vis.lockLasers) laser.visible = false;
         vis.beamGroup.visible = true;
 
-        const flicker = 0.92 + Math.sin(elapsedTotal * 45) * 0.12;
+        const flicker = 0.92 + Math.sin(elapsedTotal * 48) * 0.13;
         vis.beamCore.scale.set(flicker, 1, flicker);
-        vis.beamOuter.scale.set(flicker * 1.05, 1, flicker * 1.05);
-        (vis.beamCore.material as THREE.MeshBasicMaterial).opacity = 0.96;
-        (vis.beamOuter.material as THREE.MeshBasicMaterial).opacity = 0.68;
+        vis.beamMid.scale.set(flicker * 1.04, 1, flicker * 1.04);
+        vis.beamOuter.scale.set(flicker * 1.08, 1, flicker * 1.08);
+        (vis.beamCore.material as THREE.MeshBasicMaterial).opacity = 0.98;
+        (vis.beamMid.material as THREE.MeshBasicMaterial).opacity = 0.8;
+        (vis.beamOuter.material as THREE.MeshBasicMaterial).opacity = 0.5;
 
-        vis.impactFlare.scale.set(1.3 * flicker, 0.5 * flicker, 1.3 * flicker);
-        (vis.impactFlare.material as THREE.MeshBasicMaterial).opacity = 0.85;
+        // Spin double-helix plasma spirals rapidly in opposite directions
+        vis.beamHelixA.rotation.y = elapsedTotal * 11.5;
+        vis.beamHelixB.rotation.y = -elapsedTotal * 9.0;
+        vis.beamHelixA.scale.set(flicker, 1, flicker);
+        vis.beamHelixB.scale.set(flicker * 1.05, 1, flicker * 1.05);
+        (vis.beamHelixA.material as THREE.MeshBasicMaterial).opacity = 0.94;
+        (vis.beamHelixB.material as THREE.MeshBasicMaterial).opacity = 0.88;
 
-        // Animated descending plasma pulse rings along the beam
+        // Blazing molten ground impact core, eruption pillar & heat ring
+        vis.impactFlare.scale.set(1.35 * flicker, 0.55 * flicker, 1.35 * flicker);
+        (vis.impactFlare.material as THREE.MeshBasicMaterial).opacity = 0.9;
+        vis.impactPillar.scale.set(flicker * 1.1, 0.85 + Math.sin(elapsedTotal * 28) * 0.25, flicker * 1.1);
+        (vis.impactPillar.material as THREE.MeshBasicMaterial).opacity = 0.68;
+        vis.impactDisc.rotation.z = -elapsedTotal * 5.0;
+        vis.impactDisc.scale.setScalar(0.95 + Math.sin(elapsedTotal * 26) * 0.14);
+        (vis.impactDisc.material as THREE.MeshBasicMaterial).opacity = 0.82;
+
+        // 6 high-speed descending laser shock-rings slamming into the ground
         for (let i = 0; i < vis.pulseRings.length; i++) {
           const ring = vis.pulseRings[i];
-          const phase = ((elapsedTotal * 2.2 + i * 0.25) % 1);
+          const phase = (elapsedTotal * 2.6 + i / vis.pulseRings.length) % 1;
           ring.position.y = 25 * (1 - phase);
-          const rs = 0.75 + phase * 0.85;
+          const rs = 0.72 + phase * 1.05;
           ring.scale.setScalar(rs);
-          (ring.material as THREE.MeshBasicMaterial).opacity = (1 - phase) * 0.85;
+          (ring.material as THREE.MeshBasicMaterial).opacity = (1 - phase) * 0.9;
         }
       } else {
-        // fadeout: beam shrinks, satellite ascends back to orbit
+        // fadeout: beam collapses, prongs close, satellite ascends back to orbit
         const t = Math.min(1, st.elapsed / st.fadeDuration);
         const fade = 1 - t;
         vis.satellite.position.y = 26 + t * 18;
+        for (const prong of vis.emitterProngs) {
+          prong.rotation.x = -0.68 * fade;
+        }
+        vis.emitterLens.scale.setScalar(0.6 + fade * 0.65);
         vis.lockLines.visible = false;
+        for (const laser of vis.lockLasers) laser.visible = false;
         vis.beamGroup.visible = true;
         vis.beamCore.scale.set(fade, 1, fade);
+        vis.beamMid.scale.set(fade, 1, fade);
         vis.beamOuter.scale.set(fade, 1, fade);
-        (vis.beamCore.material as THREE.MeshBasicMaterial).opacity = fade * 0.9;
-        (vis.beamOuter.material as THREE.MeshBasicMaterial).opacity = fade * 0.55;
-        (vis.impactFlare.material as THREE.MeshBasicMaterial).opacity = fade * 0.65;
+        vis.beamHelixA.scale.set(fade, 1, fade);
+        vis.beamHelixB.scale.set(fade, 1, fade);
+        (vis.beamCore.material as THREE.MeshBasicMaterial).opacity = fade * 0.92;
+        (vis.beamMid.material as THREE.MeshBasicMaterial).opacity = fade * 0.72;
+        (vis.beamOuter.material as THREE.MeshBasicMaterial).opacity = fade * 0.45;
+        (vis.beamHelixA.material as THREE.MeshBasicMaterial).opacity = fade * 0.85;
+        (vis.beamHelixB.material as THREE.MeshBasicMaterial).opacity = fade * 0.8;
+        (vis.impactFlare.material as THREE.MeshBasicMaterial).opacity = fade * 0.7;
+        (vis.impactPillar.material as THREE.MeshBasicMaterial).opacity = fade * 0.55;
+        (vis.impactDisc.material as THREE.MeshBasicMaterial).opacity = fade * 0.65;
         (vis.targetIcon.material as THREE.MeshBasicMaterial).opacity = fade * 0.85;
         for (const ring of vis.pulseRings) {
           (ring.material as THREE.MeshBasicMaterial).opacity = fade * 0.5;
@@ -2411,56 +2974,100 @@ export class DivineTitanRenderer {
     if (db.subPhase === 'combining') {
       const t = Math.min(1, db.elapsed / db.combineDuration);
       this.dbChargeOrb.visible = true;
-      this.dbChargeOrb.scale.setScalar(0.25 + t * 1.65 + Math.sin(elapsedTotal * 35) * 0.14);
-      (this.dbChargeOrb.material as THREE.MeshBasicMaterial).opacity = 0.55 + t * 0.45;
+      this.dbChargeOrb.scale.setScalar(0.28 + t * 1.75 + Math.sin(elapsedTotal * 38) * 0.16);
+      (this.dbChargeOrb.material as THREE.MeshBasicMaterial).opacity = 0.58 + t * 0.42;
 
       for (let i = 0; i < this.dbChargeRings.length; i++) {
         const ring = this.dbChargeRings[i];
         ring.visible = true;
-        const shrink = Math.max(0.2, 1.4 - t * 1.15);
+        const shrink = Math.max(0.18, 1.45 - t * 1.2);
         ring.scale.setScalar(shrink);
-        ring.rotation.z = elapsedTotal * (4.5 + i * 2.2) * (i % 2 === 0 ? 1 : -1);
-        ring.position.z = (1 - t) * (1.5 + i * 1.2);
+        ring.rotation.z = elapsedTotal * (5.2 + i * 2.4) * (i % 2 === 0 ? 1 : -1);
+        ring.position.z = (1 - t) * (1.6 + i * 1.25);
       }
 
+      // 4 crackling energy filaments snapping inward into the fusing twin cannons
+      for (let i = 0; i < this.dbChargeArcs.length; i++) {
+        const arc = this.dbChargeArcs[i];
+        arc.visible = true;
+        const a = (i / this.dbChargeArcs.length) * Math.PI * 2 + elapsedTotal * 7.5;
+        arc.rotation.set(Math.sin(elapsedTotal * 24 + i) * 0.45, 0, a);
+        arc.scale.set(0.7 + t * 0.8, 0.35 + (1 - t) * 0.95, 0.7 + t * 0.8);
+        (arc.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.abs(Math.sin(elapsedTotal * 36 + i)) * 0.45;
+      }
+
+      // Thin terrifying pulsing crimson rangefinder laser locking onto the target spot
+      this.dbRangeLaser.visible = true;
+      const rangeWidth = 0.55 + t * 1.35 + Math.sin(elapsedTotal * 45) * 0.25;
+      this.dbRangeLaser.scale.set(rangeWidth, rangeWidth, beamLen);
+      (this.dbRangeLaser.material as THREE.MeshBasicMaterial).opacity = 0.45 + t * 0.55;
+
       this.dbBeamCore.visible = false;
+      this.dbBeamMid.visible = false;
       this.dbBeamOuter.visible = false;
+      this.dbHelixA.visible = false;
+      this.dbHelixB.visible = false;
       this.dbEndSphere.visible = false;
+      this.dbEndVortex.visible = false;
+      this.dbEndPillar.visible = false;
       for (const pr of this.dbPulseRings) pr.visible = false;
     } else if (db.subPhase === 'firing') {
       const t = Math.min(1, db.elapsed / db.fireDuration);
-      const flicker = 0.94 + Math.sin(elapsedTotal * 52) * 0.12;
+      const flicker = 0.93 + Math.sin(elapsedTotal * 56) * 0.13;
       // Ramp width violently over the 7-second burn as energy builds toward detonation!
-      const surge = 1.0 + t * 0.45;
+      const surge = 1.0 + t * 0.5;
 
       this.dbChargeOrb.visible = true;
-      this.dbChargeOrb.scale.setScalar(1.55 * flicker * surge);
-      (this.dbChargeOrb.material as THREE.MeshBasicMaterial).opacity = 0.95;
+      this.dbChargeOrb.scale.setScalar(1.65 * flicker * surge);
+      (this.dbChargeOrb.material as THREE.MeshBasicMaterial).opacity = 0.96;
 
       for (const ring of this.dbChargeRings) ring.visible = false;
+      for (const arc of this.dbChargeArcs) arc.visible = false;
+      this.dbRangeLaser.visible = false;
 
+      // Triple-layered colossal beam
       this.dbBeamCore.visible = true;
+      this.dbBeamMid.visible = true;
       this.dbBeamOuter.visible = true;
       this.dbBeamCore.scale.set(flicker * surge, flicker * surge, beamLen);
-      this.dbBeamOuter.scale.set(flicker * surge * 1.08, flicker * surge * 1.08, beamLen);
+      this.dbBeamMid.scale.set(flicker * surge * 1.05, flicker * surge * 1.05, beamLen);
+      this.dbBeamOuter.scale.set(flicker * surge * 1.12, flicker * surge * 1.12, beamLen);
       (this.dbBeamCore.material as THREE.MeshBasicMaterial).opacity = 0.98;
-      (this.dbBeamOuter.material as THREE.MeshBasicMaterial).opacity = 0.74;
+      (this.dbBeamMid.material as THREE.MeshBasicMaterial).opacity = 0.84;
+      (this.dbBeamOuter.material as THREE.MeshBasicMaterial).opacity = 0.52;
 
-      // Growing unstable molten plasma sphere at the beam's endpoint!
+      // Twin counter-rotating helical plasma ribbons racing along the Death Beam
+      this.dbHelixA.visible = true;
+      this.dbHelixB.visible = true;
+      this.dbHelixA.scale.set(flicker * surge, flicker * surge, beamLen);
+      this.dbHelixB.scale.set(flicker * surge * 1.05, flicker * surge * 1.05, beamLen);
+      this.dbHelixA.rotation.z = elapsedTotal * 14.5;
+      this.dbHelixB.rotation.z = -elapsedTotal * 11.2;
+
+      // Apocalyptic molten plasma core + spinning vortex ring + eruption column at beam endpoint!
       this.dbEndSphere.visible = true;
       this.dbEndSphere.position.set(0, 0, beamLen);
-      const endScale = (0.75 + t * 1.35) * flicker;
+      const endScale = (0.8 + t * 1.45) * flicker;
       this.dbEndSphere.scale.setScalar(endScale);
-      (this.dbEndSphere.material as THREE.MeshBasicMaterial).opacity = 0.88;
+      (this.dbEndSphere.material as THREE.MeshBasicMaterial).opacity = 0.92;
 
-      // 5 plasma energy rings racing from the combined cannon down to the target!
+      this.dbEndVortex.visible = true;
+      this.dbEndVortex.position.set(0, 0, beamLen);
+      this.dbEndVortex.rotation.set(Math.PI / 2, 0, elapsedTotal * 8.5);
+      this.dbEndVortex.scale.setScalar((0.85 + t * 1.3) * flicker);
+
+      this.dbEndPillar.visible = true;
+      this.dbEndPillar.position.set(0, 0, beamLen);
+      this.dbEndPillar.scale.set((0.75 + t * 1.1) * flicker, 0.7 + t * 1.25, (0.75 + t * 1.1) * flicker);
+
+      // 7 Mach-diamond laser shock rings racing from the combined cannon down to the target!
       for (let i = 0; i < this.dbPulseRings.length; i++) {
         const pr = this.dbPulseRings[i];
         pr.visible = true;
-        const p = (elapsedTotal * 2.4 + i * 0.2) % 1;
+        const p = (elapsedTotal * 2.8 + i / this.dbPulseRings.length) % 1;
         pr.position.set(0, 0, p * beamLen);
-        pr.scale.setScalar((0.8 + p * 0.65) * surge);
-        (pr.material as THREE.MeshBasicMaterial).opacity = (1 - p * 0.65) * 0.85;
+        pr.scale.setScalar((0.78 + p * 0.75) * surge);
+        (pr.material as THREE.MeshBasicMaterial).opacity = (1 - p * 0.6) * 0.9;
       }
     } else {
       // detonating: beam vanishes as the colossal mushroom cloud erupts!
@@ -2668,50 +3275,107 @@ export class DivineTitanRenderer {
     }
   }
 
-  private syncMissiles(missiles: TitanMissile[]): void {
+  private syncMissiles(missiles: TitanMissile[], elapsedTotal: number): void {
     const aliveIds = new Set<string>();
     for (const m of missiles) {
       aliveIds.add(m.id);
       let grp = this.missileMeshes.get(m.id);
       if (!grp) {
         grp = new THREE.Group();
-        // Sleek 3D crimson-titanium warhead oriented along +Z
-        const bodyGeo = new THREE.CylinderGeometry(0.14, 0.18, 1.35, 10);
+
+        const hullMat = new THREE.MeshStandardMaterial({
+          color: 0x68766c,
+          metalness: 0.78,
+          roughness: 0.25,
+        });
+        const darkMat = new THREE.MeshStandardMaterial({
+          color: 0x262e2a,
+          metalness: 0.85,
+          roughness: 0.28,
+        });
+
+        // Armored military warhead fuselage oriented along +Z
+        const bodyGeo = new THREE.CylinderGeometry(0.15, 0.19, 1.5, 10);
         bodyGeo.rotateX(Math.PI / 2);
-        const body = new THREE.Mesh(
-          bodyGeo,
-          new THREE.MeshStandardMaterial({
-            color: 0xcbd5e1,
-            metalness: 0.7,
-            roughness: 0.25,
-          }),
-        );
+        const body = new THREE.Mesh(bodyGeo, hullMat);
         grp.add(body);
 
-        const noseGeo = new THREE.ConeGeometry(0.16, 0.55, 10);
+        // Tactical dark armor collar bands
+        const bandGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.22, 10);
+        bandGeo.rotateX(Math.PI / 2);
+        const bandFront = new THREE.Mesh(bandGeo, darkMat);
+        bandFront.position.z = 0.42;
+        grp.add(bandFront);
+
+        const bandRear = new THREE.Mesh(bandGeo, darkMat);
+        bandRear.position.z = -0.45;
+        grp.add(bandRear);
+
+        // Glowing crimson warhead nosecone + white-hot laser seeker eye
+        const noseGeo = new THREE.ConeGeometry(0.17, 0.62, 10);
         noseGeo.rotateX(Math.PI / 2);
         const nose = new THREE.Mesh(
           noseGeo,
-          new THREE.MeshBasicMaterial({ color: 0xff2a1a }),
+          new THREE.MeshBasicMaterial({ color: 0xff1e3a }),
         );
-        nose.position.z = 0.92;
+        nose.position.z = 1.04;
         grp.add(nose);
 
-        // Glowing exhaust plume trailing behind (-Z)
-        const plumeGeo = new THREE.ConeGeometry(0.24, 2.4, 10, 1, true);
-        plumeGeo.rotateX(-Math.PI / 2);
-        const plume = new THREE.Mesh(
-          plumeGeo,
+        const seekerEye = new THREE.Mesh(
+          new THREE.SphereGeometry(0.085, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xfff8e6 }),
+        );
+        seekerEye.position.z = 1.32;
+        grp.add(seekerEye);
+
+        // 4 angled metallic cruciform stabilizer tail fins
+        const finGeo = new THREE.BoxGeometry(0.04, 0.48, 0.45);
+        for (let f = 0; f < 4; f++) {
+          const fin = new THREE.Mesh(finGeo, darkMat);
+          const a = (f / 4) * Math.PI * 2 + Math.PI / 4;
+          fin.position.set(Math.cos(a) * 0.22, Math.sin(a) * 0.22, -0.58);
+          fin.rotation.z = a - Math.PI / 2;
+          grp.add(fin);
+        }
+
+        // Thruster nozzle + dual-layered flickering plasma exhaust plume (-Z)
+        const nozzleGeo = new THREE.CylinderGeometry(0.14, 0.21, 0.24, 10);
+        nozzleGeo.rotateX(Math.PI / 2);
+        const nozzle = new THREE.Mesh(nozzleGeo, darkMat);
+        nozzle.position.z = -0.82;
+        grp.add(nozzle);
+
+        const plumeCoreGeo = new THREE.ConeGeometry(0.14, 1.85, 8, 1, true);
+        plumeCoreGeo.rotateX(-Math.PI / 2);
+        const plumeCore = new THREE.Mesh(
+          plumeCoreGeo,
           new THREE.MeshBasicMaterial({
-            color: 0xff6b1a,
+            color: 0xfff7dd,
             transparent: true,
-            opacity: 0.85,
+            opacity: 0.96,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
           }),
         );
-        plume.position.z = -1.75;
-        grp.add(plume);
+        plumeCore.position.z = -1.75;
+        plumeCore.name = 'missile_plume_core';
+        grp.add(plumeCore);
+
+        const plumeOuterGeo = new THREE.ConeGeometry(0.32, 3.2, 10, 1, true);
+        plumeOuterGeo.rotateX(-Math.PI / 2);
+        const plumeOuter = new THREE.Mesh(
+          plumeOuterGeo,
+          new THREE.MeshBasicMaterial({
+            color: 0xff3b14,
+            transparent: true,
+            opacity: 0.82,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        plumeOuter.position.z = -2.35;
+        plumeOuter.name = 'missile_plume_outer';
+        grp.add(plumeOuter);
 
         this.group.add(grp);
         this.missileMeshes.set(m.id, grp);
@@ -2724,6 +3388,13 @@ export class DivineTitanRenderer {
       if (vx * vx + vy * vy + vz * vz > 0.0001) {
         grp.lookAt(m.x + vx, m.y + vy, m.z + vz);
       }
+
+      // High-frequency rocket exhaust flicker
+      const pFlicker = 0.85 + Math.sin(elapsedTotal * 55 + m.x * 3.1) * 0.22;
+      const pCore = grp.getObjectByName('missile_plume_core');
+      if (pCore) pCore.scale.set(1, 1, pFlicker);
+      const pOuter = grp.getObjectByName('missile_plume_outer');
+      if (pOuter) pOuter.scale.set(0.95 + pFlicker * 0.12, 0.95 + pFlicker * 0.12, pFlicker * 1.08);
     }
 
     for (const [id, grp] of this.missileMeshes.entries()) {
@@ -2744,8 +3415,19 @@ export class DivineTitanRenderer {
   private clearDynamicEffects(): void {
     for (const [, vis] of this.slashMeshes.entries()) {
       this.group.remove(vis.group);
+      vis.core.geometry.dispose();
+      vis.mid.geometry.dispose();
+      vis.outer.geometry.dispose();
+      vis.impactCore.geometry.dispose();
+      vis.impactDome.geometry.dispose();
       (vis.core.material as THREE.Material).dispose();
-      (vis.aura.material as THREE.Material).dispose();
+      (vis.mid.material as THREE.Material).dispose();
+      (vis.outer.material as THREE.Material).dispose();
+      (vis.helix.material as THREE.Material).dispose();
+      (vis.muzzleRing.material as THREE.Material).dispose();
+      (vis.impactCore.material as THREE.Material).dispose();
+      (vis.impactDome.material as THREE.Material).dispose();
+      (vis.impactRing.material as THREE.Material).dispose();
     }
     this.slashMeshes.clear();
 
@@ -2782,6 +3464,8 @@ export class DivineTitanRenderer {
     this.slashGeo.dispose();
     this.shockTorusGeo.dispose();
     this.shockDiscGeo.dispose();
+    this.m1HelixGeo.dispose();
+    this.m1MuzzleRingGeo.dispose();
     this.group.removeFromParent();
   }
 }
