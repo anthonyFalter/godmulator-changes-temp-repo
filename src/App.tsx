@@ -3215,7 +3215,7 @@ export default function App() {
               </button>
             </div>
             <div className="pointer-events-none px-3 py-1 bg-[#120d0b]/75 border border-[#f59e0b]/35 text-[10px] sm:text-[11px] font-semibold tracking-wide text-[#f4e7d4]/90">
-              WASD Move · Mouse Aim Cannons · M1 Slash · [1] Orbital Laser · [2 / Space] Leap Slam
+              WASD Move · Mouse Aim Cannons · M1 Cannon Laser · [1] Orbital Laser · [2 / Space] Leap Slam
             </div>
           </div>
         </div>

@@ -2014,57 +2014,95 @@ export class DivineTitanRenderer {
       let vis = this.slashMeshes.get(s.id);
       if (!vis) {
         const grp = new THREE.Group();
+        // Unit-length beam cylinder oriented along +Z from 0..1
+        const coreGeo = new THREE.CylinderGeometry(0.24, 0.24, 1.0, 12, 1, true);
+        coreGeo.rotateX(Math.PI / 2);
+        coreGeo.translate(0, 0, 0.5);
         const core = new THREE.Mesh(
-          this.slashGeo,
+          coreGeo,
           new THREE.MeshBasicMaterial({
-            color: 0xfff5d6,
+            color: 0xffffff,
             transparent: true,
-            opacity: 0.95,
+            opacity: 0.98,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
-            side: THREE.DoubleSide,
           }),
         );
+
+        const auraGeo = new THREE.CylinderGeometry(0.62, 0.62, 1.0, 14, 1, true);
+        auraGeo.rotateX(Math.PI / 2);
+        auraGeo.translate(0, 0, 0.5);
         const aura = new THREE.Mesh(
-          this.slashGeo,
+          auraGeo,
           new THREE.MeshBasicMaterial({
-            color: 0xff3b1f,
+            color: 0xff2414,
             transparent: true,
-            opacity: 0.72,
+            opacity: 0.78,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             side: THREE.DoubleSide,
           }),
         );
-        aura.scale.set(1.18, 1.35, 1.18);
+
+        // Fiery plasma impact detonation sphere at the hit point (local z = 1 when scaled)
+        const impactSphere = new THREE.Mesh(
+          new THREE.SphereGeometry(1.45, 14, 10),
+          new THREE.MeshBasicMaterial({
+            color: 0xff5a1f,
+            transparent: true,
+            opacity: 0.9,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        impactSphere.name = 'laser_impact';
+
         grp.add(aura);
         grp.add(core);
+        grp.add(impactSphere);
         this.group.add(grp);
         vis = { group: grp, core, aura };
         this.slashMeshes.set(s.id, vis);
       }
 
       const t = Math.min(1, s.elapsed / s.duration);
-      const easeOut = 1 - (1 - t) * (1 - t);
-      const travel = easeOut * (s.range * 0.85);
-      vis.group.position.set(
-        s.x + Math.sin(s.yaw) * travel,
-        s.y - easeOut * 0.6,
-        s.z + Math.cos(s.yaw) * travel,
-      );
-      vis.group.rotation.set(0, s.yaw, s.tilt);
-      const sc = 0.75 + easeOut * 1.15;
-      vis.group.scale.set(sc, 1, sc);
+      const dx = s.targetX - s.x;
+      const dy = s.targetY - s.y;
+      const dz = s.targetZ - s.z;
+      const beamLen = Math.max(0.5, Math.hypot(dx, dy, dz));
+
+      vis.group.position.set(s.x, s.y, s.z);
+      vis.group.lookAt(s.targetX, s.targetY, s.targetZ);
+
+      const widthFade = 1.25 - t * 0.95;
+      vis.core.scale.set(widthFade, widthFade, beamLen);
+      vis.aura.scale.set(widthFade * 1.15, widthFade * 1.15, beamLen);
+
+      const impact = vis.group.getObjectByName('laser_impact') as THREE.Mesh | undefined;
+      if (impact) {
+        impact.position.set(0, 0, beamLen);
+        const impScale = 0.7 + t * 1.45;
+        impact.scale.setScalar(impScale);
+        (impact.material as THREE.MeshBasicMaterial).opacity = (1 - t) * 0.92;
+      }
+
       const alpha = 1 - t * t;
-      (vis.core.material as THREE.MeshBasicMaterial).opacity = alpha * 0.96;
-      (vis.aura.material as THREE.MeshBasicMaterial).opacity = alpha * 0.7;
+      (vis.core.material as THREE.MeshBasicMaterial).opacity = alpha * 0.98;
+      (vis.aura.material as THREE.MeshBasicMaterial).opacity = alpha * 0.76;
     }
 
     for (const [id, vis] of this.slashMeshes.entries()) {
       if (!aliveIds.has(id)) {
         this.group.remove(vis.group);
+        vis.core.geometry.dispose();
+        vis.aura.geometry.dispose();
         (vis.core.material as THREE.Material).dispose();
         (vis.aura.material as THREE.Material).dispose();
+        const impact = vis.group.getObjectByName('laser_impact') as THREE.Mesh | undefined;
+        if (impact) {
+          impact.geometry.dispose();
+          (impact.material as THREE.Material).dispose();
+        }
         this.slashMeshes.delete(id);
       }
     }

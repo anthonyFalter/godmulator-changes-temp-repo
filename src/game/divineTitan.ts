@@ -305,17 +305,36 @@ export function triggerTitanSlash(state: SimulationState, aimX?: number, aimZ?: 
   if (!titan || titan.phase !== 'active' || titan.slashCooldown > 0) return false;
 
   if (aimX !== undefined && aimZ !== undefined) {
-    titan.aimX = aimX;
-    titan.aimZ = aimZ;
+    titan.aimX = clamp(aimX, 0, state.gridSize - 1);
+    titan.aimZ = clamp(aimZ, 0, state.gridSize - 1);
   }
 
-  const dx = titan.aimX - titan.x;
-  const dz = titan.aimZ - titan.z;
-  const yaw = dx * dx + dz * dz > 0.04 ? Math.atan2(dx, dz) : titan.turretYaw;
-  titan.turretYaw = yaw;
+  let dx = titan.aimX - titan.x;
+  let dz = titan.aimZ - titan.z;
+  let distToAim = Math.hypot(dx, dz);
+  const maxLaserRange = 32.0;
 
-  const range = 10.8;
-  const tilt = titan.nextSlashHand === 0 ? 0.34 : -0.34;
+  let yaw = titan.turretYaw;
+  if (distToAim > 0.25) {
+    yaw = Math.atan2(dx, dz);
+    titan.turretYaw = yaw;
+  } else {
+    dx = Math.sin(yaw) * 14;
+    dz = Math.cos(yaw) * 14;
+    distToAim = 14;
+  }
+
+  const clampedDist = Math.min(maxLaserRange, Math.max(4.0, distToAim));
+  const fwdX = Math.sin(yaw);
+  const fwdZ = Math.cos(yaw);
+  const rightX = Math.cos(yaw);
+  const rightZ = -Math.sin(yaw);
+
+  const targetX = clamp(titan.x + fwdX * clampedDist, 1, state.gridSize - 2);
+  const targetZ = clamp(titan.z + fwdZ * clampedDist, 1, state.gridSize - 2);
+  const targetY = getTitanGroundY(state, targetX, targetZ) + 0.25;
+
+  const cannonSide: -1 | 1 = titan.nextSlashHand === 0 ? -1 : 1;
   if (titan.nextSlashHand === 0) {
     titan.recoilLeft = 1.0;
     titan.nextSlashHand = 1;
@@ -324,41 +343,71 @@ export function triggerTitanSlash(state: SimulationState, aimX?: number, aimZ?: 
     titan.nextSlashHand = 0;
   }
   titan.slashCooldown = TITAN_SLASH_COOLDOWN;
-  titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.28);
+  titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.32);
 
-  const slash: TitanSlashEffect = {
-    id: nextTitanFxId('tsl'),
-    x: titan.x + Math.sin(yaw) * 2.2,
-    y: titan.y + 3.0,
-    z: titan.z + Math.cos(yaw) * 2.2,
+  // Exact world-space muzzle tip of the firing top rail-cannon (scaled by 1.26x)
+  const muzzleForward = 6.8;
+  const muzzleSide = cannonSide * 1.04;
+  const muzzleX = titan.x + fwdX * muzzleForward + rightX * muzzleSide;
+  const muzzleY = titan.y + 5.72;
+  const muzzleZ = titan.z + fwdZ * muzzleForward + rightZ * muzzleSide;
+
+  const laserBeam: TitanSlashEffect = {
+    id: nextTitanFxId('tls'),
+    x: muzzleX,
+    y: muzzleY,
+    z: muzzleZ,
+    targetX,
+    targetY,
+    targetZ,
+    cannonSide,
     yaw,
-    tilt,
-    range,
+    tilt: 0,
+    range: clampedDist,
     elapsed: 0,
-    duration: 0.36,
+    duration: 0.28,
   };
-  titan.slashes.push(slash);
+  titan.slashes.push(laserBeam);
 
-  // Cone / arc slash damage in front of the Titan
-  const fwdX = Math.sin(yaw);
-  const fwdZ = Math.cos(yaw);
-  const cosHalfArc = Math.cos((62 * Math.PI) / 180);
+  // Impact blast shockwave at laser hit point
+  titan.shockwaves.push({
+    id: nextTitanFxId('tsw'),
+    x: targetX,
+    y: targetY - 0.1,
+    z: targetZ,
+    maxRadius: 4.4,
+    elapsed: 0,
+    duration: 0.42,
+    kind: 'step',
+    color: '#ff3b1f',
+  });
+
+  // 1. Explosive impact damage at the laser strike point
+  damageUnitsAndStructuresInRadius(state, targetX, targetZ, 3.8, 360, 290, 2.2);
+
+  // 2. Piercing beam-line damage along the laser trajectory from Titan to target
+  const beamWidth = 2.0;
+  const beamWidthSq = beamWidth * beamWidth;
   const immortal = Boolean(state.worldRules?.immortalEntities);
+  const segX = targetX - titan.x;
+  const segZ = targetZ - titan.z;
+  const segLenSq = Math.max(0.01, segX * segX + segZ * segZ);
+
+  const distSqToBeam = (px: number, pz: number): number => {
+    const tProj = clamp(((px - titan.x) * segX + (pz - titan.z) * segZ) / segLenSq, 0, 1);
+    const cx = titan.x + segX * tProj;
+    const cz = titan.z + segZ * tProj;
+    const ex = px - cx;
+    const ez = pz - cz;
+    return ex * ex + ez * ez;
+  };
 
   for (let i = 0; i < state.units.length; i++) {
     const u = state.units[i];
     if (u.state === 'ko') continue;
-    const ux = u.x - titan.x;
-    const uz = u.z - titan.z;
-    const dSq = ux * ux + uz * uz;
-    if (dSq > range * range) continue;
-    const dist = Math.sqrt(dSq) || 0.001;
-    const dot = (ux * fwdX + uz * fwdZ) / dist;
-    if (dist < 2.8 || dot >= cosHalfArc) {
-      u.x = clamp(u.x + (ux / dist) * 2.4, 1, state.gridSize - 2);
-      u.z = clamp(u.z + (uz / dist) * 2.4, 1, state.gridSize - 2);
+    if (distSqToBeam(u.x, u.z) <= beamWidthSq) {
       if (!immortal && !u.statusEffects.shielded) {
-        u.hp -= 340;
+        u.hp -= 280;
         if (u.hp <= 0) {
           u.hp = 0;
           u.state = 'ko';
@@ -371,58 +420,49 @@ export function triggerTitanSlash(state: SimulationState, aimX?: number, aimZ?: 
 
   for (let i = 0; i < state.buildings.length; i++) {
     const b = state.buildings[i];
-    const bx = b.tileX - titan.x;
-    const bz = b.tileZ - titan.z;
-    const dSq = bx * bx + bz * bz;
-    if (dSq > range * range) continue;
-    const dist = Math.sqrt(dSq) || 0.001;
-    const dot = (bx * fwdX + bz * fwdZ) / dist;
-    if (dist < 2.8 || dot >= cosHalfArc) {
+    if (distSqToBeam(b.tileX, b.tileZ) <= beamWidthSq) {
       if (b.shieldTimer > 0) {
         b.shieldTimer = 0;
-        b.hp = Math.max(0, b.hp - 120);
+        b.hp = Math.max(0, b.hp - 100);
       } else {
-        b.hp = Math.max(0, b.hp - 260);
+        b.hp = Math.max(0, b.hp - 220);
       }
     }
   }
 
   for (const v of state.vehicles ?? []) {
-    const vx = v.x - titan.x;
-    const vz = v.z - titan.z;
-    const dSq = vx * vx + vz * vz;
-    if (dSq > range * range) continue;
-    const dist = Math.sqrt(dSq) || 0.001;
-    const dot = (vx * fwdX + vz * fwdZ) / dist;
-    if (dist < 2.8 || dot >= cosHalfArc) {
-      v.hp = Math.max(0, (v.hp ?? 140) - 300);
+    if (distSqToBeam(v.x, v.z) <= beamWidthSq) {
+      v.hp = Math.max(0, (v.hp ?? 140) - 280);
     }
   }
 
-  // Cleave trees & shrubs along the slash arc
-  const minX = Math.max(0, Math.floor(titan.x - range));
-  const maxX = Math.min(state.gridSize - 1, Math.ceil(titan.x + range));
-  const minZ = Math.max(0, Math.floor(titan.z - range));
-  const maxZ = Math.min(state.gridSize - 1, Math.ceil(titan.z + range));
+  // Scorch the impact point & clear trees hit by the laser blast
+  const allowFire = state.worldRules?.wildfireSpread !== false;
+  const minX = Math.max(0, Math.floor(targetX - 2.2));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(targetX + 2.2));
+  const minZ = Math.max(0, Math.floor(targetZ - 2.2));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(targetZ + 2.2));
   for (let tz = minZ; tz <= maxZ; tz++) {
     for (let tx = minX; tx <= maxX; tx++) {
-      const rx = tx - titan.x;
-      const rz = tz - titan.z;
+      const rx = tx - targetX;
+      const rz = tz - targetZ;
       const dSq = rx * rx + rz * rz;
-      if (dSq > range * range || dSq < 2.0) continue;
-      const dist = Math.sqrt(dSq);
-      const dot = (rx * fwdX + rz * fwdZ) / dist;
-      if (dot >= cosHalfArc) {
-        const t = state.tiles[tz * state.gridSize + tx];
-        if (t && (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush')) {
-          t.resourceNode = 'none';
-          t.resourceAmount = 0;
+      if (dSq > 5.0) continue;
+      const t = state.tiles[tz * state.gridSize + tx];
+      if (!t || t.height === 0) continue;
+      if (dSq <= 2.6) {
+        t.terrain = 'scorched';
+        if (allowFire && dSq <= 1.2) {
+          t.onFireTimer = Math.max(t.onFireTimer, 4);
         }
+      }
+      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
       }
     }
   }
 
-  damageWorldWonders(state, titan.x + fwdX * 5.0, titan.z + fwdZ * 5.0, 6.2, 260);
   return true;
 }
 

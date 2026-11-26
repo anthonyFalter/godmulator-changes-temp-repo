@@ -1102,6 +1102,10 @@ export interface TitanSlashEffect {
   x: number;
   y: number;
   z: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  cannonSide: -1 | 1;
   yaw: number;
   tilt: number;
   range: number;
