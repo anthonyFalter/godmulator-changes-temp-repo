@@ -1139,9 +1139,58 @@ export interface TitanShockwaveEffect {
   color: string;
 }
 
+export interface TitanDeathBeamState {
+  subPhase: 'combining' | 'firing' | 'detonating';
+  elapsed: number;
+  combineDuration: number; // ~1.45s cannons slide together & charge
+  fireDuration: number;    // 7.0s continuous colossal death beam
+  detonateDuration: number; // ~2.0s cutscene climax on mushroom cloud
+  originX: number;
+  originY: number;
+  originZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  lockedYaw: number;
+  damageTickTimer: number;
+  detonated: boolean;
+}
+
+export interface TitanMushroomCloud {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  elapsed: number;
+  duration: number;
+  maxHeight: number;
+  maxRadius: number;
+}
+
+export interface TitanMissile {
+  id: string;
+  startX: number;
+  startY: number;
+  startZ: number;
+  ctrlX: number;
+  ctrlY: number;
+  ctrlZ: number;
+  targetX: number;
+  targetY: number;
+  targetZ: number;
+  x: number;
+  y: number;
+  z: number;
+  prevX: number;
+  prevY: number;
+  prevZ: number;
+  elapsed: number;
+  duration: number;
+}
+
 export interface DivineTitanState {
   id: string;
-  phase: 'summoning' | 'active' | 'jumping' | 'exiting';
+  phase: 'summoning' | 'active' | 'jumping' | 'death_beam' | 'exiting';
   x: number;
   y: number;
   z: number;
@@ -1159,6 +1208,8 @@ export interface DivineTitanState {
   slashCooldown: number;
   skill1Cooldown: number;
   skill2Cooldown: number;
+  skill3Cooldown: number;
+  skill4Cooldown: number;
   skill1Targeting: boolean;
   phaseTimer: number;
   jumpStartX: number;
@@ -1170,6 +1221,13 @@ export interface DivineTitanState {
   jumpDuration: number;
   jumpWindup: number;
   jumpPeakHeight: number;
+  deathBeam: TitanDeathBeamState | null;
+  mushroomClouds: TitanMushroomCloud[];
+  missiles: TitanMissile[];
+  missileSalvoRemaining: number;
+  missileSalvoTimer: number;
+  missileTargetX: number;
+  missileTargetZ: number;
   slashes: TitanSlashEffect[];
   orbitalStrikes: TitanOrbitalStrike[];
   shockwaves: TitanShockwaveEffect[];

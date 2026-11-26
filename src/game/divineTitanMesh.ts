@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import {
   DivineTitanState,
   SimulationState,
+  TitanMissile,
+  TitanMushroomCloud,
   TitanOrbitalStrike,
   TitanShockwaveEffect,
   TitanSlashEffect,
@@ -1548,6 +1550,17 @@ export class DivineTitanRenderer {
   private slashMeshes = new Map<string, { group: THREE.Group; core: THREE.Mesh; aura: THREE.Mesh }>();
   private shockwaveMeshes = new Map<string, { group: THREE.Group; torus: THREE.Mesh; ring: THREE.Mesh }>();
   private orbitalVisuals = new Map<string, OrbitalStrikeVisual>();
+  private mushroomMeshes = new Map<string, THREE.Group>();
+  private missileMeshes = new Map<string, THREE.Group>();
+
+  // Skill 3: Combined Cannon Death Beam VFX
+  private deathBeamGroup: THREE.Group;
+  private dbChargeOrb: THREE.Mesh;
+  private dbChargeRings: THREE.Mesh[] = [];
+  private dbBeamCore: THREE.Mesh;
+  private dbBeamOuter: THREE.Mesh;
+  private dbEndSphere: THREE.Mesh;
+  private dbPulseRings: THREE.Mesh[] = [];
 
   constructor(scene: THREE.Scene) {
     this.group = new THREE.Group();
@@ -1639,6 +1652,96 @@ export class DivineTitanRenderer {
     );
     this.skyBeamRing.rotation.x = Math.PI / 2;
     this.skyBeamGroup.add(this.skyBeamRing);
+
+    // Skill 3: Combined Cannon Death Beam VFX group (oriented via lookAt along +Z)
+    this.deathBeamGroup = new THREE.Group();
+    this.deathBeamGroup.visible = false;
+    this.group.add(this.deathBeamGroup);
+
+    this.dbChargeOrb = new THREE.Mesh(
+      new THREE.SphereGeometry(1.6, 20, 16),
+      new THREE.MeshBasicMaterial({
+        color: 0xfff5e0,
+        transparent: true,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbChargeOrb);
+
+    for (let i = 0; i < 3; i++) {
+      const rMesh = new THREE.Mesh(
+        new THREE.TorusGeometry(2.2 + i * 0.8, 0.14, 10, 32),
+        new THREE.MeshBasicMaterial({
+          color: i === 0 ? 0xffffff : 0xff331a,
+          transparent: true,
+          opacity: 0.85,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      this.deathBeamGroup.add(rMesh);
+      this.dbChargeRings.push(rMesh);
+    }
+
+    const dbCoreGeo = new THREE.CylinderGeometry(1.1, 1.3, 1.0, 20, 1, true);
+    dbCoreGeo.rotateX(Math.PI / 2);
+    dbCoreGeo.translate(0, 0, 0.5);
+    this.dbBeamCore = new THREE.Mesh(
+      dbCoreGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.98,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbBeamCore);
+
+    const dbOuterGeo = new THREE.CylinderGeometry(2.65, 3.1, 1.0, 24, 1, true);
+    dbOuterGeo.rotateX(Math.PI / 2);
+    dbOuterGeo.translate(0, 0, 0.5);
+    this.dbBeamOuter = new THREE.Mesh(
+      dbOuterGeo,
+      new THREE.MeshBasicMaterial({
+        color: 0xff2211,
+        transparent: true,
+        opacity: 0.72,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbBeamOuter);
+
+    this.dbEndSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(3.8, 22, 16),
+      new THREE.MeshBasicMaterial({
+        color: 0xff5a1a,
+        transparent: true,
+        opacity: 0.88,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    this.deathBeamGroup.add(this.dbEndSphere);
+
+    for (let i = 0; i < 5; i++) {
+      const pr = new THREE.Mesh(
+        new THREE.TorusGeometry(2.8, 0.22, 10, 28),
+        new THREE.MeshBasicMaterial({
+          color: 0xffb347,
+          transparent: true,
+          opacity: 0.85,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        }),
+      );
+      this.deathBeamGroup.add(pr);
+      this.dbPulseRings.push(pr);
+    }
   }
 
   public update(
@@ -1653,6 +1756,7 @@ export class DivineTitanRenderer {
       this.cursorReticle.visible = false;
       this.leapPreviewRing.visible = false;
       this.skyBeamGroup.visible = false;
+      this.deathBeamGroup.visible = false;
       for (const leg of this.rig.legs) {
         leg.ikInitialized = false;
         leg.isStepping = false;
@@ -1667,9 +1771,30 @@ export class DivineTitanRenderer {
     this.rig.turretGroup.rotation.y = titan.turretYaw;
     this.rig.turretPitchGroup.rotation.x = -titan.turretPitch;
 
+    // Twin cannon combination animation during Skill 3 Death Beam!
+    let targetCannonSpread = 0.82;
+    let combineRecoil = 0;
+    if (titan.phase === 'death_beam' && titan.deathBeam) {
+      const db = titan.deathBeam;
+      if (db.subPhase === 'combining') {
+        const cT = Math.min(1, db.elapsed / db.combineDuration);
+        const smooth = cT * cT * (3 - 2 * cT);
+        targetCannonSpread = 0.82 - smooth * 0.56; // Slides tightly together to ±0.26!
+      } else if (db.subPhase === 'firing') {
+        targetCannonSpread = 0.26;
+        combineRecoil = 0.35 + Math.sin(elapsedTotal * 48) * 0.12;
+      } else {
+        // Un-combine smoothly after detonation
+        const uT = Math.min(1, db.elapsed / db.detonateDuration);
+        targetCannonSpread = 0.26 + uT * 0.56;
+      }
+    }
+    this.rig.leftCannonGroup.position.x += (-targetCannonSpread - this.rig.leftCannonGroup.position.x) * 0.22;
+    this.rig.rightCannonGroup.position.x += (targetCannonSpread - this.rig.rightCannonGroup.position.x) * 0.22;
+
     // Cannon recoil & muzzle flashes
-    this.rig.leftCannonGroup.position.z = 0.25 - titan.recoilLeft * 0.72;
-    this.rig.rightCannonGroup.position.z = 0.25 - titan.recoilRight * 0.72;
+    this.rig.leftCannonGroup.position.z = 0.25 - Math.max(titan.recoilLeft * 0.72, combineRecoil);
+    this.rig.rightCannonGroup.position.z = 0.25 - Math.max(titan.recoilRight * 0.72, combineRecoil);
     (this.rig.muzzleFlashLeft.material as THREE.MeshBasicMaterial).opacity =
       titan.recoilLeft > 0.65 ? (titan.recoilLeft - 0.65) * 2.8 : 0;
     (this.rig.muzzleFlashRight.material as THREE.MeshBasicMaterial).opacity =
@@ -1678,7 +1803,7 @@ export class DivineTitanRenderer {
     // Animate 4-legged heavy spider-mech with true world-space foot-locked IK
     this.animateRig(titan, dt, elapsedTotal, sampleGroundY);
 
-    // Cursor red target icon on the ground
+    // Cursor red target icon on the ground (hidden during movie-like Death Beam cutscene)
     if (titan.phase === 'active' || titan.phase === 'jumping') {
       const aimGroundY = sampleGroundY(titan.aimX, titan.aimZ);
       this.cursorReticle.visible = true;
@@ -1703,13 +1828,16 @@ export class DivineTitanRenderer {
       this.leapPreviewRing.visible = false;
     }
 
-    // Summoning / Exit Extraction Sky Laser Beam
+    // Summoning / Exit Extraction Sky Laser Beam & Skill 3 Combined Death Beam
     this.updateSkyBeam(titan, elapsedTotal);
+    this.updateDeathBeam(titan, elapsedTotal);
 
-    // Sync M1 Slashes, Shockwaves, and Skill 1 Orbital Satellite Strikes
+    // Sync M1 Lasers, Shockwaves, Skill 1 Orbital Satellite, Skill 3 Mushroom Clouds, and Skill 4 Missiles
     this.syncSlashes(titan.slashes);
     this.syncShockwaves(titan.shockwaves);
     this.syncOrbitalStrikes(titan.orbitalStrikes, elapsedTotal, sampleGroundY);
+    this.syncMushroomClouds(titan.mushroomClouds, elapsedTotal);
+    this.syncMissiles(titan.missiles);
   }
 
   private animateRig(
@@ -2264,6 +2392,355 @@ export class DivineTitanRenderer {
     }
   }
 
+  private updateDeathBeam(titan: DivineTitanState, elapsedTotal: number): void {
+    const db = titan.deathBeam;
+    if (!db || titan.phase !== 'death_beam') {
+      this.deathBeamGroup.visible = false;
+      return;
+    }
+
+    this.deathBeamGroup.visible = true;
+    this.deathBeamGroup.position.set(db.originX, db.originY, db.originZ);
+    this.deathBeamGroup.lookAt(db.targetX, db.targetY, db.targetZ);
+
+    const beamLen = Math.max(
+      1.0,
+      Math.hypot(db.targetX - db.originX, db.targetY - db.originY, db.targetZ - db.originZ),
+    );
+
+    if (db.subPhase === 'combining') {
+      const t = Math.min(1, db.elapsed / db.combineDuration);
+      this.dbChargeOrb.visible = true;
+      this.dbChargeOrb.scale.setScalar(0.25 + t * 1.65 + Math.sin(elapsedTotal * 35) * 0.14);
+      (this.dbChargeOrb.material as THREE.MeshBasicMaterial).opacity = 0.55 + t * 0.45;
+
+      for (let i = 0; i < this.dbChargeRings.length; i++) {
+        const ring = this.dbChargeRings[i];
+        ring.visible = true;
+        const shrink = Math.max(0.2, 1.4 - t * 1.15);
+        ring.scale.setScalar(shrink);
+        ring.rotation.z = elapsedTotal * (4.5 + i * 2.2) * (i % 2 === 0 ? 1 : -1);
+        ring.position.z = (1 - t) * (1.5 + i * 1.2);
+      }
+
+      this.dbBeamCore.visible = false;
+      this.dbBeamOuter.visible = false;
+      this.dbEndSphere.visible = false;
+      for (const pr of this.dbPulseRings) pr.visible = false;
+    } else if (db.subPhase === 'firing') {
+      const t = Math.min(1, db.elapsed / db.fireDuration);
+      const flicker = 0.94 + Math.sin(elapsedTotal * 52) * 0.12;
+      // Ramp width violently over the 7-second burn as energy builds toward detonation!
+      const surge = 1.0 + t * 0.45;
+
+      this.dbChargeOrb.visible = true;
+      this.dbChargeOrb.scale.setScalar(1.55 * flicker * surge);
+      (this.dbChargeOrb.material as THREE.MeshBasicMaterial).opacity = 0.95;
+
+      for (const ring of this.dbChargeRings) ring.visible = false;
+
+      this.dbBeamCore.visible = true;
+      this.dbBeamOuter.visible = true;
+      this.dbBeamCore.scale.set(flicker * surge, flicker * surge, beamLen);
+      this.dbBeamOuter.scale.set(flicker * surge * 1.08, flicker * surge * 1.08, beamLen);
+      (this.dbBeamCore.material as THREE.MeshBasicMaterial).opacity = 0.98;
+      (this.dbBeamOuter.material as THREE.MeshBasicMaterial).opacity = 0.74;
+
+      // Growing unstable molten plasma sphere at the beam's endpoint!
+      this.dbEndSphere.visible = true;
+      this.dbEndSphere.position.set(0, 0, beamLen);
+      const endScale = (0.75 + t * 1.35) * flicker;
+      this.dbEndSphere.scale.setScalar(endScale);
+      (this.dbEndSphere.material as THREE.MeshBasicMaterial).opacity = 0.88;
+
+      // 5 plasma energy rings racing from the combined cannon down to the target!
+      for (let i = 0; i < this.dbPulseRings.length; i++) {
+        const pr = this.dbPulseRings[i];
+        pr.visible = true;
+        const p = (elapsedTotal * 2.4 + i * 0.2) % 1;
+        pr.position.set(0, 0, p * beamLen);
+        pr.scale.setScalar((0.8 + p * 0.65) * surge);
+        (pr.material as THREE.MeshBasicMaterial).opacity = (1 - p * 0.65) * 0.85;
+      }
+    } else {
+      // detonating: beam vanishes as the colossal mushroom cloud erupts!
+      this.deathBeamGroup.visible = false;
+    }
+  }
+
+  private syncMushroomClouds(clouds: TitanMushroomCloud[], elapsedTotal: number): void {
+    const aliveIds = new Set<string>();
+    for (const mc of clouds) {
+      aliveIds.add(mc.id);
+      let grp = this.mushroomMeshes.get(mc.id);
+      if (!grp) {
+        grp = new THREE.Group();
+
+        // 1. Initial blinding flash sphere
+        const flash = new THREE.Mesh(
+          new THREE.SphereGeometry(7.5, 22, 16),
+          new THREE.MeshBasicMaterial({
+            color: 0xfff8dc,
+            transparent: true,
+            opacity: 0.98,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        flash.name = 'mc_flash';
+        grp.add(flash);
+
+        // 2. Ground dust & ash base skirt torus
+        const skirt = new THREE.Mesh(
+          new THREE.TorusGeometry(4.2, 1.85, 14, 32),
+          new THREE.MeshStandardMaterial({
+            color: 0x4b3d38,
+            emissive: 0xff4500,
+            emissiveIntensity: 0.45,
+            roughness: 0.92,
+            transparent: true,
+            opacity: 0.88,
+          }),
+        );
+        skirt.rotation.x = Math.PI / 2;
+        skirt.position.y = 1.2;
+        skirt.name = 'mc_skirt';
+        grp.add(skirt);
+
+        // 3. Towering glowing molten stem pillar
+        const stemGroup = new THREE.Group();
+        stemGroup.name = 'mc_stem';
+        const stemCore = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.6, 2.9, 1.0, 20),
+          new THREE.MeshBasicMaterial({
+            color: 0xff6a1a,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        stemCore.position.y = 0.5;
+        stemGroup.add(stemCore);
+
+        const stemSmoke = new THREE.Mesh(
+          new THREE.CylinderGeometry(2.3, 3.8, 1.0, 20),
+          new THREE.MeshStandardMaterial({
+            color: 0x3b3230,
+            emissive: 0xd93814,
+            emissiveIntensity: 0.55,
+            roughness: 0.95,
+            transparent: true,
+            opacity: 0.84,
+          }),
+        );
+        stemSmoke.position.y = 0.5;
+        stemGroup.add(stemSmoke);
+        grp.add(stemGroup);
+
+        // 4. Condensation Wilson shock-ring around mid-stem
+        const wilson = new THREE.Mesh(
+          new THREE.TorusGeometry(6.8, 0.7, 12, 36),
+          new THREE.MeshBasicMaterial({
+            color: 0xffedd5,
+            transparent: true,
+            opacity: 0.62,
+            depthWrite: false,
+          }),
+        );
+        wilson.rotation.x = Math.PI / 2;
+        wilson.name = 'mc_wilson';
+        grp.add(wilson);
+
+        // 5. Towering billowy Mushroom Cap (glowing fiery underside + dark ash crown lobes)
+        const capGroup = new THREE.Group();
+        capGroup.name = 'mc_cap';
+
+        const capGlowUnder = new THREE.Mesh(
+          new THREE.SphereGeometry(5.6, 22, 16),
+          new THREE.MeshBasicMaterial({
+            color: 0xff5a14,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        capGlowUnder.scale.set(1.35, 0.55, 1.35);
+        capGlowUnder.position.y = -0.9;
+        capGroup.add(capGlowUnder);
+
+        const capCrownMat = new THREE.MeshStandardMaterial({
+          color: 0x3f3634,
+          emissive: 0xc2410c,
+          emissiveIntensity: 0.45,
+          roughness: 0.94,
+          transparent: true,
+          opacity: 0.92,
+        });
+        const capTop = new THREE.Mesh(new THREE.SphereGeometry(5.8, 22, 16), capCrownMat);
+        capTop.scale.set(1.25, 0.72, 1.25);
+        capTop.position.y = 1.4;
+        capGroup.add(capTop);
+
+        // 8 billowing radial smoke lobes forming the iconic nuclear mushroom rim
+        const lobeGeo = new THREE.SphereGeometry(3.4, 14, 12);
+        for (let l = 0; l < 8; l++) {
+          const a = (l / 8) * Math.PI * 2;
+          const lobe = new THREE.Mesh(lobeGeo, capCrownMat);
+          lobe.position.set(Math.cos(a) * 5.6, 0.1 + (l % 2) * 0.6, Math.sin(a) * 5.6);
+          lobe.scale.set(1.15, 0.85, 1.15);
+          capGroup.add(lobe);
+        }
+        grp.add(capGroup);
+
+        this.group.add(grp);
+        this.mushroomMeshes.set(mc.id, grp);
+      }
+
+      grp.position.set(mc.x, mc.y, mc.z);
+      const t = Math.min(1, mc.elapsed / mc.duration);
+      const riseEase = 1 - Math.pow(1 - Math.min(1, t * 2.2), 2.4);
+      const fadeOut = t > 0.68 ? 1 - (t - 0.68) / 0.32 : 1;
+      const curHeight = 3.5 + riseEase * (mc.maxHeight - 3.5);
+
+      // Blinding flash decays rapidly in first 0.55s
+      const flash = grp.getObjectByName('mc_flash') as THREE.Mesh | undefined;
+      if (flash) {
+        const ft = Math.min(1, mc.elapsed / 0.55);
+        flash.visible = ft < 1;
+        flash.scale.setScalar(0.8 + ft * 2.2);
+        (flash.material as THREE.MeshBasicMaterial).opacity = (1 - ft) * (1 - ft);
+      }
+
+      const skirt = grp.getObjectByName('mc_skirt') as THREE.Mesh | undefined;
+      if (skirt) {
+        const sk = 0.65 + Math.pow(t, 0.55) * 2.35;
+        skirt.scale.set(sk, sk, 0.8 + t * 0.5);
+        (skirt.material as THREE.MeshStandardMaterial).opacity = 0.88 * fadeOut;
+      }
+
+      const stem = grp.getObjectByName('mc_stem');
+      if (stem) {
+        const stemW = 0.85 + t * 0.55;
+        stem.scale.set(stemW, curHeight, stemW);
+        stem.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+            c.material.opacity = 0.84 * fadeOut;
+          }
+        });
+      }
+
+      const wilson = grp.getObjectByName('mc_wilson') as THREE.Mesh | undefined;
+      if (wilson) {
+        wilson.position.y = curHeight * 0.58;
+        const ws = 0.7 + Math.pow(t, 0.5) * 1.9;
+        wilson.scale.setScalar(ws);
+        (wilson.material as THREE.MeshBasicMaterial).opacity = 0.62 * fadeOut * (1 - t * 0.4);
+      }
+
+      const cap = grp.getObjectByName('mc_cap');
+      if (cap) {
+        cap.position.y = curHeight;
+        cap.rotation.y = elapsedTotal * 0.22;
+        const capScale = 0.45 + Math.pow(Math.min(1, t * 1.8), 0.65) * 1.15;
+        cap.scale.setScalar(capScale);
+        cap.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+            c.material.opacity = 0.9 * fadeOut;
+          }
+        });
+      }
+    }
+
+    for (const [id, grp] of this.mushroomMeshes.entries()) {
+      if (!aliveIds.has(id)) {
+        this.group.remove(grp);
+        grp.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            obj.geometry.dispose();
+            if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+            else obj.material.dispose();
+          }
+        });
+        this.mushroomMeshes.delete(id);
+      }
+    }
+  }
+
+  private syncMissiles(missiles: TitanMissile[]): void {
+    const aliveIds = new Set<string>();
+    for (const m of missiles) {
+      aliveIds.add(m.id);
+      let grp = this.missileMeshes.get(m.id);
+      if (!grp) {
+        grp = new THREE.Group();
+        // Sleek 3D crimson-titanium warhead oriented along +Z
+        const bodyGeo = new THREE.CylinderGeometry(0.14, 0.18, 1.35, 10);
+        bodyGeo.rotateX(Math.PI / 2);
+        const body = new THREE.Mesh(
+          bodyGeo,
+          new THREE.MeshStandardMaterial({
+            color: 0xcbd5e1,
+            metalness: 0.7,
+            roughness: 0.25,
+          }),
+        );
+        grp.add(body);
+
+        const noseGeo = new THREE.ConeGeometry(0.16, 0.55, 10);
+        noseGeo.rotateX(Math.PI / 2);
+        const nose = new THREE.Mesh(
+          noseGeo,
+          new THREE.MeshBasicMaterial({ color: 0xff2a1a }),
+        );
+        nose.position.z = 0.92;
+        grp.add(nose);
+
+        // Glowing exhaust plume trailing behind (-Z)
+        const plumeGeo = new THREE.ConeGeometry(0.24, 2.4, 10, 1, true);
+        plumeGeo.rotateX(-Math.PI / 2);
+        const plume = new THREE.Mesh(
+          plumeGeo,
+          new THREE.MeshBasicMaterial({
+            color: 0xff6b1a,
+            transparent: true,
+            opacity: 0.85,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+          }),
+        );
+        plume.position.z = -1.75;
+        grp.add(plume);
+
+        this.group.add(grp);
+        this.missileMeshes.set(m.id, grp);
+      }
+
+      grp.position.set(m.x, m.y, m.z);
+      const vx = m.x - m.prevX;
+      const vy = m.y - m.prevY;
+      const vz = m.z - m.prevZ;
+      if (vx * vx + vy * vy + vz * vz > 0.0001) {
+        grp.lookAt(m.x + vx, m.y + vy, m.z + vz);
+      }
+    }
+
+    for (const [id, grp] of this.missileMeshes.entries()) {
+      if (!aliveIds.has(id)) {
+        this.group.remove(grp);
+        grp.traverse((obj) => {
+          if (obj instanceof THREE.Mesh) {
+            obj.geometry.dispose();
+            if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+            else obj.material.dispose();
+          }
+        });
+        this.missileMeshes.delete(id);
+      }
+    }
+  }
+
   private clearDynamicEffects(): void {
     for (const [, vis] of this.slashMeshes.entries()) {
       this.group.remove(vis.group);
@@ -2283,6 +2760,16 @@ export class DivineTitanRenderer {
       this.group.remove(vis.group);
     }
     this.orbitalVisuals.clear();
+
+    for (const [, grp] of this.mushroomMeshes.entries()) {
+      this.group.remove(grp);
+    }
+    this.mushroomMeshes.clear();
+
+    for (const [, grp] of this.missileMeshes.entries()) {
+      this.group.remove(grp);
+    }
+    this.missileMeshes.clear();
   }
 
   public dispose(): void {

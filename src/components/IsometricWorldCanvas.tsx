@@ -172,7 +172,9 @@ import { DivineTitanRenderer } from '../game/divineTitanMesh';
 import {
   beginExitDivineTitan,
   stepDivineTitan,
+  triggerTitanDeathBeam,
   triggerTitanLeap,
+  triggerTitanMissileBarrage,
   triggerTitanOrbitalStrike,
   triggerTitanSlash,
 } from '../game/divineTitan';
@@ -234,6 +236,8 @@ interface IsometricWorldCanvasProps {
     exit: () => void;
     skill1: () => void;
     skill2: () => void;
+    skill3: () => void;
+    skill4: () => void;
   } | null>;
 }
 
@@ -839,6 +843,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const tx = titanAimWorld.x ?? titan.x + Math.sin(titan.turretYaw) * 10;
           const tz = titanAimWorld.z ?? titan.z + Math.cos(titan.turretYaw) * 10;
           if (triggerTitanLeap(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+        },
+        skill3: () => {
+          const titan = simRef.current.divineTitan;
+          if (!titan || titan.phase !== 'active' || titan.skill3Cooldown > 0) return;
+          const tx = titanAimWorld.x ?? titan.x + Math.sin(titan.turretYaw) * 20;
+          const tz = titanAimWorld.z ?? titan.z + Math.cos(titan.turretYaw) * 20;
+          if (triggerTitanDeathBeam(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+        },
+        skill4: () => {
+          const titan = simRef.current.divineTitan;
+          if (!titan || titan.phase !== 'active' || titan.skill4Cooldown > 0) return;
+          const tx = titanAimWorld.x ?? titan.x + Math.sin(titan.turretYaw) * 14;
+          const tz = titanAimWorld.z ?? titan.z + Math.cos(titan.turretYaw) * 14;
+          if (triggerTitanMissileBarrage(simRef.current, tx, tz)) {
             propsRef.current.onSyncHud();
           }
         },
@@ -8373,9 +8395,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (propsRef.current.gameState !== 'playing' || propsRef.current.hasBlockingModal) return;
       keysPressed.add(e.code);
 
-      // Divine Titan skill hotkeys (Skill 1 = Orbital Satellite Laser, Skill 2 = Leap Crater/Tsunami Slam)
+      // Divine Titan skill hotkeys (1=Orbital Laser, 2/Space=Leap, 3=Death Beam Cutscene, 4=Missile Barrage)
       const activeTitan = simRef.current.divineTitan;
       if (activeTitan) {
+        // Lock all Titan controls during the movie-like Death Beam cutscene
+        if (activeTitan.phase === 'death_beam') {
+          return;
+        }
         if (e.code === 'Digit1' || e.code === 'Numpad1') {
           e.preventDefault();
           const tx = titanAimWorld.x ?? activeTitan.aimX;
@@ -8390,6 +8416,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const tx = titanAimWorld.x ?? activeTitan.aimX;
           const tz = titanAimWorld.z ?? activeTitan.aimZ;
           if (triggerTitanLeap(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+          return;
+        }
+        if (e.code === 'Digit3' || e.code === 'Numpad3') {
+          e.preventDefault();
+          const tx = titanAimWorld.x ?? activeTitan.aimX;
+          const tz = titanAimWorld.z ?? activeTitan.aimZ;
+          if (triggerTitanDeathBeam(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+          return;
+        }
+        if (e.code === 'Digit4' || e.code === 'Numpad4') {
+          e.preventDefault();
+          const tx = titanAimWorld.x ?? activeTitan.aimX;
+          const tz = titanAimWorld.z ?? activeTitan.aimZ;
+          if (triggerTitanMissileBarrage(simRef.current, tx, tz)) {
             propsRef.current.onSyncHud();
           }
           return;
@@ -14363,19 +14407,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           desiredFrustum = THREE.MathUtils.clamp(28, 12, maxZoomOut);
           propsRef.current.onSyncHud();
         }
+        const isCutscene = currentTitan.phase === 'death_beam';
         if (currentGameState === 'playing' && !propsRef.current.hasBlockingModal) {
-          const moveForward =
-            (keysPressed.has('KeyW') || keysPressed.has('ArrowUp') ? 1 : 0) -
-            (keysPressed.has('KeyS') || keysPressed.has('ArrowDown') ? 1 : 0);
-          const moveRight =
-            (keysPressed.has('KeyD') || keysPressed.has('ArrowRight') ? 1 : 0) -
-            (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft') ? 1 : 0);
+          const moveForward = isCutscene
+            ? 0
+            : (keysPressed.has('KeyW') || keysPressed.has('ArrowUp') ? 1 : 0) -
+              (keysPressed.has('KeyS') || keysPressed.has('ArrowDown') ? 1 : 0);
+          const moveRight = isCutscene
+            ? 0
+            : (keysPressed.has('KeyD') || keysPressed.has('ArrowRight') ? 1 : 0) -
+              (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft') ? 1 : 0);
           const stepRes = stepDivineTitan(simRef.current, dt, {
             moveForward,
             moveRight,
             camYaw,
-            aimX: titanAimWorld.x,
-            aimZ: titanAimWorld.z,
+            aimX: isCutscene ? null : titanAimWorld.x,
+            aimZ: isCutscene ? null : titanAimWorld.z,
           });
           if (simRef.current.divineTitan && simRef.current.divineTitan.pendingTrauma > 0) {
             trauma = Math.min(1, Math.max(trauma, simRef.current.divineTitan.pendingTrauma));
@@ -14389,9 +14436,44 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         const liveTitan = simRef.current.divineTitan;
         if (liveTitan) {
-          camDesiredTarget.x = THREE.MathUtils.clamp(liveTitan.x, 2, simRef.current.gridSize - 3);
-          camDesiredTarget.y = Math.max(1.2, liveTitan.y + 1.4);
-          camDesiredTarget.z = THREE.MathUtils.clamp(liveTitan.z, 2, simRef.current.gridSize - 3);
+          if (liveTitan.phase === 'death_beam' && liveTitan.deathBeam) {
+            const db = liveTitan.deathBeam;
+            if (db.subPhase === 'combining') {
+              // Dramatic movie close-up on the Titan as twin cannons fuse together!
+              camDesiredTarget.x = THREE.MathUtils.clamp(liveTitan.x, 2, simRef.current.gridSize - 3);
+              camDesiredTarget.y = Math.max(1.2, liveTitan.y + 3.2);
+              camDesiredTarget.z = THREE.MathUtils.clamp(liveTitan.z, 2, simRef.current.gridSize - 3);
+              desiredFrustum = THREE.MathUtils.lerp(
+                desiredFrustum,
+                THREE.MathUtils.clamp(21, 12, maxZoomOut),
+                Math.min(1, dt * 3.5),
+              );
+            } else if (db.subPhase === 'firing') {
+              // Sweeping widescreen shot framing the entire 7-second Death Beam!
+              const midX = (liveTitan.x + db.targetX) * 0.5;
+              const midZ = (liveTitan.z + db.targetZ) * 0.5;
+              camDesiredTarget.x = THREE.MathUtils.clamp(midX, 2, simRef.current.gridSize - 3);
+              camDesiredTarget.y = Math.max(1.8, (liveTitan.y + db.targetY) * 0.5 + 2.2);
+              camDesiredTarget.z = THREE.MathUtils.clamp(midZ, 2, simRef.current.gridSize - 3);
+              const span = Math.hypot(db.targetX - liveTitan.x, db.targetZ - liveTitan.z);
+              const targetZoom = THREE.MathUtils.clamp(Math.max(36, span * 1.35), 24, maxZoomOut);
+              desiredFrustum = THREE.MathUtils.lerp(desiredFrustum, targetZoom, Math.min(1, dt * 2.4));
+            } else {
+              // Climax shot centered on the huge explosion & towering mushroom cloud!
+              camDesiredTarget.x = THREE.MathUtils.clamp(db.targetX, 2, simRef.current.gridSize - 3);
+              camDesiredTarget.y = Math.max(2.5, db.targetY + 6.5);
+              camDesiredTarget.z = THREE.MathUtils.clamp(db.targetZ, 2, simRef.current.gridSize - 3);
+              desiredFrustum = THREE.MathUtils.lerp(
+                desiredFrustum,
+                THREE.MathUtils.clamp(48, 28, maxZoomOut),
+                Math.min(1, dt * 2.8),
+              );
+            }
+          } else {
+            camDesiredTarget.x = THREE.MathUtils.clamp(liveTitan.x, 2, simRef.current.gridSize - 3);
+            camDesiredTarget.y = Math.max(1.2, liveTitan.y + 1.4);
+            camDesiredTarget.z = THREE.MathUtils.clamp(liveTitan.z, 2, simRef.current.gridSize - 3);
+          }
         }
       } else if (wasTitanActive) {
         wasTitanActive = false;

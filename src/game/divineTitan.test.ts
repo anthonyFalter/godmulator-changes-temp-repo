@@ -4,9 +4,14 @@ import { createInitialSimulationState, castGodPower } from './simulation';
 import {
   beginExitDivineTitan,
   stepDivineTitan,
+  TITAN_DEATH_BEAM_COMBINE,
+  TITAN_DEATH_BEAM_DETONATE,
+  TITAN_DEATH_BEAM_FIRE,
   TITAN_EXIT_DURATION,
   TITAN_SUMMON_DURATION,
+  triggerTitanDeathBeam,
   triggerTitanLeap,
+  triggerTitanMissileBarrage,
   triggerTitanOrbitalStrike,
   triggerTitanSlash,
 } from './divineTitan';
@@ -253,5 +258,104 @@ describe('Divine Titan controllable god power', () => {
     assert.equal(exited, true);
     assert.equal(sim.divineTitan, null);
     assert.ok(TITAN_SUMMON_DURATION > 0);
+  });
+
+  it('Skill 3 Death Beam locks controls, combines cannons, fires 7s beam, and detonates with towering mushroom cloud', () => {
+    const sim = createFlatTestSim();
+    castGodPower(sim, 'divine_titan', 10, 16);
+    sim.divineTitan!.phase = 'active';
+
+    const startX = sim.divineTitan!.x;
+    const startZ = sim.divineTitan!.z;
+    const targetX = 24;
+    const targetZ = 16;
+    const heightBefore = sim.tiles[targetZ * sim.gridSize + targetX].height;
+
+    const ok = triggerTitanDeathBeam(sim, targetX, targetZ);
+    assert.equal(ok, true);
+    assert.equal(sim.divineTitan!.phase, 'death_beam');
+    assert.equal(sim.divineTitan!.deathBeam!.subPhase, 'combining');
+    assert.equal(sim.divineTitan!.deathBeam!.fireDuration, 7.0);
+
+    const lockedYaw = sim.divineTitan!.turretYaw;
+
+    // Step through combining phase while passing WASD + different cursor aim — verify controls stay locked!
+    const combineSteps = Math.ceil((TITAN_DEATH_BEAM_COMBINE + 0.1) / 0.05);
+    for (let i = 0; i < combineSteps; i++) {
+      stepDivineTitan(sim, 0.05, {
+        moveForward: 1,
+        moveRight: 1,
+        camYaw: 0,
+        aimX: 2,
+        aimZ: 2,
+      });
+    }
+
+    assert.equal(sim.divineTitan!.x, startX, 'WASD must be locked during Death Beam cutscene');
+    assert.equal(sim.divineTitan!.z, startZ, 'WASD must be locked during Death Beam cutscene');
+    assert.equal(sim.divineTitan!.turretYaw, lockedYaw, 'Cannon aim must be locked during Death Beam cutscene');
+    assert.equal(sim.divineTitan!.deathBeam!.subPhase, 'firing');
+
+    // Step through the 7-second firing phase into detonation
+    const fireSteps = Math.ceil((TITAN_DEATH_BEAM_FIRE + 0.15) / 0.05);
+    for (let i = 0; i < fireSteps; i++) {
+      stepDivineTitan(sim, 0.05, {
+        moveForward: 1,
+        moveRight: 0,
+        camYaw: 0,
+        aimX: 2,
+        aimZ: 2,
+      });
+    }
+
+    assert.equal(sim.divineTitan!.deathBeam!.subPhase, 'detonating');
+    assert.equal(sim.divineTitan!.mushroomClouds.length, 1, 'Must spawn towering mushroom cloud on detonation');
+    assert.ok(sim.divineTitan!.mushroomClouds[0].maxHeight >= 24);
+    assert.ok(
+      sim.tiles[targetZ * sim.gridSize + targetX].height < heightBefore,
+      'Death Beam detonation must carve a massive crater',
+    );
+
+    // Step through detonation climax back to active control
+    const detSteps = Math.ceil((TITAN_DEATH_BEAM_DETONATE + 0.1) / 0.05);
+    for (let i = 0; i < detSteps; i++) {
+      stepDivineTitan(sim, 0.05, {
+        moveForward: 0,
+        moveRight: 0,
+        camYaw: 0,
+        aimX: null,
+        aimZ: null,
+      });
+    }
+    assert.equal(sim.divineTitan!.phase, 'active');
+    assert.equal(sim.divineTitan!.deathBeam, null);
+  });
+
+  it('Skill 4 Missile Barrage launches 18 arching missiles that detonate around target', () => {
+    const sim = createFlatTestSim();
+    castGodPower(sim, 'divine_titan', 12, 16);
+    sim.divineTitan!.phase = 'active';
+
+    const ok = triggerTitanMissileBarrage(sim, 22, 18);
+    assert.equal(ok, true);
+    assert.equal(sim.divineTitan!.missileSalvoRemaining, 18);
+
+    let peakMissilesInFlight = 0;
+    for (let i = 0; i < 65; i++) {
+      stepDivineTitan(sim, 0.05, {
+        moveForward: 0,
+        moveRight: 0,
+        camYaw: 0,
+        aimX: 22,
+        aimZ: 18,
+      });
+      if (sim.divineTitan!.missiles.length > peakMissilesInFlight) {
+        peakMissilesInFlight = sim.divineTitan!.missiles.length;
+      }
+    }
+
+    assert.ok(peakMissilesInFlight >= 10, 'Multiple barrage missiles should be airborne simultaneously');
+    assert.equal(sim.divineTitan!.missileSalvoRemaining, 0);
+    assert.equal(sim.divineTitan!.missiles.length, 0, 'All missiles should have landed and detonated');
   });
 });

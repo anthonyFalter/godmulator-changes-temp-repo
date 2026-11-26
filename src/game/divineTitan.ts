@@ -2,6 +2,8 @@ import {
   DivineTitanState,
   SimulationState,
   TileData,
+  TitanMissile,
+  TitanMushroomCloud,
   TitanOrbitalStrike,
   TitanShockwaveEffect,
   TitanSlashEffect,
@@ -13,6 +15,11 @@ export const TITAN_WALK_SPEED = 3.5;
 export const TITAN_SLASH_COOLDOWN = 0.38;
 export const TITAN_SKILL1_COOLDOWN = 5.0;
 export const TITAN_SKILL2_COOLDOWN = 5.5;
+export const TITAN_SKILL3_COOLDOWN = 16.0;
+export const TITAN_SKILL4_COOLDOWN = 8.5;
+export const TITAN_DEATH_BEAM_COMBINE = 1.45;
+export const TITAN_DEATH_BEAM_FIRE = 7.0;
+export const TITAN_DEATH_BEAM_DETONATE = 2.0;
 export const TITAN_LEAP_MAX_RANGE = 24.0;
 export const TITAN_SUMMON_DURATION = 0.78;
 export const TITAN_EXIT_DURATION = 1.15;
@@ -215,6 +222,8 @@ export function summonDivineTitan(
     slashCooldown: 0,
     skill1Cooldown: 0,
     skill2Cooldown: 0,
+    skill3Cooldown: 0,
+    skill4Cooldown: 0,
     skill1Targeting: false,
     phaseTimer: 0,
     jumpStartX: gx,
@@ -226,6 +235,13 @@ export function summonDivineTitan(
     jumpDuration: 1.05,
     jumpWindup: 0.24,
     jumpPeakHeight: 17.5,
+    deathBeam: null,
+    mushroomClouds: [],
+    missiles: [],
+    missileSalvoRemaining: 0,
+    missileSalvoTimer: 0,
+    missileTargetX: gx,
+    missileTargetZ: gz,
     slashes: [],
     orbitalStrikes: [],
     shockwaves: [summonShockwave],
@@ -775,6 +791,346 @@ function applyOrbitalLaserDamage(state: SimulationState, strike: TitanOrbitalStr
   }
 }
 
+export function triggerTitanDeathBeam(
+  state: SimulationState,
+  targetX: number,
+  targetZ: number,
+): boolean {
+  const titan = state.divineTitan;
+  if (!titan || titan.phase !== 'active' || titan.skill3Cooldown > 0) return false;
+
+  let dx = targetX - titan.x;
+  let dz = targetZ - titan.z;
+  let dist = Math.hypot(dx, dz);
+  let lockedYaw = titan.turretYaw;
+  if (dist > 0.25) {
+    lockedYaw = Math.atan2(dx, dz);
+  } else {
+    dx = Math.sin(lockedYaw) * 18;
+    dz = Math.cos(lockedYaw) * 18;
+    dist = 18;
+  }
+
+  const clampedDist = clamp(dist, 8.0, 38.0);
+  const fwdX = Math.sin(lockedYaw);
+  const fwdZ = Math.cos(lockedYaw);
+  const tx = clamp(titan.x + fwdX * clampedDist, 2, state.gridSize - 3);
+  const tz = clamp(titan.z + fwdZ * clampedDist, 2, state.gridSize - 3);
+  const ty = getTitanGroundY(state, tx, tz) + 0.3;
+
+  titan.phase = 'death_beam';
+  titan.skill1Targeting = false;
+  titan.skill3Cooldown = TITAN_SKILL3_COOLDOWN;
+  titan.moveSpeed = 0;
+  titan.turretYaw = lockedYaw;
+  titan.aimX = tx;
+  titan.aimZ = tz;
+  const dy = ty - (titan.y + 5.7);
+  titan.turretPitch = clamp(Math.atan2(dy, Math.max(4, clampedDist)), -0.35, 0.35);
+
+  const originX = titan.x + fwdX * 6.9;
+  const originY = titan.y + 5.75;
+  const originZ = titan.z + fwdZ * 6.9;
+
+  titan.deathBeam = {
+    subPhase: 'combining',
+    elapsed: 0,
+    combineDuration: TITAN_DEATH_BEAM_COMBINE,
+    fireDuration: TITAN_DEATH_BEAM_FIRE,
+    detonateDuration: TITAN_DEATH_BEAM_DETONATE,
+    originX,
+    originY,
+    originZ,
+    targetX: tx,
+    targetY: ty,
+    targetZ: tz,
+    lockedYaw,
+    damageTickTimer: 0,
+    detonated: false,
+  };
+
+  titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.45);
+  pushChronicle(state, 'The God Titan fused its twin cannons, charging an apocalyptic Death Beam!', 'warning');
+  return true;
+}
+
+export function triggerTitanMissileBarrage(
+  state: SimulationState,
+  targetX: number,
+  targetZ: number,
+): boolean {
+  const titan = state.divineTitan;
+  if (!titan || titan.phase !== 'active' || titan.skill4Cooldown > 0) return false;
+
+  const tx = clamp(targetX, 2, state.gridSize - 3);
+  const tz = clamp(targetZ, 2, state.gridSize - 3);
+  titan.skill4Cooldown = TITAN_SKILL4_COOLDOWN;
+  titan.missileSalvoRemaining = 18;
+  titan.missileSalvoTimer = 0;
+  titan.missileTargetX = tx;
+  titan.missileTargetZ = tz;
+  titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.3);
+  return true;
+}
+
+function applyDeathBeamTickDamage(state: SimulationState, titan: DivineTitanState): void {
+  const db = titan.deathBeam;
+  if (!db) return;
+
+  // Heavy endpoint plasma burn + piercing beam-line annihilation
+  damageUnitsAndStructuresInRadius(state, db.targetX, db.targetZ, 6.2, 320, 260, 1.4);
+
+  const beamWidthSq = 3.2 * 3.2;
+  const segX = db.targetX - titan.x;
+  const segZ = db.targetZ - titan.z;
+  const segLenSq = Math.max(0.01, segX * segX + segZ * segZ);
+  const immortal = Boolean(state.worldRules?.immortalEntities);
+
+  const distSqToBeam = (px: number, pz: number): number => {
+    const tProj = clamp(((px - titan.x) * segX + (pz - titan.z) * segZ) / segLenSq, 0, 1);
+    const cx = titan.x + segX * tProj;
+    const cz = titan.z + segZ * tProj;
+    const ex = px - cx;
+    const ez = pz - cz;
+    return ex * ex + ez * ez;
+  };
+
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.state === 'ko') continue;
+    if (distSqToBeam(u.x, u.z) <= beamWidthSq && !immortal && !u.statusEffects.shielded) {
+      u.hp -= 240;
+      if (u.hp <= 0) {
+        u.hp = 0;
+        u.state = 'ko';
+        u.koTimer = 0.5;
+        if (u.faction === 'hostile') state.totalRaidersDefeated += 1;
+      }
+    }
+  }
+
+  for (let i = 0; i < state.buildings.length; i++) {
+    const b = state.buildings[i];
+    if (distSqToBeam(b.tileX, b.tileZ) <= beamWidthSq) {
+      if (b.shieldTimer > 0) {
+        b.shieldTimer = 0;
+        b.hp = Math.max(0, b.hp - 120);
+      } else {
+        b.hp = Math.max(0, b.hp - 220);
+      }
+    }
+  }
+
+  // Scorch endpoint area while beam burns
+  const allowFire = state.worldRules?.wildfireSpread !== false;
+  const r = 4.8;
+  const minX = Math.max(0, Math.floor(db.targetX - r));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(db.targetX + r));
+  const minZ = Math.max(0, Math.floor(db.targetZ - r));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(db.targetZ + r));
+  for (let tz = minZ; tz <= maxZ; tz++) {
+    for (let tx = minX; tx <= maxX; tx++) {
+      const dx = tx - db.targetX;
+      const dz = tz - db.targetZ;
+      const dSq = dx * dx + dz * dz;
+      if (dSq > r * r) continue;
+      const t = state.tiles[tz * state.gridSize + tx];
+      if (!t || t.height === 0) continue;
+      t.terrain = 'scorched';
+      if (allowFire && dSq <= 10) {
+        t.onFireTimer = Math.max(t.onFireTimer, 8);
+      }
+      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+      }
+    }
+  }
+}
+
+function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanState): void {
+  const db = titan.deathBeam;
+  if (!db) return;
+
+  const gx = clamp(Math.round(db.targetX), 1, state.gridSize - 2);
+  const gz = clamp(Math.round(db.targetZ), 1, state.gridSize - 2);
+  const centerTile = getTileAt(state, gx, gz);
+  const isWater = isWaterTile(centerTile);
+  const grid = state.worldGrid as WorldGridBuffers | undefined;
+  const syncGrid = (t: TileData) => {
+    if (grid) syncTileToWorldGrid(grid, t);
+  };
+
+  // Colossal thermonuclear-scale blast radius
+  const blastR = 13.5;
+  damageUnitsAndStructuresInRadius(state, gx, gz, blastR, 1400, 1200, 7.5);
+
+  if (isWater) {
+    if (!state.activeHazards) state.activeHazards = [];
+    state.activeHazards.push({
+      id: nextTitanFxId('haz'),
+      kind: 'tsunami_wave',
+      x: gx,
+      z: gz,
+      currentRadius: 2.0,
+      maxRadius: 38.0,
+      radius: 9.0,
+      remaining: 6.5,
+      duration: 6.5,
+      tickTimer: 0,
+    });
+  } else {
+    // Carve a colossal multi-ring nuclear-scale crater on land
+    const craterR = 9.2;
+    const craterRSq = craterR * craterR;
+    const baseH = Math.max(2, centerTile?.height ?? 2);
+    const allowFire = state.worldRules?.wildfireSpread !== false;
+
+    const minX = Math.max(0, Math.floor(gx - craterR - 1));
+    const maxX = Math.min(state.gridSize - 1, Math.ceil(gx + craterR + 1));
+    const minZ = Math.max(0, Math.floor(gz - craterR - 1));
+    const maxZ = Math.min(state.gridSize - 1, Math.ceil(gz + craterR + 1));
+
+    for (let tz = minZ; tz <= maxZ; tz++) {
+      for (let tx = minX; tx <= maxX; tx++) {
+        const dx = tx - gx;
+        const dz = tz - gz;
+        const dSq = dx * dx + dz * dz;
+        if (dSq > craterRSq) continue;
+        const t = state.tiles[tz * state.gridSize + tx];
+        if (!t || t.height === 0) continue;
+
+        const tileH = Math.max(1, t.height);
+        if (dSq <= 12.0) {
+          t.height = Math.max(1, Math.min(baseH, tileH) - 3);
+          t.terrain = 'scorched';
+          t.onFireTimer = allowFire ? 10 : 0;
+          if (!t.buildingId) {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+          syncGrid(t);
+        } else if (dSq <= 34.0) {
+          t.height = Math.max(1, Math.min(baseH, tileH) - 2);
+          t.terrain = 'scorched';
+          t.onFireTimer = allowFire && dSq <= 24 ? 7 : 0;
+          if (!t.buildingId) {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+          syncGrid(t);
+        } else if (dSq <= 58.0 && !t.buildingId) {
+          t.height = Math.min(10, tileH + 1);
+          t.terrain = dSq <= 48 ? 'rock' : 'scorched';
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+          syncGrid(t);
+        } else if (!t.buildingId) {
+          t.terrain = 'scorched';
+          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
+            t.resourceNode = 'none';
+            t.resourceAmount = 0;
+          }
+        }
+      }
+    }
+  }
+
+  const gy = getTitanGroundY(state, gx, gz);
+
+  // Double colossal shockwave rings
+  titan.shockwaves.push(
+    {
+      id: nextTitanFxId('tsw'),
+      x: gx,
+      y: gy,
+      z: gz,
+      maxRadius: 26.0,
+      elapsed: 0,
+      duration: 1.55,
+      kind: isWater ? 'tsunami_slam' : 'slam',
+      color: '#ff4500',
+    },
+    {
+      id: nextTitanFxId('tsw'),
+      x: gx,
+      y: gy + 0.3,
+      z: gz,
+      maxRadius: 18.0,
+      elapsed: 0,
+      duration: 1.15,
+      kind: 'slam',
+      color: '#fde047',
+    },
+  );
+
+  // Spawn towering 3D Mushroom Cloud!
+  const cloud: TitanMushroomCloud = {
+    id: nextTitanFxId('tmc'),
+    x: gx,
+    y: gy,
+    z: gz,
+    elapsed: 0,
+    duration: 7.5,
+    maxHeight: 26.0,
+    maxRadius: 12.5,
+  };
+  titan.mushroomClouds.push(cloud);
+
+  titan.pendingTrauma = 1.0;
+  pushChronicle(state, 'The God Titan Death Beam detonated in a towering mushroom cloud!', 'warning');
+}
+
+function launchNextBarrageMissile(state: SimulationState, titan: DivineTitanState): void {
+  const idx = 18 - titan.missileSalvoRemaining;
+  const side: -1 | 1 = idx % 2 === 0 ? -1 : 1;
+
+  // Launch from left/right armored shoulder pauldrons
+  const cosB = Math.cos(titan.bodyYaw);
+  const sinB = Math.sin(titan.bodyYaw);
+  const localX = side * 2.1;
+  const localZ = -0.3;
+  const startX = titan.x + localX * cosB + localZ * sinB;
+  const startY = titan.y + 4.9;
+  const startZ = titan.z - localX * sinB + localZ * cosB;
+
+  // Deterministic pseudo-random carpet-bombing scatter around target (radius up to 9.5)
+  const angle = (idx * 2.399963) + (titan.x * 0.13);
+  const rad = 1.2 + Math.sqrt((idx + 0.5) / 18) * 8.6;
+  const tx = clamp(titan.missileTargetX + Math.cos(angle) * rad, 1, state.gridSize - 2);
+  const tz = clamp(titan.missileTargetZ + Math.sin(angle) * rad, 1, state.gridSize - 2);
+  const ty = getTitanGroundY(state, tx, tz) + 0.2;
+
+  // High outward arching control point for dramatic missile swarm silhouette
+  const midX = (startX + tx) * 0.5 + side * 4.5 * cosB;
+  const midZ = (startZ + tz) * 0.5 - side * 4.5 * sinB;
+  const peakY = Math.max(startY, ty) + 14.0 + (idx % 4) * 2.2;
+
+  const missile: TitanMissile = {
+    id: nextTitanFxId('tms'),
+    startX,
+    startY,
+    startZ,
+    ctrlX: midX,
+    ctrlY: peakY,
+    ctrlZ: midZ,
+    targetX: tx,
+    targetY: ty,
+    targetZ: tz,
+    x: startX,
+    y: startY,
+    z: startZ,
+    prevX: startX,
+    prevY: startY,
+    prevZ: startZ,
+    elapsed: 0,
+    duration: 0.92 + (idx % 3) * 0.14,
+  };
+  titan.missiles.push(missile);
+}
+
 export function stepDivineTitan(
   state: SimulationState,
   dt: number,
@@ -791,11 +1147,13 @@ export function stepDivineTitan(
   titan.slashCooldown = Math.max(0, titan.slashCooldown - clampedDt);
   titan.skill1Cooldown = Math.max(0, titan.skill1Cooldown - clampedDt);
   titan.skill2Cooldown = Math.max(0, titan.skill2Cooldown - clampedDt);
+  titan.skill3Cooldown = Math.max(0, titan.skill3Cooldown - clampedDt);
+  titan.skill4Cooldown = Math.max(0, titan.skill4Cooldown - clampedDt);
   titan.recoilLeft = Math.max(0, titan.recoilLeft - clampedDt * 4.5);
   titan.recoilRight = Math.max(0, titan.recoilRight - clampedDt * 4.5);
 
-  // Update cursor aim & turret yaw tracking (during active / jumping / summoning)
-  if (titan.phase !== 'exiting' && input.aimX !== null && input.aimZ !== null) {
+  // Update cursor aim & turret yaw tracking (LOCKED during death_beam cutscene & exiting!)
+  if (titan.phase !== 'exiting' && titan.phase !== 'death_beam' && input.aimX !== null && input.aimZ !== null) {
     titan.aimX = clamp(input.aimX, 0, state.gridSize - 1);
     titan.aimZ = clamp(input.aimZ, 0, state.gridSize - 1);
     const adx = titan.aimX - titan.x;
@@ -833,18 +1191,15 @@ export function stepDivineTitan(
     if (mag > 0.01) {
       mx /= mag;
       mz /= mag;
-      // Weighted acceleration up to inexorable conqueror march speed
       titan.moveSpeed = Math.min(TITAN_WALK_SPEED, titan.moveSpeed + clampedDt * 7.5);
       const moveAmt = titan.moveSpeed * clampedDt;
       titan.x = clamp(titan.x + mx * moveAmt, 2, state.gridSize - 3);
       titan.z = clamp(titan.z + mz * moveAmt, 2, state.gridSize - 3);
 
-      // Ponderous hull rotation toward movement direction
       const desiredBodyYaw = Math.atan2(mx, mz);
       const bodyDiff = wrapAngleDiff(desiredBodyYaw, titan.bodyYaw);
       titan.bodyYaw += bodyDiff * Math.min(1, clampedDt * 3.4);
 
-      // Slow, deliberate heavy walker stomp cadence
       const speedRatio = titan.moveSpeed / TITAN_WALK_SPEED;
       titan.walkCycle += clampedDt * (2.25 * Math.max(0.45, speedRatio));
       const stepIndex = Math.floor(titan.walkCycle / Math.PI);
@@ -861,17 +1216,14 @@ export function stepDivineTitan(
   } else if (titan.phase === 'jumping') {
     titan.jumpElapsed += clampedDt;
     if (titan.jumpElapsed < titan.jumpWindup) {
-      // Crouching windup on the ground
       titan.y = getTitanGroundY(state, titan.x, titan.z);
     } else {
       const flightT = clamp((titan.jumpElapsed - titan.jumpWindup) / titan.jumpDuration, 0, 1);
-      // Smooth horizontal interpolation
       titan.x = titan.jumpStartX + (titan.jumpTargetX - titan.jumpStartX) * flightT;
       titan.z = titan.jumpStartZ + (titan.jumpTargetZ - titan.jumpStartZ) * flightT;
 
       const endGroundY = getTitanGroundY(state, titan.jumpTargetX, titan.jumpTargetZ);
       const baseLineY = titan.jumpStartY + (endGroundY - titan.jumpStartY) * flightT;
-      // Parabolic arc: 4 * t * (1 - t) peaks at 1.0 at t=0.5
       const arcY = 4 * flightT * (1 - flightT) * titan.jumpPeakHeight;
       titan.y = baseLineY + arcY;
 
@@ -885,6 +1237,54 @@ export function stepDivineTitan(
         landed = true;
       }
     }
+  } else if (titan.phase === 'death_beam' && titan.deathBeam) {
+    // Movie-like cutscene phase: all controls locked!
+    const db = titan.deathBeam;
+    db.elapsed += clampedDt;
+    titan.moveSpeed = 0;
+    titan.y = getTitanGroundY(state, titan.x, titan.z);
+    titan.turretYaw = db.lockedYaw;
+
+    if (db.subPhase === 'combining') {
+      titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.25);
+      if (db.elapsed >= db.combineDuration) {
+        db.subPhase = 'firing';
+        db.elapsed = 0;
+        db.damageTickTimer = 0;
+        applyDeathBeamTickDamage(state, titan);
+        titan.shockwaves.push({
+          id: nextTitanFxId('tsw'),
+          x: db.targetX,
+          y: db.targetY - 0.2,
+          z: db.targetZ,
+          maxRadius: 10.5,
+          elapsed: 0,
+          duration: 0.75,
+          kind: 'slam',
+          color: '#ff2414',
+        });
+        titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.78);
+      }
+    } else if (db.subPhase === 'firing') {
+      db.damageTickTimer += clampedDt;
+      titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.48);
+      if (db.damageTickTimer >= 0.16) {
+        db.damageTickTimer -= 0.16;
+        applyDeathBeamTickDamage(state, titan);
+      }
+      if (db.elapsed >= db.fireDuration) {
+        db.subPhase = 'detonating';
+        db.elapsed = 0;
+        db.detonated = true;
+        executeDeathBeamDetonation(state, titan);
+      }
+    } else if (db.subPhase === 'detonating') {
+      if (db.elapsed >= db.detonateDuration) {
+        titan.deathBeam = null;
+        titan.phase = 'active';
+        titan.phaseTimer = 0;
+      }
+    }
   } else if (titan.phase === 'exiting') {
     titan.phaseTimer += clampedDt;
     titan.y = getTitanGroundY(state, titan.x, titan.z);
@@ -895,7 +1295,69 @@ export function stepDivineTitan(
     }
   }
 
-  // Advance slashes
+  // Advance Skill 4 Missile Barrage staggered salvo launches
+  if (titan.missileSalvoRemaining > 0 && titan.phase !== 'exiting') {
+    titan.missileSalvoTimer -= clampedDt;
+    while (titan.missileSalvoRemaining > 0 && titan.missileSalvoTimer <= 0) {
+      launchNextBarrageMissile(state, titan);
+      titan.missileSalvoRemaining -= 1;
+      titan.missileSalvoTimer += 0.055;
+    }
+  }
+
+  // Advance flying missiles (Quadratic Bezier arc -> explosive detonation)
+  for (let i = titan.missiles.length - 1; i >= 0; i--) {
+    const m = titan.missiles[i];
+    m.prevX = m.x;
+    m.prevY = m.y;
+    m.prevZ = m.z;
+    m.elapsed += clampedDt;
+    const t = clamp(m.elapsed / m.duration, 0, 1);
+    const inv = 1 - t;
+    m.x = inv * inv * m.startX + 2 * inv * t * m.ctrlX + t * t * m.targetX;
+    m.y = inv * inv * m.startY + 2 * inv * t * m.ctrlY + t * t * m.targetY;
+    m.z = inv * inv * m.startZ + 2 * inv * t * m.ctrlZ + t * t * m.targetZ;
+
+    if (t >= 1) {
+      // Missile detonation!
+      damageUnitsAndStructuresInRadius(state, m.targetX, m.targetZ, 3.4, 240, 190, 2.0);
+      const tile = getTileAt(state, m.targetX, m.targetZ);
+      if (tile && tile.height > 0) {
+        tile.terrain = 'scorched';
+        if (state.worldRules?.wildfireSpread !== false) {
+          tile.onFireTimer = Math.max(tile.onFireTimer, 4);
+        }
+        if (tile.resourceNode === 'timber_grove' || tile.resourceNode === 'berry_bush') {
+          tile.resourceNode = 'none';
+          tile.resourceAmount = 0;
+        }
+      }
+      titan.shockwaves.push({
+        id: nextTitanFxId('tsw'),
+        x: m.targetX,
+        y: m.targetY - 0.1,
+        z: m.targetZ,
+        maxRadius: 4.0,
+        elapsed: 0,
+        duration: 0.48,
+        kind: 'step',
+        color: '#f97316',
+      });
+      titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.28);
+      titan.missiles.splice(i, 1);
+    }
+  }
+
+  // Advance towering mushroom clouds
+  for (let i = titan.mushroomClouds.length - 1; i >= 0; i--) {
+    const mc = titan.mushroomClouds[i];
+    mc.elapsed += clampedDt;
+    if (mc.elapsed >= mc.duration) {
+      titan.mushroomClouds.splice(i, 1);
+    }
+  }
+
+  // Advance M1 laser beams
   for (let i = titan.slashes.length - 1; i >= 0; i--) {
     const s = titan.slashes[i];
     s.elapsed += clampedDt;
