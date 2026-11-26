@@ -97,17 +97,19 @@ const VirtualStick: React.FC<StickProps> = ({ variant, onUpdate }) => {
   };
 
   const isCannon = variant === 'cannon';
-  const ringBorder = thumb.firing
-    ? 'border-[#ef4444] bg-[#ef4444]/20 shadow-[0_0_18px_rgba(239,68,68,0.65)]'
+  const frameStyle = thumb.firing
+    ? 'border-[#ef4444] bg-[#3a1212]/75 shadow-[inset_2px_2px_0_rgba(253,224,71,0.35),inset_-2px_-2px_0_rgba(0,0,0,0.7),0_0_0_2px_#0b0807,0_0_16px_rgba(239,68,68,0.7)]'
     : isCannon
-      ? 'border-[#ef4444]/65 bg-[#120d0b]/55'
-      : 'border-[#f59e0b]/65 bg-[#120d0b]/55';
+      ? 'border-[#c2410c] bg-[#18110e]/75 shadow-[inset_2px_2px_0_rgba(255,255,255,0.12),inset_-2px_-2px_0_rgba(0,0,0,0.7),0_0_0_2px_#0b0807]'
+      : 'border-[#b4833e] bg-[#18110e]/75 shadow-[inset_2px_2px_0_rgba(255,255,255,0.12),inset_-2px_-2px_0_rgba(0,0,0,0.7),0_0_0_2px_#0b0807]';
 
   const thumbStyle = thumb.firing
-    ? 'bg-[#ef4444] border-[#fde047] shadow-[0_0_12px_rgba(239,68,68,0.9)]'
+    ? 'bg-[#dc2626] border-[#fde047] shadow-[inset_2px_2px_0_rgba(255,255,255,0.4),inset_-2px_-2px_0_rgba(127,29,29,0.9),0_0_0_2px_#0b0807,0_0_10px_rgba(239,68,68,0.85)]'
     : isCannon
-      ? 'bg-[#b91c1c]/90 border-[#fca5a5]'
-      : 'bg-[#5c6b60]/95 border-[#fde68a]';
+      ? 'bg-[#991b1b] border-[#fca5a5] shadow-[inset_2px_2px_0_rgba(255,255,255,0.28),inset_-2px_-2px_0_rgba(69,10,10,0.85),0_0_0_2px_#0b0807]'
+      : 'bg-[#5c6b60] border-[#e7cfa0] shadow-[inset_2px_2px_0_rgba(255,255,255,0.28),inset_-2px_-2px_0_rgba(30,38,32,0.85),0_0_0_2px_#0b0807]';
+
+  const pipColor = thumb.firing ? 'bg-[#fde047]' : isCannon ? 'bg-[#fca5a5]/70' : 'bg-[#e7cfa0]/70';
 
   return (
     <div
@@ -118,31 +120,41 @@ const VirtualStick: React.FC<StickProps> = ({ variant, onUpdate }) => {
       onPointerUp={handlePointerEnd}
       onPointerCancel={handlePointerEnd}
       style={{ width: STICK_SIZE, height: STICK_SIZE }}
-      className={`pointer-events-auto relative rounded-full border-2 touch-none select-none flex items-center justify-center transition-colors duration-75 ${ringBorder}`}
+      className={`pointer-events-auto relative border-2 touch-none select-none flex items-center justify-center transition-colors duration-75 ${frameStyle}`}
     >
-      {/* Inner firing-bound reference ring on Cannon stick */}
+      {/* Crisp 4px corner pixel rivets */}
+      <span className={`pointer-events-none absolute top-1 left-1 w-1 h-1 ${pipColor}`} />
+      <span className={`pointer-events-none absolute top-1 right-1 w-1 h-1 ${pipColor}`} />
+      <span className={`pointer-events-none absolute bottom-1 left-1 w-1 h-1 ${pipColor}`} />
+      <span className={`pointer-events-none absolute bottom-1 right-1 w-1 h-1 ${pipColor}`} />
+
+      {/* Inner firing-bound pixel box on Cannon stick */}
       {isCannon && (
         <div
-          className={`pointer-events-none absolute inset-2.5 rounded-full border border-dashed ${
-            thumb.firing ? 'border-[#fde047]/80' : 'border-[#ef4444]/35'
+          className={`pointer-events-none absolute inset-2.5 border border-dashed ${
+            thumb.firing ? 'border-[#fde047]/85' : 'border-[#ef4444]/40'
           }`}
         />
       )}
 
-      {/* Subtle directional ticks */}
-      <span className="pointer-events-none absolute top-1.5 w-1 h-2 bg-white/35" />
-      <span className="pointer-events-none absolute bottom-1.5 w-1 h-2 bg-white/35" />
-      <span className="pointer-events-none absolute left-1.5 h-1 w-2 bg-white/35" />
-      <span className="pointer-events-none absolute right-1.5 h-1 w-2 bg-white/35" />
+      {/* Pixel directional ticks */}
+      <span className={`pointer-events-none absolute top-1.5 w-1.5 h-1.5 ${pipColor}`} />
+      <span className={`pointer-events-none absolute bottom-1.5 w-1.5 h-1.5 ${pipColor}`} />
+      <span className={`pointer-events-none absolute left-1.5 w-1.5 h-1.5 ${pipColor}`} />
+      <span className={`pointer-events-none absolute right-1.5 w-1.5 h-1.5 ${pipColor}`} />
 
-      {/* Center knob */}
+      {/* Pixelated center crosshairs */}
+      <span className="pointer-events-none absolute w-4 h-0.5 bg-white/15" />
+      <span className="pointer-events-none absolute h-4 w-0.5 bg-white/15" />
+
+      {/* Blocky pixelated joystick knob */}
       <div
         style={{
-          transform: `translate3d(${thumb.x}px, ${thumb.y}px, 0)`,
+          transform: `translate3d(${Math.round(thumb.x)}px, ${Math.round(thumb.y)}px, 0)`,
         }}
-        className={`pointer-events-none w-10 h-10 rounded-full border-2 flex items-center justify-center ${thumbStyle}`}
+        className={`pointer-events-none w-10 h-10 border-2 flex items-center justify-center ${thumbStyle}`}
       >
-        <div className="w-2.5 h-2.5 rounded-full bg-white/75" />
+        <div className="w-2 h-2 bg-white/80" />
       </div>
     </div>
   );
@@ -177,14 +189,14 @@ export const TitanMobileJoysticks: React.FC<TitanMobileJoysticksProps> = React.m
 
     return (
       <>
-        {/* LEFT joystick: Cannon Aim + Auto-Fire when dragged outside bounds */}
+        {/* LEFT joystick: Titan Movement */}
         <div className="fixed left-3 sm:left-5 bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+4.25rem))] sm:bottom-5 z-20 pointer-events-none">
-          <VirtualStick variant="cannon" onUpdate={handleCannon} />
+          <VirtualStick variant="move" onUpdate={handleMove} />
         </div>
 
-        {/* RIGHT joystick: Titan Movement */}
+        {/* RIGHT joystick: Cannon Aim + Auto-Fire when dragged outside bounds */}
         <div className="fixed right-3 sm:right-5 bottom-[max(4.75rem,calc(env(safe-area-inset-bottom)+4.25rem))] sm:bottom-5 z-20 pointer-events-none">
-          <VirtualStick variant="move" onUpdate={handleMove} />
+          <VirtualStick variant="cannon" onUpdate={handleCannon} />
         </div>
       </>
     );
