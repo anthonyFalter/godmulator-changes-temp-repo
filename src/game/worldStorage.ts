@@ -72,11 +72,12 @@ function cloneData<T>(value: T): T {
 }
 
 export function sanitizeSimulationForSave(sim: SimulationState): SimulationState {
-  const { worldGrid: _transientGrid, ...serializable } = sim;
+  const { worldGrid: _transientGrid, divineTitan: _transientTitan, ...serializable } = sim;
   const cloned = cloneData(serializable as SimulationState);
   cloned.pendingVfx = [];
   cloned.selectedEntityId = null;
   cloned.activeWorldEvent = null;
+  cloned.divineTitan = null;
   if (!Array.isArray(cloned.voidWisps)) cloned.voidWisps = [];
   if (!cloned.worldRules) {
     cloned.worldRules = {
@@ -94,6 +95,7 @@ export function restoreSimulationFromSave(record: SavedWorldRecord): SimulationS
   restored.pendingVfx = [];
   restored.selectedEntityId = null;
   restored.activeWorldEvent = null;
+  restored.divineTitan = null;
   const rules: WorldRulesConfig = {
     ...DEFAULT_WORLD_RULES,
     ...(restored.worldRules ?? {}),

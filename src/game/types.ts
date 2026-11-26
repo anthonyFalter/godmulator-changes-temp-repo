@@ -459,7 +459,8 @@ export type GodPowerType =
   | 'blizzard'
   | 'sinkhole'
   | 'locust_swarm'
-  | 'wildfire_ring';
+  | 'wildfire_ring'
+  | 'divine_titan';
 
 export interface GodPowerDefinition {
   type: GodPowerType;
@@ -1092,4 +1093,81 @@ export interface SimulationState {
   lastAdvancedEpochIndex?: number;
   /** Transient runtime flat TypedArray acceleration buffers (stripped on save, auto-rebuilt on load) */
   worldGrid?: unknown;
+  /** Active controllable giant 4-legged God Titan mech avatar (transient, stripped on save) */
+  divineTitan?: DivineTitanState | null;
+}
+
+export interface TitanSlashEffect {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  tilt: number;
+  range: number;
+  elapsed: number;
+  duration: number;
+}
+
+export interface TitanOrbitalStrike {
+  id: string;
+  targetX: number;
+  targetZ: number;
+  radius: number;
+  phase: 'lockon' | 'firing' | 'fadeout';
+  elapsed: number;
+  lockonDuration: number;
+  fireDuration: number;
+  fadeDuration: number;
+  damageTickTimer: number;
+  impactBurstDone: boolean;
+}
+
+export interface TitanShockwaveEffect {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  maxRadius: number;
+  elapsed: number;
+  duration: number;
+  kind: 'step' | 'slam' | 'tsunami_slam' | 'summon' | 'exit';
+  color: string;
+}
+
+export interface DivineTitanState {
+  id: string;
+  phase: 'summoning' | 'active' | 'jumping' | 'exiting';
+  x: number;
+  y: number;
+  z: number;
+  bodyYaw: number;
+  turretYaw: number;
+  turretPitch: number;
+  aimX: number;
+  aimZ: number;
+  moveSpeed: number;
+  walkCycle: number;
+  lastStepIndex: number;
+  recoilLeft: number;
+  recoilRight: number;
+  nextSlashHand: 0 | 1;
+  slashCooldown: number;
+  skill1Cooldown: number;
+  skill2Cooldown: number;
+  skill1Targeting: boolean;
+  phaseTimer: number;
+  jumpStartX: number;
+  jumpStartY: number;
+  jumpStartZ: number;
+  jumpTargetX: number;
+  jumpTargetZ: number;
+  jumpElapsed: number;
+  jumpDuration: number;
+  jumpWindup: number;
+  jumpPeakHeight: number;
+  slashes: TitanSlashEffect[];
+  orbitalStrikes: TitanOrbitalStrike[];
+  shockwaves: TitanShockwaveEffect[];
+  pendingTrauma: number;
 }

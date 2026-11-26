@@ -1046,6 +1046,30 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     MAT.flame,
     PB_MATS,
   ),
+
+  // 16x16 Giant 4-legged God Titan mecha with twin dorsal rail-cannons
+  divine_titan: cluster16(
+    [
+      '................',
+      '..SSSSSSSSSS....',
+      '.rSSSSSSSSSSss..',
+      '..sssssssssSSs..',
+      '....sSSSSSSss...',
+      '...sSSRRSSSSSs..',
+      '..sSSSRRSSSSSSs.',
+      '..sSSssssSSSSs..',
+      '..sSs....ssSSs..',
+      '.sSs..ss..ssSs..',
+      '.sS..sSs...sSs..',
+      'sSs..sS.....sSs.',
+      'sS..sSs.....sSs.',
+      'SSs.SSs....sSSS.',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 };
 
 export const BUILDING_SPRITES: Record<BuildingType, CompiledSprite> = {

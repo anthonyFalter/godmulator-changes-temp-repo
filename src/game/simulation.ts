@@ -81,6 +81,7 @@ import {
   TimeSlicedPathBudget,
 } from './pathfinding';
 import { computeSeasonState } from './worldSeasons';
+import { summonDivineTitan } from './divineTitan';
 
 const BUILDING_BY_TYPE = new Map(BUILDINGS.map((d) => [d.type, d]));
 const UNIT_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
@@ -9234,12 +9235,17 @@ export function castGodPower(
     powerType === 'golden_age' ||
     powerType === 'harmony_dove' ||
     powerType === 'divine_shield' ||
-    powerType === 'eureka';
+    powerType === 'eureka' ||
+    powerType === 'divine_titan';
   const clusterCount =
     isSingleCastPower || hasExplicitRadius
       ? 1
       : getPowerClusterCount(options?.brushSize ?? 1);
   const totalFaithCost = def.faithCost * clusterCount;
+
+  if (powerType === 'divine_titan' && state.divineTitan && state.divineTitan.phase !== 'exiting') {
+    return { ok: false, reason: 'God Titan is already active' };
+  }
 
   reconcileAndSyncResources(state);
   if (!state.sandboxFreeMode && state.resources.faith < totalFaithCost) {
@@ -9248,6 +9254,13 @@ export function castGodPower(
 
   if (!state.sandboxFreeMode) {
     spendWorldCost(state, { faith: totalFaithCost });
+  }
+
+  if (powerType === 'divine_titan') {
+    const res = summonDivineTitan(state, targetX, targetZ);
+    if (!res.ok) return res;
+    state.totalMiraclesCast += 1;
+    return { ok: true, isHeavy: true, count: 1, totalCost: totalFaithCost };
   }
 
   const singleRadius = hasExplicitRadius

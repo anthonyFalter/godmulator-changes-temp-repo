@@ -1889,6 +1889,16 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     keyHint: '',
     color: '#22d3ee',
   },
+  {
+    type: 'divine_titan',
+    name: 'God Titan',
+    category: 'Cosmic',
+    summary: 'Summons a giant controllable 4-legged mech avatar',
+    faithCost: 60,
+    radius: 6.5,
+    keyHint: '',
+    color: '#f59e0b',
+  },
 ];
 
 export const TERRAIN_TOOLS: TerrainToolDefinition[] = [

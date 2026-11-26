@@ -168,6 +168,14 @@ import {
 import { ZoneMapLabel } from '../game/zones';
 import { createWarFrontArrowsSystem } from '../game/warFrontArrows';
 import { UnitPixelIcon } from './GameIcons';
+import { DivineTitanRenderer } from '../game/divineTitanMesh';
+import {
+  beginExitDivineTitan,
+  stepDivineTitan,
+  triggerTitanLeap,
+  triggerTitanOrbitalStrike,
+  triggerTitanSlash,
+} from '../game/divineTitan';
 
 interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
@@ -221,6 +229,12 @@ interface IsometricWorldCanvasProps {
   onBreakFollow?: () => void;
   onSyncHud: () => void;
   onPerfTelemetry?: (snapshot: PerfTelemetrySnapshot) => void;
+  isTitanActive?: boolean;
+  titanActionRef?: React.MutableRefObject<{
+    exit: () => void;
+    skill1: () => void;
+    skill2: () => void;
+  } | null>;
 }
 
 const HEIGHT_STEP = 0.45;
@@ -270,6 +284,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   onBreakFollow,
   onSyncHud,
   onPerfTelemetry,
+  isTitanActive = false,
+  titanActionRef,
 }) => {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const zoneLabelsLayerRef = useRef<HTMLDivElement | null>(null);
@@ -795,6 +811,39 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       chunkUnifiedMat,
     );
     terrainGroup.add(chunkTerrain.group);
+
+    const divineTitanRenderer = new DivineTitanRenderer(scene);
+    const titanAimWorld: { x: number | null; z: number | null } = { x: null, z: null };
+    const titanFallbackPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.6);
+    const titanFallbackPt = new THREE.Vector3();
+    let wasTitanActive = false;
+    let titanHudSyncTimer = 0;
+
+    if (titanActionRef) {
+      titanActionRef.current = {
+        exit: () => {
+          if (beginExitDivineTitan(simRef.current)) {
+            propsRef.current.onSyncHud();
+          }
+        },
+        skill1: () => {
+          const titan = simRef.current.divineTitan;
+          if (!titan || titan.phase !== 'active' || titan.skill1Cooldown > 0) return;
+          // Toggle Skill 1 targeting mode so next M1 click designates the orbital laser target on ground
+          titan.skill1Targeting = !titan.skill1Targeting;
+          propsRef.current.onSyncHud();
+        },
+        skill2: () => {
+          const titan = simRef.current.divineTitan;
+          if (!titan || titan.phase !== 'active' || titan.skill2Cooldown > 0) return;
+          const tx = titanAimWorld.x ?? titan.x + Math.sin(titan.turretYaw) * 10;
+          const tz = titanAimWorld.z ?? titan.z + Math.cos(titan.turretYaw) * 10;
+          if (triggerTitanLeap(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+        },
+      };
+    }
 
     const tileCurrentY = new Float32Array(sim.tiles.length);
     const tileRenderY = new Float32Array(sim.tiles.length);
@@ -7607,13 +7656,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       // Analytical 3D Amanatides-Woo DDA voxel raymarch (< 0.05 ms even on 512x512 worlds!)
       const gridHit = raycastWorldGrid(raycaster.ray, ensureWorldGrid(simRef.current), tileRenderY);
       if (gridHit) {
+        if (simRef.current.divineTitan) {
+          titanAimWorld.x = gridHit.x;
+          titanAimWorld.z = gridHit.z;
+        }
         if (!hoveredTileCoords || hoveredTileCoords.x !== gridHit.x || hoveredTileCoords.z !== gridHit.z) {
           hoveredTileCoords = { x: gridHit.x, z: gridHit.z };
           propsRef.current.onHoverTileChange(hoveredTileCoords);
         }
-      } else if (hoveredTileCoords !== null) {
-        hoveredTileCoords = null;
-        propsRef.current.onHoverTileChange(null);
+      } else {
+        if (simRef.current.divineTitan && raycaster.ray.intersectPlane(titanFallbackPlane, titanFallbackPt)) {
+          const maxG = simRef.current.gridSize - 1;
+          titanAimWorld.x = THREE.MathUtils.clamp(titanFallbackPt.x, 0, maxG);
+          titanAimWorld.z = THREE.MathUtils.clamp(titanFallbackPt.z, 0, maxG);
+        }
+        if (hoveredTileCoords !== null) {
+          hoveredTileCoords = null;
+          propsRef.current.onHoverTileChange(null);
+        }
       }
     };
 
@@ -7906,6 +7966,20 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       updateHoverTile(e.clientX, e.clientY);
 
       if (e.button === 0 && !e.altKey && propsRef.current.gameState === 'playing') {
+        const activeTitan = simRef.current.divineTitan;
+        if (activeTitan) {
+          mousePointerDownOnCanvas = false;
+          const ax = titanAimWorld.x ?? activeTitan.aimX;
+          const az = titanAimWorld.z ?? activeTitan.aimZ;
+          if (activeTitan.skill1Targeting) {
+            if (triggerTitanOrbitalStrike(simRef.current, ax, az)) {
+              propsRef.current.onSyncHud();
+            }
+          } else if (triggerTitanSlash(simRef.current, ax, az)) {
+            propsRef.current.onSyncHud();
+          }
+          return;
+        }
         if (isDragPowerActive()) {
           const picked = hoveredEntityInternal ?? pickLivingUnitAtRay(raycaster.ray);
           if (picked) {
@@ -8255,7 +8329,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         e.button === 0 &&
         !e.altKey &&
         propsRef.current.gameState === 'playing' &&
-        !propsRef.current.hasBlockingModal
+        !propsRef.current.hasBlockingModal &&
+        !simRef.current.divineTitan
       ) {
         hoverRaycastTimer = performance.now();
         updateHoverTile(e.clientX, e.clientY);
@@ -8297,6 +8372,37 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (propsRef.current.gameState !== 'playing' || propsRef.current.hasBlockingModal) return;
       keysPressed.add(e.code);
+
+      // Divine Titan skill hotkeys (Skill 1 = Orbital Satellite Laser, Skill 2 = Leap Crater/Tsunami Slam)
+      const activeTitan = simRef.current.divineTitan;
+      if (activeTitan) {
+        if (e.code === 'Digit1' || e.code === 'Numpad1') {
+          e.preventDefault();
+          const tx = titanAimWorld.x ?? activeTitan.aimX;
+          const tz = titanAimWorld.z ?? activeTitan.aimZ;
+          if (triggerTitanOrbitalStrike(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+          return;
+        }
+        if (e.code === 'Digit2' || e.code === 'Numpad2' || e.code === 'Space') {
+          e.preventDefault();
+          const tx = titanAimWorld.x ?? activeTitan.aimX;
+          const tz = titanAimWorld.z ?? activeTitan.aimZ;
+          if (triggerTitanLeap(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
+          return;
+        }
+        if (e.code === 'BracketLeft') {
+          e.preventDefault();
+          cameraActionRef.current.rotateDelta -= Math.PI / 4;
+        } else if (e.code === 'BracketRight') {
+          e.preventDefault();
+          cameraActionRef.current.rotateDelta += Math.PI / 4;
+        }
+        return;
+      }
 
       // Single-press desktop camera view shortcuts
       if (e.code === 'BracketLeft') {
@@ -14248,7 +14354,59 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       // Desktop keyboard camera controls: WASD/Arrows pan (+Shift boost), Q/E rotate, +/-/PgUp/PgDn zoom
+      // When the Divine Titan is active, WASD/Arrows steer the Titan body and the camera tracks it in 3rd-person isometric view.
       let panKeyMoved = false;
+      const currentTitan = simRef.current.divineTitan;
+      if (currentTitan) {
+        if (!wasTitanActive) {
+          wasTitanActive = true;
+          desiredFrustum = THREE.MathUtils.clamp(28, 12, maxZoomOut);
+          propsRef.current.onSyncHud();
+        }
+        if (currentGameState === 'playing' && !propsRef.current.hasBlockingModal) {
+          const moveForward =
+            (keysPressed.has('KeyW') || keysPressed.has('ArrowUp') ? 1 : 0) -
+            (keysPressed.has('KeyS') || keysPressed.has('ArrowDown') ? 1 : 0);
+          const moveRight =
+            (keysPressed.has('KeyD') || keysPressed.has('ArrowRight') ? 1 : 0) -
+            (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft') ? 1 : 0);
+          const stepRes = stepDivineTitan(simRef.current, dt, {
+            moveForward,
+            moveRight,
+            camYaw,
+            aimX: titanAimWorld.x,
+            aimZ: titanAimWorld.z,
+          });
+          if (simRef.current.divineTitan && simRef.current.divineTitan.pendingTrauma > 0) {
+            trauma = Math.min(1, Math.max(trauma, simRef.current.divineTitan.pendingTrauma));
+            simRef.current.divineTitan.pendingTrauma = 0;
+          }
+          titanHudSyncTimer += dt;
+          if (stepRes.exited || stepRes.landed || titanHudSyncTimer >= 0.16) {
+            titanHudSyncTimer = 0;
+            propsRef.current.onSyncHud();
+          }
+        }
+        const liveTitan = simRef.current.divineTitan;
+        if (liveTitan) {
+          camDesiredTarget.x = THREE.MathUtils.clamp(liveTitan.x, 2, simRef.current.gridSize - 3);
+          camDesiredTarget.y = Math.max(1.2, liveTitan.y + 1.4);
+          camDesiredTarget.z = THREE.MathUtils.clamp(liveTitan.z, 2, simRef.current.gridSize - 3);
+        }
+      } else if (wasTitanActive) {
+        wasTitanActive = false;
+        camDesiredTarget.y = 1.2;
+        propsRef.current.onSyncHud();
+      }
+
+      const sampleTitanGroundY = (sx: number, sz: number): number => {
+        const gs = simRef.current.gridSize;
+        const gx = Math.max(0, Math.min(gs - 1, Math.round(sx)));
+        const gz = Math.max(0, Math.min(gs - 1, Math.round(sz)));
+        return tileRenderY[gz * gs + gx] ?? 0.25;
+      };
+      divineTitanRenderer.update(simRef.current, dt, elapsedTotal, sampleTitanGroundY);
+
       if (currentGameState === 'playing') {
         const boost = keysPressed.has('ShiftLeft') || keysPressed.has('ShiftRight') ? 2.0 : 1.0;
         const panSpeed = Math.max(12, frustumSize * 1.15) * boost * dt;
@@ -14257,25 +14415,27 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         const rightX = Math.cos(camYaw);
         const rightZ = -Math.sin(camYaw);
 
-        if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) {
-          camDesiredTarget.x += forwardX * panSpeed;
-          camDesiredTarget.z += forwardZ * panSpeed;
-          panKeyMoved = true;
-        }
-        if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) {
-          camDesiredTarget.x -= forwardX * panSpeed;
-          camDesiredTarget.z -= forwardZ * panSpeed;
-          panKeyMoved = true;
-        }
-        if (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft')) {
-          camDesiredTarget.x -= rightX * panSpeed;
-          camDesiredTarget.z -= rightZ * panSpeed;
-          panKeyMoved = true;
-        }
-        if (keysPressed.has('KeyD') || keysPressed.has('ArrowRight')) {
-          camDesiredTarget.x += rightX * panSpeed;
-          camDesiredTarget.z += rightZ * panSpeed;
-          panKeyMoved = true;
+        if (!simRef.current.divineTitan) {
+          if (keysPressed.has('KeyW') || keysPressed.has('ArrowUp')) {
+            camDesiredTarget.x += forwardX * panSpeed;
+            camDesiredTarget.z += forwardZ * panSpeed;
+            panKeyMoved = true;
+          }
+          if (keysPressed.has('KeyS') || keysPressed.has('ArrowDown')) {
+            camDesiredTarget.x -= forwardX * panSpeed;
+            camDesiredTarget.z -= forwardZ * panSpeed;
+            panKeyMoved = true;
+          }
+          if (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft')) {
+            camDesiredTarget.x -= rightX * panSpeed;
+            camDesiredTarget.z -= rightZ * panSpeed;
+            panKeyMoved = true;
+          }
+          if (keysPressed.has('KeyD') || keysPressed.has('ArrowRight')) {
+            camDesiredTarget.x += rightX * panSpeed;
+            camDesiredTarget.z += rightZ * panSpeed;
+            panKeyMoved = true;
+          }
         }
 
         // Q / E continuous camera yaw rotation
@@ -17559,6 +17719,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       dynamicPoison.dispose();
       zoneOverlay.dispose();
       warFrontArrows.dispose();
+      divineTitanRenderer.dispose();
+      if (titanActionRef) titanActionRef.current = null;
       styledTerrain.dispose();
       metroConcreteMat.dispose();
       metroParapetMat.dispose();
@@ -17719,7 +17881,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           })}
         </div>
       )}
-      {gameState !== 'title' && activeLabels.length > 0 && (
+      {gameState !== 'title' && !isTitanActive && activeLabels.length > 0 && (
         <div
           ref={zoneLabelsLayerRef}
           data-testid="zone-map-labels-layer"
@@ -17836,7 +17998,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           })}
         </div>
       )}
-      {gameState !== 'title' && activeWarArrows.length > 0 && (
+      {gameState !== 'title' && !isTitanActive && activeWarArrows.length > 0 && (
         <div
           ref={warArrowLabelsLayerRef}
           data-testid="war-front-arrows-layer"

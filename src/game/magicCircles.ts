@@ -675,6 +675,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'recruit_legion':
     case 'wildfire_ring':
     case 'earthquake':
+    case 'divine_titan':
       return 'wrath';
     case 'terraform_beam':
     case 'plague_miasma':

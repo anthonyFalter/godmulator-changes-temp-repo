@@ -565,6 +565,11 @@ export default function App() {
     playTransition: false,
     focusTarget: null,
   });
+  const titanActionRef = useRef<{
+    exit: () => void;
+    skill1: () => void;
+    skill2: () => void;
+  } | null>(null);
 
   useEffect(() => {
     document.body.dataset.state = gameState;
@@ -1085,6 +1090,14 @@ export default function App() {
       if (gameState !== 'playing') return;
 
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      if (simRef.current.divineTitan) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setGameState('paused');
+        }
+        return;
+      }
 
       // Preserve Hide dock (H) and desktop Camera Pan Mode toggle (V)
       if (e.code === 'KeyH') {
@@ -1779,6 +1792,8 @@ export default function App() {
   const hasSavedWorldRulesModal =
     gameState === 'title' && Boolean(editingRulesWorldId && editingRulesDraft);
   const hasAnyBlockingModal = hasInGameOverlayModal || hasSavedWorldRulesModal;
+  const activeTitan = sim.divineTitan ?? null;
+  const isTitanActive = Boolean(activeTitan);
 
   return (
     <main
@@ -1787,7 +1802,7 @@ export default function App() {
       }`}
     >
       {/* Top-Center Age Progression Banner HUD (3D Square Scenery Flip + Pixel Explosion + Screen Shake) */}
-      {gameState === 'playing' && !hasAnyBlockingModal && (
+      {gameState === 'playing' && !hasAnyBlockingModal && !isTitanActive && (
         <AgeProgressBanner
           event={ageBannerEvent}
           onImpact={handleAgeBannerImpact}
@@ -1826,10 +1841,12 @@ export default function App() {
         onBreakFollow={handleBreakFollow}
         onSyncHud={syncHud}
         onPerfTelemetry={setPerfTelemetry}
+        isTitanActive={isTitanActive}
+        titanActionRef={titanActionRef}
       />
 
       {/* Global Status Feedback Toast (visible across all tabs & save/modal errors) */}
-      {statusToastVisible && statusFeedback && (
+      {statusToastVisible && statusFeedback && !isTitanActive && (
         <div
           role="status"
           aria-live="polite"
@@ -1841,7 +1858,7 @@ export default function App() {
       )}
 
       {/* Optional Phase 0 Performance Debug HUD (toggled via F3 or Settings) */}
-      {gameState === 'playing' && graphicsSettings.showPerformanceHud && perfTelemetry && !hasAnyBlockingModal && (
+      {gameState === 'playing' && graphicsSettings.showPerformanceHud && perfTelemetry && !hasAnyBlockingModal && !isTitanActive && (
         <PerformanceHud
           stats={perfTelemetry}
           strictLossless={graphicsSettings.strictLossless !== false}
@@ -3111,8 +3128,101 @@ export default function App() {
         </div>
       )}
 
-      {/* PLAYING HUD OVERLAY (hidden while a blocking modal such as World Info, God Rules, Settings, Save, or Quit is active) */}
-      {gameState !== 'title' && !isEventCinematic && !hasInGameOverlayModal && (
+      {/* DIVINE TITAN MODE OVERLAY: Hides all normal HUDs except Settings/Pause + Exit Titan button */}
+      {gameState !== 'title' && isTitanActive && activeTitan && !hasInGameOverlayModal && (
+        <div
+          data-testid="titan-control-overlay"
+          className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between pt-[max(0.5rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))] pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:p-3"
+        >
+          {/* Top-right: Settings / Pause button ONLY */}
+          <div className="flex justify-end w-full">
+            <div className="pointer-events-auto px-panel px-1.5 py-1 flex items-center gap-1.5">
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="hud-settings-btn"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  soundEngine.playClick();
+                  setGameState((prev) => (prev === 'paused' ? 'playing' : 'paused'));
+                }}
+                className="px-btn w-8 h-8 flex items-center justify-center cursor-pointer"
+                aria-label="Settings / Pause"
+                title="Settings / Pause (Esc)"
+              >
+                <HudPixelIcon kind="settings" className="w-4 h-4 pixelated-canvas" />
+              </button>
+            </div>
+          </div>
+
+          {/* Bottom-center: Exit Titan button + compact Skill 1 / Skill 2 triggers */}
+          <div className="flex flex-col items-center gap-2 w-full">
+            <div className="pointer-events-auto px-panel px-2.5 py-2 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="titan-skill1-btn"
+                disabled={activeTitan.phase === 'exiting' || activeTitan.skill1Cooldown > 0}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  soundEngine.playClick();
+                  titanActionRef.current?.skill1();
+                }}
+                className={`px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider cursor-pointer disabled:opacity-50 ${
+                  activeTitan.skill1Targeting ? 'px-btn-active text-[#ff6b6b]' : 'px-btn text-[#ffd3b6]'
+                }`}
+                title="Skill 1: Summon Orbital Satellite Laser at target position (Key 1)"
+              >
+                [1] Orbital Laser
+                {activeTitan.skill1Cooldown > 0
+                  ? ` (${activeTitan.skill1Cooldown.toFixed(1)}s)`
+                  : activeTitan.skill1Targeting
+                    ? ' · CLICK TARGET'
+                    : ''}
+              </button>
+
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="titan-skill2-btn"
+                disabled={activeTitan.phase !== 'active' || activeTitan.skill2Cooldown > 0}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  soundEngine.playClick();
+                  titanActionRef.current?.skill2();
+                }}
+                className="px-btn px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#fde68a] cursor-pointer disabled:opacity-50"
+                title="Skill 2: Leap & Cataclysmic Crater/Tsunami Slam (Key 2 / Space)"
+              >
+                [2] Titan Leap
+                {activeTitan.skill2Cooldown > 0 ? ` (${activeTitan.skill2Cooldown.toFixed(1)}s)` : ''}
+              </button>
+
+              <button
+                type="button"
+                tabIndex={-1}
+                data-testid="titan-exit-btn"
+                disabled={activeTitan.phase === 'exiting'}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  soundEngine.playOrbitalLaser();
+                  titanActionRef.current?.exit();
+                }}
+                className="px-btn px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-[#7dd3fc] border-[#38bdf8] cursor-pointer disabled:opacity-60"
+                title="Exit God Titan — summons sky extraction beam"
+              >
+                {activeTitan.phase === 'exiting' ? 'Extracting...' : 'Exit Titan'}
+              </button>
+            </div>
+            <div className="pointer-events-none px-3 py-1 bg-[#120d0b]/75 border border-[#f59e0b]/35 text-[10px] sm:text-[11px] font-semibold tracking-wide text-[#f4e7d4]/90">
+              WASD Move · Mouse Aim Cannons · M1 Slash · [1] Orbital Laser · [2 / Space] Leap Slam
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PLAYING HUD OVERLAY (hidden while a blocking modal such as World Info, God Rules, Settings, Save, or Quit is active, or when Divine Titan is active) */}
+      {gameState !== 'title' && !isEventCinematic && !hasInGameOverlayModal && !isTitanActive && (
         <div className="fixed inset-0 z-20 pointer-events-none flex flex-col justify-between gap-1 sm:gap-1.5 pt-[max(0.25rem,env(safe-area-inset-top))] pb-[max(0.25rem,env(safe-area-inset-bottom))] pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] sm:p-2.5 md:p-3">
           {/* Active World Event compact banner when cinematic camera is dismissed */}
           {activeWorldEvent && activeWorldEvent.remaining > 0 && (
