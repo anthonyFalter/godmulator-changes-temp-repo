@@ -849,6 +849,7 @@ function applyOrbitalLaserDamage(state: SimulationState, strike: TitanOrbitalStr
   const { targetX, targetZ, radius } = strike;
   damageUnitsAndStructuresInRadius(state, targetX, targetZ, radius, 290, 240, 1.0);
 
+  const grid = state.worldGrid as WorldGridBuffers | undefined;
   const rSq = radius * radius;
   const minX = Math.max(0, Math.floor(targetX - radius));
   const maxX = Math.min(state.gridSize - 1, Math.ceil(targetX + radius));
@@ -863,30 +864,43 @@ function applyOrbitalLaserDamage(state: SimulationState, strike: TitanOrbitalStr
       const t = state.tiles[tz * state.gridSize + tx];
       if (!t || t.height === 0) continue;
 
-      if (dSq <= rSq * 0.28) {
-        // Glassed molten core pit + raging firestorm
+      if (dSq <= rSq * 0.36 && !t.buildingId) {
+        // Melt the affected land directly into glowing molten lava!
+        t.height = 0;
+        t.terrain = 'shallow_water';
+        t.waterKind = 'lava';
+        t.isRiver = true;
+        t.isLake = false;
+        delete t.isBridge;
+        delete t.frozenWaterBase;
+        delete t.liquidLevel;
+        delete t.liquidKind;
+        t.resourceNode = 'none';
+        t.resourceAmount = 0;
+        t.onFireTimer = 0;
+        t.crushedTimer = 0;
+        t.blessedTimer = 0;
+        t.farmSettlementId = undefined;
+        delete t.farmPlotKind;
+        t.burntTree = false;
+        delete t.treeBiomeOverride;
+        t.tempOffset = Math.min(80, Math.max(t.tempOffset ?? 0, 45));
+        t.devastatedTimer = Math.max(t.devastatedTimer ?? 0, 50);
+        if (grid) syncTileToWorldGrid(grid, t);
+      } else if (dSq <= rSq * 0.72) {
         igniteAndDevastateTile(state, t, {
-          terrain: 'scorched',
-          fireDuration: 15.0,
+          terrain: (tx + tz) % 2 === 0 ? 'volcanic_wasteland' : 'scorched',
+          fireDuration: 13.5,
           fireColor: '#ff3b1f',
-          devastateDuration: 46,
-          lowerHeightBy: t.height > 1 && strike.elapsed < 0.25 ? 1 : 0,
-          clearAllResources: true,
-        });
-      } else if (dSq <= rSq * 0.68) {
-        igniteAndDevastateTile(state, t, {
-          terrain: (tx + tz) % 3 === 0 ? 'volcanic_wasteland' : 'scorched',
-          fireDuration: 11.5,
-          fireColor: '#ff5400',
-          devastateDuration: 38,
+          devastateDuration: 42,
           clearAllResources: true,
         });
       } else {
         igniteAndDevastateTile(state, t, {
           terrain: 'scorched',
-          fireDuration: (tx + tz) % 2 === 0 ? 8.5 : 0,
+          fireDuration: (tx + tz) % 2 === 0 ? 9.0 : 0,
           fireColor: '#ff6b00',
-          devastateDuration: 28,
+          devastateDuration: 30,
         });
       }
     }

@@ -163,7 +163,11 @@ describe('Divine Titan controllable god power', () => {
 
     assert.equal(sim.divineTitan!.orbitalStrikes[0].phase, 'firing');
     assert.equal(sim.units[0].state, 'ko');
-    assert.equal(sim.tiles[22 * sim.gridSize + 22].terrain, 'scorched');
+    const centerTile = sim.tiles[22 * sim.gridSize + 22];
+    assert.equal(centerTile.height, 0, 'Orbital laser core should melt land down to lava');
+    assert.equal(centerTile.waterKind, 'lava', 'Orbital laser core should melt land into lava');
+    const rimTile = sim.tiles[22 * sim.gridSize + 26];
+    assert.ok(rimTile.onFireTimer > 0, 'Orbital laser rim should ignite surrounding land');
   });
 
   it('Skill 2 jumps and carves a crater with massive shockwave when landing on land', () => {

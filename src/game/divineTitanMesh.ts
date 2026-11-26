@@ -3086,216 +3086,295 @@ export class DivineTitanRenderer {
       if (!grp) {
         grp = new THREE.Group();
 
-        // 1. Initial blinding pixelated voxel flash burst
+        // 1. Layered pixelated voxel fireball flash burst (white-hot -> yellow -> fiery orange)
         const flashGroup = new THREE.Group();
         flashGroup.name = 'mc_flash';
-        const flashMat = new THREE.MeshBasicMaterial({
-          color: 0xfff8dc,
+        const flashWhiteMat = new THREE.MeshBasicMaterial({
+          color: 0xfffbeb,
           transparent: true,
           opacity: 0.98,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         });
-        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(9.5, 9.5, 9.5), flashMat));
-        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(13.5, 5.5, 5.5), flashMat));
-        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(5.5, 5.5, 13.5), flashMat));
-        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(5.5, 13.5, 5.5), flashMat));
+        const flashGoldMat = new THREE.MeshBasicMaterial({
+          color: 0xfacc15,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(8.5, 8.5, 8.5), flashWhiteMat));
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(13.5, 5.2, 5.2), flashGoldMat));
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(5.2, 5.2, 13.5), flashGoldMat));
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(5.2, 13.5, 5.2), flashGoldMat));
+        for (const [fx, fy, fz] of [
+          [5.5, 4.5, 5.5],
+          [-5.5, 4.5, 5.5],
+          [5.5, 4.5, -5.5],
+          [-5.5, 4.5, -5.5],
+        ]) {
+          const spark = new THREE.Mesh(new THREE.BoxGeometry(2.6, 2.6, 2.6), flashWhiteMat);
+          spark.position.set(fx, fy, fz);
+          flashGroup.add(spark);
+        }
         grp.add(flashGroup);
 
+        // Rich multi-tone pixel-voxel palette (charcoal, mid ash, smoke highlight, white-hot, magma, radioactive lime)
         const ashDarkMat = new THREE.MeshStandardMaterial({
-          color: 0x352e2c,
-          emissive: 0xc2410c,
-          emissiveIntensity: 0.42,
-          roughness: 0.96,
+          color: 0x26211f,
+          emissive: 0x9a3412,
+          emissiveIntensity: 0.36,
+          roughness: 0.97,
           flatShading: true,
           transparent: true,
-          opacity: 0.94,
+          opacity: 0.95,
         });
         const ashMidMat = new THREE.MeshStandardMaterial({
-          color: 0x4d413d,
-          emissive: 0xd9480f,
-          emissiveIntensity: 0.35,
+          color: 0x453b37,
+          emissive: 0xc2410c,
+          emissiveIntensity: 0.32,
           roughness: 0.95,
           flatShading: true,
           transparent: true,
-          opacity: 0.92,
+          opacity: 0.93,
+        });
+        const ashLightMat = new THREE.MeshStandardMaterial({
+          color: 0x6b5d56,
+          emissive: 0xea580c,
+          emissiveIntensity: 0.25,
+          roughness: 0.92,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.9,
         });
         const moltenCoreMat = new THREE.MeshBasicMaterial({
-          color: 0xff6a1a,
+          color: 0xff5a14,
           transparent: true,
-          opacity: 0.92,
+          opacity: 0.94,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const magmaYellowMat = new THREE.MeshBasicMaterial({
+          color: 0xfde047,
+          transparent: true,
+          opacity: 0.95,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         });
         const radGlowMat = new THREE.MeshBasicMaterial({
           color: 0xa3e635,
           transparent: true,
-          opacity: 0.85,
+          opacity: 0.88,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
         });
 
-        // 2. Stepped pixelated voxel ground dust & ember base skirt
+        // 2. Detailed stepped pixelated voxel ground blast skirt + molten inner collar + debris pixels
         const skirtGroup = new THREE.Group();
         skirtGroup.name = 'mc_skirt';
-        const skirtCoords: Array<[number, number, number, number]> = [
-          [4.6, 0, 2.8, 2.2],
-          [-4.6, 0, 2.8, 2.2],
-          [0, 4.6, 2.8, 2.2],
-          [0, -4.6, 2.8, 2.2],
-          [3.6, 3.6, 2.4, 1.8],
-          [-3.6, 3.6, 2.4, 1.8],
-          [3.6, -3.6, 2.4, 1.8],
-          [-3.6, -3.6, 2.4, 1.8],
-          [5.4, 2.0, 1.9, 1.4],
-          [-5.4, -2.0, 1.9, 1.4],
-          [2.0, -5.4, 1.9, 1.4],
-          [-2.0, 5.4, 1.9, 1.4],
-        ];
-        for (let i = 0; i < skirtCoords.length; i++) {
-          const [sx, sz, sw, sh] = skirtCoords[i];
-          const blk = new THREE.Mesh(
-            new THREE.BoxGeometry(sw, sh, sw),
-            i % 3 === 0 ? ashMidMat : ashDarkMat,
-          );
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const r = 4.6 + (i % 2) * 1.1;
+          const sx = Math.round(Math.cos(a) * r * 2) / 2;
+          const sz = Math.round(Math.sin(a) * r * 2) / 2;
+          const sw = i % 2 === 0 ? 2.6 : 2.0;
+          const sh = i % 3 === 0 ? 2.4 : 1.7;
+          const mat = i % 4 === 0 ? ashLightMat : i % 2 === 0 ? ashDarkMat : ashMidMat;
+          const blk = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, sw), mat);
           blk.position.set(sx, sh * 0.5, sz);
           skirtGroup.add(blk);
+
+          if (i % 2 === 0) {
+            // Inner glowing lava-ember ground collar blocks
+            const inner = new THREE.Mesh(
+              new THREE.BoxGeometry(1.6, 1.1, 1.6),
+              i % 4 === 0 ? magmaYellowMat : moltenCoreMat,
+            );
+            inner.position.set(sx * 0.65, 0.55, sz * 0.65);
+            skirtGroup.add(inner);
+
+            // Outer kicked-up pixel debris cubes
+            const deb = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.95, 0.95), ashDarkMat);
+            deb.position.set(sx * 1.28, 0.5 + (i % 3) * 0.45, sz * 1.28);
+            skirtGroup.add(deb);
+          }
         }
         grp.add(skirtGroup);
 
-        // 3. Towering stepped pixelated voxel stem pillar (normalized y = 0..1)
+        // 3. Intricate 11-tier hourglass voxel vortex stem (normalized y = 0..1) + spiral pixel embers
         const stemGroup = new THREE.Group();
         stemGroup.name = 'mc_stem';
-        const stemTiers = 7;
+        const stemTiers = 11;
         for (let tier = 0; tier < stemTiers; tier++) {
-          const frac = tier / stemTiers;
-          const h = 1 / stemTiers + 0.02;
+          const frac = tier / (stemTiers - 1);
+          const h = 1 / stemTiers + 0.015;
           const yPos = (tier + 0.5) / stemTiers;
-          const outerW = 5.4 - frac * 2.0 + (tier % 2 === 0 ? 0.5 : -0.2);
-          const innerW = outerW * 0.62;
-          const jx = (tier % 2 === 0 ? 1 : -1) * 0.25;
-          const jz = (tier % 3 === 0 ? -1 : 1) * 0.22;
+          // Hourglass nuclear column profile: wide base -> narrow waist -> flaring neck
+          const hourglass = 1.0 - Math.sin(frac * Math.PI) * 0.34 + (frac > 0.72 ? (frac - 0.72) * 1.1 : 0);
+          const outerW = 4.9 * hourglass + (tier % 2 === 0 ? 0.45 : -0.25);
+          const coreW = outerW * 0.58;
+          const jx = (tier % 2 === 0 ? 1 : -1) * 0.22;
+          const jz = (tier % 3 === 0 ? -1 : 1) * 0.2;
 
-          const outerBlk = new THREE.Mesh(
-            new THREE.BoxGeometry(outerW, h, outerW),
-            tier % 2 === 0 ? ashDarkMat : ashMidMat,
-          );
+          const outerMat = tier % 3 === 0 ? ashLightMat : tier % 2 === 0 ? ashDarkMat : ashMidMat;
+          const outerBlk = new THREE.Mesh(new THREE.BoxGeometry(outerW, h, outerW), outerMat);
           outerBlk.position.set(jx, yPos, jz);
           stemGroup.add(outerBlk);
 
-          const coreBlk = new THREE.Mesh(new THREE.BoxGeometry(innerW, h, innerW), moltenCoreMat);
+          // Exposed fiery magma ribs peeking out of the voxel stem
+          const coreBlk = new THREE.Mesh(
+            new THREE.BoxGeometry(coreW, h, coreW),
+            tier % 3 === 1 ? magmaYellowMat : moltenCoreMat,
+          );
           coreBlk.position.set(0, yPos, 0);
           stemGroup.add(coreBlk);
+
+          // Spiral rising pixel debris & ember blocks hugging the stem
+          const sa = tier * 1.15;
+          const sr = outerW * 0.68 + 0.55;
+          const ember = new THREE.Mesh(
+            new THREE.BoxGeometry(0.95, h * 0.85, 0.95),
+            tier % 4 === 0 ? radGlowMat : tier % 2 === 0 ? moltenCoreMat : ashDarkMat,
+          );
+          ember.position.set(Math.cos(sa) * sr, yPos, Math.sin(sa) * sr);
+          stemGroup.add(ember);
         }
         grp.add(stemGroup);
 
-        // 4. Pixelated blocky Wilson condensation shock-ring around mid-stem
+        // 4. Double pixelated blocky Wilson condensation rings (mid-stem + upper cap collar)
         const wilsonGroup = new THREE.Group();
         wilsonGroup.name = 'mc_wilson';
         const wilsonMat = new THREE.MeshBasicMaterial({
           color: 0xffedd5,
           transparent: true,
-          opacity: 0.72,
+          opacity: 0.74,
           depthWrite: false,
         });
-        const wilsonOffsets: Array<[number, number, number, number]> = [
-          [0, 6.2, 6.8, 1.5],
-          [0, -6.2, 6.8, 1.5],
-          [6.2, 0, 1.5, 6.8],
-          [-6.2, 0, 1.5, 6.8],
-          [4.8, 4.8, 2.2, 2.2],
-          [-4.8, 4.8, 2.2, 2.2],
-          [4.8, -4.8, 2.2, 2.2],
-          [-4.8, -4.8, 2.2, 2.2],
-        ];
-        for (const [wx, wz, ww, wd] of wilsonOffsets) {
-          const wBlk = new THREE.Mesh(new THREE.BoxGeometry(ww, 1.1, wd), wilsonMat);
-          wBlk.position.set(wx, 0, wz);
-          wilsonGroup.add(wBlk);
-        }
+        const buildVoxelRing = (radius: number, thick: number, height: number, yOff: number): void => {
+          const segs = 12;
+          for (let i = 0; i < segs; i++) {
+            const a = (i / segs) * Math.PI * 2;
+            const wx = Math.round(Math.cos(a) * radius * 2) / 2;
+            const wz = Math.round(Math.sin(a) * radius * 2) / 2;
+            const blk = new THREE.Mesh(new THREE.BoxGeometry(thick, height, thick), wilsonMat);
+            blk.position.set(wx, yOff, wz);
+            wilsonGroup.add(blk);
+          }
+        };
+        buildVoxelRing(6.5, 2.1, 1.0, 0);
+        buildVoxelRing(4.9, 1.6, 0.85, 4.2);
         grp.add(wilsonGroup);
 
-        // 5. Towering Stepped Voxel / Pixelated Mushroom Cap (zero curvy spheres!)
+        // 5. Sculpted 5-tier Pixelated Voxel Mushroom Cap (detailed blocky cloud sculpture)
         const capGroup = new THREE.Group();
         capGroup.name = 'mc_cap';
 
-        // Blazing molten + radioactive voxel underside slab
-        const underCore = new THREE.Mesh(new THREE.BoxGeometry(10.8, 2.4, 10.8), moltenCoreMat);
-        underCore.position.y = -1.1;
-        capGroup.add(underCore);
+        // Underside glowing plasma belly (yellow-white center + fiery orange slabs + 8 radioactive lime rim voxels)
+        const bellyHot = new THREE.Mesh(new THREE.BoxGeometry(7.2, 2.2, 7.2), magmaYellowMat);
+        bellyHot.position.y = -1.3;
+        capGroup.add(bellyHot);
 
-        const underCrossA = new THREE.Mesh(new THREE.BoxGeometry(14.2, 1.8, 6.8), moltenCoreMat);
-        underCrossA.position.y = -0.9;
-        capGroup.add(underCrossA);
+        const bellyMidA = new THREE.Mesh(new THREE.BoxGeometry(13.8, 1.9, 7.6), moltenCoreMat);
+        bellyMidA.position.y = -0.95;
+        capGroup.add(bellyMidA);
 
-        const underCrossB = new THREE.Mesh(new THREE.BoxGeometry(6.8, 1.8, 14.2), moltenCoreMat);
-        underCrossB.position.y = -0.9;
-        capGroup.add(underCrossB);
+        const bellyMidB = new THREE.Mesh(new THREE.BoxGeometry(7.6, 1.9, 13.8), moltenCoreMat);
+        bellyMidB.position.y = -0.95;
+        capGroup.add(bellyMidB);
 
-        // Glowing radioactive green-gold pixel pockets on the underside rim
-        for (const [rx, rz] of [
-          [5.6, 5.6],
-          [-5.6, 5.6],
-          [5.6, -5.6],
-          [-5.6, -5.6],
-        ]) {
-          const radBlk = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 2.4), radGlowMat);
-          radBlk.position.set(rx, -1.2, rz);
+        for (let r = 0; r < 8; r++) {
+          const a = (r / 8) * Math.PI * 2 + Math.PI / 8;
+          const radBlk = new THREE.Mesh(
+            new THREE.BoxGeometry(2.1, 1.4, 2.1),
+            r % 2 === 0 ? radGlowMat : moltenCoreMat,
+          );
+          radBlk.position.set(Math.cos(a) * 6.8, -1.05, Math.sin(a) * 6.8);
           capGroup.add(radBlk);
         }
 
-        // Tier 1: Wide blocky voxel mushroom overhang rim (stepped pixel grid)
-        const rimBlocks: Array<[number, number, number, number, number]> = [
-          [0, 0.5, 0, 12.6, 3.0],
-          [6.8, 0.2, 0, 4.0, 2.6],
-          [-6.8, 0.2, 0, 4.0, 2.6],
-          [0, 0.2, 6.8, 4.0, 2.6],
-          [0, 0.2, -6.8, 4.0, 2.6],
-          [5.2, 0.0, 5.2, 4.2, 2.4],
-          [-5.2, 0.0, 5.2, 4.2, 2.4],
-          [5.2, 0.0, -5.2, 4.2, 2.4],
-          [-5.2, 0.0, -5.2, 4.2, 2.4],
-        ];
-        for (let i = 0; i < rimBlocks.length; i++) {
-          const [bx, by, bz, bw, bh] = rimBlocks[i];
-          const b = new THREE.Mesh(
-            new THREE.BoxGeometry(bw, bh, bw),
-            i % 2 === 0 ? ashDarkMat : ashMidMat,
+        // Tier 1: Wide 16-block overhanging billowing voxel rim + glowing ember cracks
+        const coreSlab = new THREE.Mesh(new THREE.BoxGeometry(11.6, 2.8, 11.6), ashDarkMat);
+        coreSlab.position.y = 0.6;
+        capGroup.add(coreSlab);
+
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          const dist = i % 2 === 0 ? 7.4 : 6.5;
+          const bx = Math.round(Math.cos(a) * dist * 2) / 2;
+          const bz = Math.round(Math.sin(a) * dist * 2) / 2;
+          const bw = i % 2 === 0 ? 3.5 : 3.0;
+          const bh = i % 3 === 0 ? 2.9 : 2.2;
+          const by = 0.15 + (i % 3) * 0.35;
+          const mat = i % 4 === 0 ? ashLightMat : i % 2 === 0 ? ashDarkMat : ashMidMat;
+          const rimBlk = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bw), mat);
+          rimBlk.position.set(bx, by, bz);
+          capGroup.add(rimBlk);
+
+          if (i % 4 === 1) {
+            // Glowing magma fissure cube tucked into the overhanging rim
+            const crack = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.1, 1.5), moltenCoreMat);
+            crack.position.set(bx * 0.92, by - 0.6, bz * 0.92);
+            capGroup.add(crack);
+          }
+        }
+
+        // Tier 2: Sculpted billowing mid-dome voxel clusters (12 stepped cubes)
+        const midDome = new THREE.Mesh(new THREE.BoxGeometry(10.6, 2.6, 10.6), ashMidMat);
+        midDome.position.y = 2.6;
+        capGroup.add(midDome);
+
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          const dist = i % 2 === 0 ? 5.6 : 4.6;
+          const cx = Math.round(Math.cos(a) * dist * 2) / 2;
+          const cz = Math.round(Math.sin(a) * dist * 2) / 2;
+          const cw = i % 2 === 0 ? 3.4 : 2.8;
+          const ch = 2.1 + (i % 3) * 0.45;
+          const mat = i % 3 === 0 ? ashLightMat : i % 2 === 0 ? ashDarkMat : ashMidMat;
+          const cluster = new THREE.Mesh(new THREE.BoxGeometry(cw, ch, cw), mat);
+          cluster.position.set(cx, 2.5 + (i % 2) * 0.45, cz);
+          capGroup.add(cluster);
+        }
+
+        // Tier 3 & 4: Rugged stepped upper dome + boxy apex crown with lighter smoke highlights
+        const upperDome = new THREE.Mesh(new THREE.BoxGeometry(7.6, 2.4, 7.6), ashDarkMat);
+        upperDome.position.y = 4.6;
+        capGroup.add(upperDome);
+
+        for (const [ux, uy, uz, uw, uh, light] of [
+          [3.2, 4.7, 0, 2.8, 2.0, true],
+          [-3.2, 4.6, 0, 2.8, 2.1, false],
+          [0, 4.8, 3.2, 2.8, 2.0, true],
+          [0, 4.5, -3.2, 2.8, 2.1, false],
+          [2.2, 5.4, 2.2, 2.4, 1.8, true],
+          [-2.2, 5.3, -2.2, 2.4, 1.8, false],
+        ] as Array<[number, number, number, number, number, boolean]>) {
+          const blk = new THREE.Mesh(
+            new THREE.BoxGeometry(uw, uh, uw),
+            light ? ashLightMat : ashMidMat,
           );
-          b.position.set(bx, by, bz);
-          capGroup.add(b);
+          blk.position.set(ux, uy, uz);
+          capGroup.add(blk);
         }
 
-        // Tier 2: Stepped mid crown voxel slab + corner blocks
-        const midCrown = new THREE.Mesh(new THREE.BoxGeometry(10.2, 2.8, 10.2), ashMidMat);
-        midCrown.position.y = 2.8;
-        capGroup.add(midCrown);
+        const apexCrown = new THREE.Mesh(new THREE.BoxGeometry(4.6, 1.9, 4.6), ashLightMat);
+        apexCrown.position.y = 6.3;
+        capGroup.add(apexCrown);
 
-        for (const [cx, cz] of [
-          [4.2, 0],
-          [-4.2, 0],
-          [0, 4.2],
-          [0, -4.2],
-        ]) {
-          const shoulder = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.2, 3.8), ashDarkMat);
-          shoulder.position.set(cx, 2.6, cz);
-          capGroup.add(shoulder);
-        }
+        const apexPeak = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.2, 2.6), ashMidMat);
+        apexPeak.position.set(0.4, 7.4, -0.3);
+        capGroup.add(apexPeak);
 
-        // Tier 3: Boxy stepped apex crown block + floating pixel embers
-        const topCrown = new THREE.Mesh(new THREE.BoxGeometry(6.2, 2.4, 6.2), ashDarkMat);
-        topCrown.position.y = 5.0;
-        capGroup.add(topCrown);
-
-        for (const [ex, ey, ez] of [
-          [4.5, 6.2, 2.2],
-          [-4.2, 6.6, -2.5],
-          [2.0, 7.0, -4.4],
-          [-2.4, 6.4, 4.5],
-        ]) {
-          const ember = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 1.15), moltenCoreMat);
-          ember.position.set(ex, ey, ez);
-          capGroup.add(ember);
+        // 14 floating pixel ash, fire ember & radioactive spark cubes rising around the cap
+        for (let e = 0; e < 14; e++) {
+          const a = (e / 14) * Math.PI * 2;
+          const r = 3.2 + (e % 4) * 2.1;
+          const ey = 5.4 + (e % 4) * 1.15;
+          const sz = e % 3 === 0 ? 1.05 : 0.78;
+          const mat = e % 4 === 0 ? radGlowMat : e % 3 === 0 ? magmaYellowMat : e % 2 === 0 ? moltenCoreMat : ashDarkMat;
+          const px = new THREE.Mesh(new THREE.BoxGeometry(sz, sz, sz), mat);
+          px.position.set(Math.cos(a) * r, ey, Math.sin(a) * r);
+          capGroup.add(px);
         }
         grp.add(capGroup);
 
@@ -3309,7 +3388,7 @@ export class DivineTitanRenderer {
       const fadeOut = t > 0.68 ? 1 - (t - 0.68) / 0.32 : 1;
       const curHeight = 3.5 + riseEase * (mc.maxHeight - 3.5);
 
-      // Blinding voxel flash decays rapidly in first 0.55s
+      // Blinding layered voxel flash decays rapidly in first 0.55s
       const flash = grp.getObjectByName('mc_flash');
       if (flash) {
         const ft = Math.min(1, mc.elapsed / 0.55);
@@ -3324,11 +3403,11 @@ export class DivineTitanRenderer {
 
       const skirt = grp.getObjectByName('mc_skirt');
       if (skirt) {
-        const sk = 0.65 + Math.pow(t, 0.55) * 2.2;
+        const sk = 0.65 + Math.pow(t, 0.55) * 2.25;
         skirt.scale.set(sk, 0.8 + t * 0.5, sk);
         skirt.traverse((c) => {
           if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-            c.material.opacity = 0.9 * fadeOut;
+            c.material.opacity = 0.92 * fadeOut;
           }
         });
       }
@@ -3337,21 +3416,22 @@ export class DivineTitanRenderer {
       if (stem) {
         const stemW = 0.85 + t * 0.45;
         stem.scale.set(stemW, curHeight, stemW);
+        stem.rotation.y = Math.floor(elapsedTotal * 3) * 0.05; // stepped retro swirl
         stem.traverse((c) => {
           if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-            c.material.opacity = 0.88 * fadeOut;
+            c.material.opacity = 0.9 * fadeOut;
           }
         });
       }
 
       const wilson = grp.getObjectByName('mc_wilson');
       if (wilson) {
-        wilson.position.y = curHeight * 0.56;
+        wilson.position.y = curHeight * 0.54;
         const ws = 0.72 + Math.pow(t, 0.5) * 1.85;
         wilson.scale.set(ws, 1, ws);
         wilson.traverse((c) => {
           if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-            c.material.opacity = 0.68 * fadeOut * (1 - t * 0.4);
+            c.material.opacity = 0.7 * fadeOut * (1 - t * 0.4);
           }
         });
       }
@@ -3360,11 +3440,11 @@ export class DivineTitanRenderer {
       if (cap) {
         cap.position.y = curHeight;
         cap.rotation.y = Math.floor(elapsedTotal * 2) * 0.04; // subtle stepped retro rotation
-        const capScale = 0.48 + Math.pow(Math.min(1, t * 1.8), 0.65) * 1.1;
+        const capScale = 0.48 + Math.pow(Math.min(1, t * 1.8), 0.65) * 1.12;
         cap.scale.setScalar(capScale);
         cap.traverse((c) => {
           if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-            c.material.opacity = 0.92 * fadeOut;
+            c.material.opacity = 0.94 * fadeOut;
           }
         });
       }
