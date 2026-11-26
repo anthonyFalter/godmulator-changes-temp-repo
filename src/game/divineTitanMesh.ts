@@ -2220,15 +2220,15 @@ export class DivineTitanRenderer {
     // Animate 4-legged heavy spider-mech with true world-space foot-locked IK
     this.animateRig(titan, dt, elapsedTotal, sampleGroundY);
 
-    // Cursor red target icon on the ground (hidden during movie-like Death Beam cutscene)
+    // Cursor red target icon on the ground (always flat facing upward, hidden during Death Beam cutscene)
     if (titan.phase === 'active' || titan.phase === 'jumping') {
       const aimGroundY = sampleGroundY(titan.aimX, titan.aimZ);
       this.cursorReticle.visible = true;
       this.cursorReticle.position.set(titan.aimX, aimGroundY + 0.18, titan.aimZ);
-      this.cursorReticle.rotation.z = elapsedTotal * (titan.skill1Targeting ? 1.8 : 0.65);
+      this.cursorReticle.rotation.set(0, elapsedTotal * (titan.skill1Targeting ? 1.6 : 0.6), 0);
       const pulse = 1 + Math.sin(elapsedTotal * (titan.skill1Targeting ? 10 : 5)) * 0.08;
       const scale = titan.skill1Targeting ? 2.05 * pulse : 1.05 * pulse;
-      this.cursorReticle.scale.set(scale, scale, 1);
+      this.cursorReticle.scale.set(scale, 1, scale);
       (this.cursorReticle.material as THREE.MeshBasicMaterial).opacity = titan.skill1Targeting ? 0.98 : 0.72;
     } else {
       this.cursorReticle.visible = false;
@@ -2240,7 +2240,7 @@ export class DivineTitanRenderer {
       this.leapPreviewRing.visible = true;
       this.leapPreviewRing.position.set(titan.jumpTargetX, landY + 0.2, titan.jumpTargetZ);
       const p = 0.92 + Math.sin(elapsedTotal * 14) * 0.12;
-      this.leapPreviewRing.scale.set(p, p, 1);
+      this.leapPreviewRing.scale.set(p, 1, p);
     } else {
       this.leapPreviewRing.visible = false;
     }
@@ -2815,8 +2815,8 @@ export class DivineTitanRenderer {
       const gy = sampleGroundY(st.targetX, st.targetZ);
       vis.group.position.set(st.targetX, gy, st.targetZ);
 
-      // Animate spinning Red Target Icon & counter-rotating satellite gyro-accelerator rings
-      vis.targetIcon.rotation.z = elapsedTotal * 2.6;
+      // Animate flat upward-facing Red Target Icon & counter-rotating satellite gyro-accelerator rings
+      vis.targetIcon.rotation.set(0, elapsedTotal * 1.8, 0);
       const spinMult = st.phase === 'firing' ? 2.4 : 1.0;
       vis.innerGyroRing.rotation.y = elapsedTotal * 3.8 * spinMult;
       vis.outerGyroRing.rotation.y = -elapsedTotal * 2.5 * spinMult;
@@ -2892,7 +2892,7 @@ export class DivineTitanRenderer {
         (vis.impactFlare.material as THREE.MeshBasicMaterial).opacity = 0.9;
         vis.impactPillar.scale.set(flicker * 1.1, 0.85 + Math.sin(elapsedTotal * 28) * 0.25, flicker * 1.1);
         (vis.impactPillar.material as THREE.MeshBasicMaterial).opacity = 0.68;
-        vis.impactDisc.rotation.z = -elapsedTotal * 5.0;
+        vis.impactDisc.rotation.set(0, -elapsedTotal * 3.5, 0);
         vis.impactDisc.scale.setScalar(0.95 + Math.sin(elapsedTotal * 26) * 0.14);
         (vis.impactDisc.material as THREE.MeshBasicMaterial).opacity = 0.82;
 
@@ -3060,11 +3060,14 @@ export class DivineTitanRenderer {
       this.dbEndPillar.position.set(0, 0, beamLen);
       this.dbEndPillar.scale.set((0.75 + t * 1.1) * flicker, 0.7 + t * 1.25, (0.75 + t * 1.1) * flicker);
 
-      // 7 Mach-diamond laser shock rings racing from the combined cannon down to the target!
+      // 7 Mach-diamond laser shock rings: start slow, then accelerate faster and faster until nuclear detonation!
+      const v0 = 0.45;
+      const vMax = 7.5;
+      const accelPhase = db.fireDuration * (v0 * t + ((vMax - v0) / 3) * t * t * t);
       for (let i = 0; i < this.dbPulseRings.length; i++) {
         const pr = this.dbPulseRings[i];
         pr.visible = true;
-        const p = (elapsedTotal * 2.8 + i / this.dbPulseRings.length) % 1;
+        const p = (accelPhase + i / this.dbPulseRings.length) % 1;
         pr.position.set(0, 0, p * beamLen);
         pr.scale.setScalar((0.78 + p * 0.75) * surge);
         (pr.material as THREE.MeshBasicMaterial).opacity = (1 - p * 0.6) * 0.9;
