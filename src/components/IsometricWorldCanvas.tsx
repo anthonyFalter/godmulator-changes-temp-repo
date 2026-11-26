@@ -305,8 +305,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   const zoneLabelsLayerRef = useRef<HTMLDivElement | null>(null);
   const kingMarkersLayerRef = useRef<HTMLDivElement | null>(null);
   const warArrowLabelsLayerRef = useRef<HTMLDivElement | null>(null);
-  const impactFrameOverlayRef = useRef<HTMLDivElement | null>(null);
-  const impactFrameSvgRef = useRef<SVGSVGElement | null>(null);
 
   // Store latest props in refs synchronously so WebGLRenderer & event listeners never observe stale props
   const latestProps = {
@@ -7484,152 +7482,22 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     let trauma = 0;
     let hitstopTimer = 0;
 
-    // Multi-beat Sakuga / Pixel-Art Impact Frame system (Death Beam Mushroom Cloud & Orbital Strike)
+    // Split-second Impact Frame filter (Invert -> Black & White -> Normal; zero extra screen elements)
     let activeImpactFrame: {
-      kind: 'death_beam_mushroom' | 'orbital_strike';
-      worldX: number;
-      worldY: number;
-      worldZ: number;
       elapsed: number;
       duration: number;
-      lastBeat: number;
     } | null = null;
-    const _impactProjVec = new THREE.Vector3();
 
-    const triggerImpactFrame = (ev: {
-      kind: 'death_beam_mushroom' | 'orbital_strike';
-      worldX: number;
-      worldY: number;
-      worldZ: number;
-      duration: number;
-    }) => {
+    const triggerImpactFrame = (ev: { duration: number }) => {
       activeImpactFrame = {
-        kind: ev.kind,
-        worldX: ev.worldX,
-        worldY: ev.worldY,
-        worldZ: ev.worldZ,
         elapsed: 0,
-        duration: Math.max(0.18, ev.duration),
-        lastBeat: -1,
+        duration: Math.max(0.12, ev.duration),
       };
     };
 
-    const buildImpactFrameSvgMarkup = (
-      kind: 'death_beam_mushroom' | 'orbital_strike',
-      beat: number,
-      cx: number,
-      cy: number,
-      prog: number,
-    ): string => {
-      const isMushroom = kind === 'death_beam_mushroom';
-      // Beat 0: White-out + stark black ink; Beat 1: Inverted negative ink; Beat 2: Crimson/Amber overdrive; Beat 3: Afterglow snap-back
-      const veilColor =
-        beat === 0
-          ? isMushroom
-            ? 'rgba(255,252,240,0.52)'
-            : 'rgba(235,250,255,0.48)'
-          : beat === 1
-            ? 'rgba(8,6,10,0.22)'
-            : beat === 2
-              ? isMushroom
-                ? 'rgba(220,38,20,0.24)'
-                : 'rgba(239,35,60,0.20)'
-              : 'rgba(255,140,40,0.08)';
-      const primaryRayColor =
-        beat === 0 ? '#09070a' : beat === 1 ? '#ffffff' : beat === 2 ? '#fff4d6' : '#ff5400';
-      const accentRayColor =
-        beat === 0 ? '#ff2a1a' : beat === 1 ? '#ff2442' : beat === 2 ? '#ff2a14' : '#ffd166';
-      const rayOpacity = beat === 3 ? Math.max(0, (1 - prog) * 2.4).toFixed(2) : beat === 2 ? '0.88' : '0.96';
-
-      const parts: string[] = [];
-      parts.push(`<rect x="0" y="0" width="160" height="90" fill="${veilColor}"/>`);
-
-      // High-contrast radial sakuga speed lines converging on (cx, cy)
-      const rayCount = isMushroom ? 28 : 22;
-      const innerR = beat === 0 ? 11 : beat === 1 ? 15 : beat === 2 ? 22 : 30 + prog * 22;
-      const outerR = 115;
-      const angleShift = beat * 0.13;
-      for (let i = 0; i < rayCount; i++) {
-        const ang = (i / rayCount) * Math.PI * 2 + angleShift;
-        const spread = i % 3 === 0 ? 0.048 : 0.022;
-        const rIn = innerR + (i % 4) * 3.5;
-        const x1 = (cx + Math.cos(ang) * rIn).toFixed(1);
-        const y1 = (cy + Math.sin(ang) * rIn).toFixed(1);
-        const x2 = (cx + Math.cos(ang - spread) * outerR).toFixed(1);
-        const y2 = (cy + Math.sin(ang - spread) * outerR).toFixed(1);
-        const x3 = (cx + Math.cos(ang + spread) * outerR).toFixed(1);
-        const y3 = (cy + Math.sin(ang + spread) * outerR).toFixed(1);
-        const col = i % 4 === 0 ? accentRayColor : primaryRayColor;
-        parts.push(`<polygon points="${x1},${y1} ${x2},${y2} ${x3},${y3}" fill="${col}" fill-opacity="${rayOpacity}"/>`);
-      }
-
-      if (isMushroom) {
-        // Horizontal nuclear horizon flash bar + expanding pixel shock-diamond
-        const barH = beat === 0 ? 5 : beat === 1 ? 7 : beat === 2 ? 4 : 2;
-        parts.push(
-          `<rect x="0" y="${(cy - barH * 0.5).toFixed(1)}" width="160" height="${barH}" fill="${
-            beat === 1 ? '#ffffff' : '#fff8e1'
-          }" fill-opacity="${beat === 3 ? '0.35' : '0.88'}"/>`,
-        );
-        const ringR = beat === 0 ? 12 : beat === 1 ? 22 : beat === 2 ? 34 : 48 + prog * 18;
-        const pts = [
-          `${cx.toFixed(1)},${(cy - ringR * 0.72).toFixed(1)}`,
-          `${(cx + ringR * 0.72).toFixed(1)},${(cy - ringR * 0.5).toFixed(1)}`,
-          `${(cx + ringR).toFixed(1)},${cy.toFixed(1)}`,
-          `${(cx + ringR * 0.72).toFixed(1)},${(cy + ringR * 0.5).toFixed(1)}`,
-          `${cx.toFixed(1)},${(cy + ringR * 0.72).toFixed(1)}`,
-          `${(cx - ringR * 0.72).toFixed(1)},${(cy + ringR * 0.5).toFixed(1)}`,
-          `${(cx - ringR).toFixed(1)},${cy.toFixed(1)}`,
-          `${(cx - ringR * 0.72).toFixed(1)},${(cy - ringR * 0.5).toFixed(1)}`,
-        ].join(' ');
-        parts.push(
-          `<polygon points="${pts}" fill="none" stroke="${
-            beat === 0 ? '#09070a' : beat === 1 ? '#ffffff' : '#ff4d1a'
-          }" stroke-width="${beat <= 1 ? 2.4 : 1.6}" stroke-opacity="${rayOpacity}"/>`,
-        );
-      } else {
-        // Orbital Strike signature: blinding sky-to-ground vertical pixel lance column!
-        const beamW = beat === 0 ? 10 : beat === 1 ? 14 : beat === 2 ? 8 : 4;
-        const coreW = Math.max(2, Math.round(beamW * 0.45));
-        const beamH = Math.min(90, Math.max(12, cy + 5));
-        parts.push(
-          `<rect x="${(cx - beamW * 0.5).toFixed(1)}" y="0" width="${beamW}" height="${beamH.toFixed(1)}" fill="${
-            beat === 0 ? '#09070a' : beat === 1 ? '#ff2442' : '#ff3355'
-          }" fill-opacity="${rayOpacity}"/>`,
-        );
-        parts.push(
-          `<rect x="${(cx - coreW * 0.5).toFixed(1)}" y="0" width="${coreW}" height="${beamH.toFixed(1)}" fill="#ffffff" fill-opacity="${rayOpacity}"/>`,
-        );
-      }
-
-      // Central jagged 8-point pixel starburst on Beats 0–2
-      if (beat <= 2) {
-        const starR = (isMushroom ? 16 : 12) + beat * 4;
-        const starInner = starR * 0.34;
-        const starPts: string[] = [];
-        for (let k = 0; k < 16; k++) {
-          const a = (k / 16) * Math.PI * 2 + beat * 0.2;
-          const r = k % 2 === 0 ? starR : starInner;
-          starPts.push(`${(cx + Math.cos(a) * r).toFixed(1)},${(cy + Math.sin(a) * r).toFixed(1)}`);
-        }
-        parts.push(
-          `<polygon points="${starPts.join(' ')}" fill="${beat === 1 ? '#ffffff' : '#fffdf5'}" stroke="${
-            beat === 0 ? '#09070a' : '#ff2442'
-          }" stroke-width="1.2"/>`,
-        );
-      }
-
-      return parts.join('');
-    };
-
     const updateImpactFrameOverlay = (frameDt: number) => {
-      const overlayEl = impactFrameOverlayRef.current;
-      const svgEl = impactFrameSvgRef.current;
       const mountEl = mountRef.current;
       if (!activeImpactFrame) {
-        if (overlayEl && overlayEl.style.display !== 'none') {
-          overlayEl.style.display = 'none';
-        }
         if (mountEl && mountEl.style.filter) {
           mountEl.style.filter = '';
         }
@@ -7640,53 +7508,17 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       const prog = activeImpactFrame.elapsed / activeImpactFrame.duration;
       if (prog >= 1 || propsRef.current.gameState !== 'playing') {
         activeImpactFrame = null;
-        if (overlayEl) overlayEl.style.display = 'none';
         if (mountEl) mountEl.style.filter = '';
         return;
       }
 
-      // Project 3D detonation epicenter into 160x90 SVG screen space
-      _impactProjVec.set(
-        activeImpactFrame.worldX,
-        activeImpactFrame.worldY,
-        activeImpactFrame.worldZ,
-      );
-      _impactProjVec.project(camera);
-      const cx = THREE.MathUtils.clamp((_impactProjVec.x * 0.5 + 0.5) * 160, 18, 142);
-      const cy = THREE.MathUtils.clamp((-_impactProjVec.y * 0.5 + 0.5) * 90, 14, 76);
-
-      const beat = prog < 0.18 ? 0 : prog < 0.44 ? 1 : prog < 0.68 ? 2 : 3;
-      const isMushroom = activeImpactFrame.kind === 'death_beam_mushroom';
-
       if (mountEl) {
-        if (beat === 0) {
-          mountEl.style.filter = isMushroom
-            ? 'contrast(5.2) brightness(2.25) saturate(0)'
-            : 'contrast(4.6) brightness(2.05) saturate(0.15)';
-        } else if (beat === 1) {
-          mountEl.style.filter = isMushroom
-            ? 'invert(1) contrast(4.6) grayscale(1)'
-            : 'invert(1) contrast(4.2) grayscale(1)';
-        } else if (beat === 2) {
-          mountEl.style.filter = isMushroom
-            ? 'contrast(3.1) saturate(2.8) sepia(0.5) hue-rotate(-24deg) brightness(1.32)'
-            : 'contrast(2.9) saturate(2.6) hue-rotate(-14deg) brightness(1.28)';
+        if (prog < 0.45) {
+          // Beat 1: Invert colors
+          mountEl.style.filter = 'invert(1) contrast(1.25)';
         } else {
-          mountEl.style.filter = '';
-        }
-      }
-
-      if (overlayEl && svgEl) {
-        overlayEl.style.display = 'block';
-        if (beat !== activeImpactFrame.lastBeat || beat === 3) {
-          activeImpactFrame.lastBeat = beat;
-          svgEl.innerHTML = buildImpactFrameSvgMarkup(
-            activeImpactFrame.kind,
-            beat,
-            cx,
-            cy,
-            prog,
-          );
+          // Beat 2: High-contrast black & white
+          mountEl.style.filter = 'grayscale(1) contrast(1.75)';
         }
       }
     };
@@ -18225,9 +18057,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (mountRef.current) {
         mountRef.current.style.filter = '';
       }
-      if (impactFrameOverlayRef.current) {
-        impactFrameOverlayRef.current.style.display = 'none';
-      }
     };
   }, [cameraActionRef, captureThumbnailRef, simRef]);
 
@@ -18248,21 +18077,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         data-testid="isometric-world-canvas"
         className="fixed inset-0 w-full h-full bg-[#14100e] overflow-hidden touch-none select-none"
       />
-      <div
-        ref={impactFrameOverlayRef}
-        data-testid="titan-impact-frame-overlay"
-        aria-hidden="true"
-        style={{ display: 'none' }}
-        className="fixed inset-0 z-[28] pointer-events-none overflow-hidden select-none"
-      >
-        <svg
-          ref={impactFrameSvgRef}
-          viewBox="0 0 160 90"
-          preserveAspectRatio="none"
-          shapeRendering="crispEdges"
-          className="w-full h-full block"
-        />
-      </div>
       {gameState !== 'title' && activeKings.length > 0 && (
         <div
           ref={kingMarkersLayerRef}

@@ -927,7 +927,8 @@ export function triggerTitanDeathBeam(
     dist = 18;
   }
 
-  const clampedDist = clamp(dist, 8.0, 38.0);
+  const maxRange = Math.max(38.0, state.gridSize * 1.25);
+  const clampedDist = clamp(dist, 8.0, maxRange);
   const fwdX = Math.sin(lockedYaw);
   const fwdZ = Math.cos(lockedYaw);
   const tx = clamp(titan.x + fwdX * clampedDist, 2, state.gridSize - 3);
@@ -1261,8 +1262,8 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
     worldX: gx,
     worldY: gy + 2.5,
     worldZ: gz,
-    duration: 0.32,
-    hitstop: 0.14,
+    duration: 0.22,
+    hitstop: 0.09,
   };
   pushChronicle(
     state,
@@ -1604,8 +1605,8 @@ export function stepDivineTitan(
           worldX: st.targetX,
           worldY: strikeGroundY + 1.5,
           worldZ: st.targetZ,
-          duration: 0.25,
-          hitstop: 0.1,
+          duration: 0.16,
+          hitstop: 0.06,
         };
       }
     } else if (st.phase === 'firing') {

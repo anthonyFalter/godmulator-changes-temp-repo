@@ -385,7 +385,7 @@ describe('Divine Titan controllable god power', () => {
     }
     assert.ok(orbitalImpact, 'Orbital Strike must emit pendingImpactFrame on beam impact');
     assert.equal(orbitalImpact.kind, 'orbital_strike');
-    assert.ok(orbitalImpact.duration >= 0.2 && orbitalImpact.hitstop >= 0.08);
+    assert.ok(orbitalImpact.duration >= 0.14 && orbitalImpact.hitstop >= 0.05);
 
     // 2. Death Beam mushroom cloud detonation
     sim.divineTitan!.pendingImpactFrame = null;
@@ -398,6 +398,18 @@ describe('Divine Titan controllable god power', () => {
     }
     assert.ok(mushroomImpact, 'Death Beam mushroom cloud detonation must emit pendingImpactFrame');
     assert.equal(mushroomImpact.kind, 'death_beam_mushroom');
-    assert.ok(mushroomImpact.duration >= 0.25 && mushroomImpact.hitstop >= 0.12);
+    assert.ok(mushroomImpact.duration >= 0.18 && mushroomImpact.hitstop >= 0.07);
+  });
+
+  it('Death Beam launch range scales to near-world coverage beyond 38 tiles', () => {
+    const sim = createFlatTestSim(72);
+    castGodPower(sim, 'divine_titan', 6, 6);
+    sim.divineTitan!.phase = 'active';
+    assert.equal(triggerTitanDeathBeam(sim, 66, 66), true);
+    const db = sim.divineTitan!.deathBeam!;
+    assert.ok(db, 'Death Beam state should be created');
+    const dist = Math.hypot(db.targetX - sim.divineTitan!.x, db.targetZ - sim.divineTitan!.z);
+    assert.ok(dist > 80, `Expected near-world coverage (> 80 tiles), got ${dist.toFixed(1)}`);
+    assert.ok(Math.abs(db.targetX - 66) < 0.5 && Math.abs(db.targetZ - 66) < 0.5);
   });
 });
