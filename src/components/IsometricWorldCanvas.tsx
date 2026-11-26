@@ -235,6 +235,7 @@ interface IsometricWorldCanvasProps {
   titanActionRef?: React.MutableRefObject<{
     exit: () => void;
     skill1: () => void;
+    fireSkill1AtAim: () => void;
     skill2: () => void;
     skill3: () => void;
     skill4: () => void;
@@ -246,6 +247,7 @@ interface IsometricWorldCanvasProps {
       magnitude: number,
       outsideBounds: boolean,
     ) => void;
+    setSkillAimStick: (active: boolean, right: number, forward: number, magnitude: number) => void;
   } | null>;
 }
 
@@ -838,6 +840,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       magnitude: 0,
       outsideBounds: false,
     };
+    const titanMobileSkillAim = {
+      active: false,
+      right: 0,
+      forward: 0,
+      magnitude: 0,
+    };
 
     if (titanActionRef) {
       titanActionRef.current = {
@@ -849,9 +857,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         skill1: () => {
           const titan = simRef.current.divineTitan;
           if (!titan || titan.phase !== 'active' || titan.skill1Cooldown > 0) return;
-          // Toggle Skill 1 targeting mode so next M1 click designates the orbital laser target on ground
+          // Toggle Skill 1 targeting mode so next M1 click/tap designates the orbital laser target on ground
           titan.skill1Targeting = !titan.skill1Targeting;
           propsRef.current.onSyncHud();
+        },
+        fireSkill1AtAim: () => {
+          const titan = simRef.current.divineTitan;
+          if (!titan || (titan.phase !== 'active' && titan.phase !== 'jumping') || titan.skill1Cooldown > 0) return;
+          const tx = titanAimWorld.x ?? titan.aimX;
+          const tz = titanAimWorld.z ?? titan.aimZ;
+          if (triggerTitanOrbitalStrike(simRef.current, tx, tz)) {
+            propsRef.current.onSyncHud();
+          }
         },
         skill2: () => {
           const titan = simRef.current.divineTitan;
@@ -896,6 +913,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           titanMobileCannon.forward = forward;
           titanMobileCannon.magnitude = magnitude;
           titanMobileCannon.outsideBounds = outsideBounds;
+        },
+        setSkillAimStick: (active: boolean, right: number, forward: number, magnitude: number) => {
+          titanMobileSkillAim.active = active;
+          titanMobileSkillAim.right = right;
+          titanMobileSkillAim.forward = forward;
+          titanMobileSkillAim.magnitude = magnitude;
         },
       };
     }
@@ -7936,6 +7959,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         hoverRaycastTimer = nowMs;
         updateHoverTile(e.clientX, e.clientY);
 
+        if (propsRef.current.gameState === 'playing' && simRef.current.divineTitan) {
+          const activeTitan = simRef.current.divineTitan;
+          if (activeTitan.phase === 'death_beam' || activeTitan.phase === 'exiting') {
+            return;
+          }
+          const ax = titanAimWorld.x ?? activeTitan.aimX;
+          const az = titanAimWorld.z ?? activeTitan.aimZ;
+          if (activeTitan.skill1Targeting) {
+            if (triggerTitanOrbitalStrike(simRef.current, ax, az)) {
+              propsRef.current.onSyncHud();
+            }
+          }
+          return;
+        }
+
         if (propsRef.current.gameState !== 'playing') {
           touchGestureMode = 'one_finger_pending';
           oneFingerInfo = {
@@ -14455,16 +14493,35 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             ? 0
             : THREE.MathUtils.clamp(kbRight + titanMobileMove.right, -1, 1);
 
-          // Left mobile joystick aims the cannon in camera-relative world coordinates
-          if (!isCutscene && titanMobileCannon.active && titanMobileCannon.magnitude > 0.12) {
+          // Mobile aim stick: skill-button drag aim takes priority over right cannon joystick
+          const aimSource =
+            !isCutscene && titanMobileSkillAim.active && titanMobileSkillAim.magnitude > 0.1
+              ? {
+                  right: titanMobileSkillAim.right,
+                  forward: titanMobileSkillAim.forward,
+                  magnitude: titanMobileSkillAim.magnitude,
+                  minRange: 5,
+                  spanRange: 27,
+                }
+              : !isCutscene && titanMobileCannon.active && titanMobileCannon.magnitude > 0.12
+                ? {
+                    right: titanMobileCannon.right,
+                    forward: titanMobileCannon.forward,
+                    magnitude: titanMobileCannon.magnitude,
+                    minRange: 8,
+                    spanRange: 20,
+                  }
+                : null;
+
+          if (aimSource) {
             const fwdX = -Math.sin(camYaw);
             const fwdZ = -Math.cos(camYaw);
             const rightX = Math.cos(camYaw);
             const rightZ = -Math.sin(camYaw);
-            const dirX = fwdX * titanMobileCannon.forward + rightX * titanMobileCannon.right;
-            const dirZ = fwdZ * titanMobileCannon.forward + rightZ * titanMobileCannon.right;
+            const dirX = fwdX * aimSource.forward + rightX * aimSource.right;
+            const dirZ = fwdZ * aimSource.forward + rightZ * aimSource.right;
             const dirLen = Math.hypot(dirX, dirZ) || 1;
-            const aimRange = 8 + titanMobileCannon.magnitude * 20;
+            const aimRange = aimSource.minRange + aimSource.magnitude * aimSource.spanRange;
             titanAimWorld.x = THREE.MathUtils.clamp(
               currentTitan.x + (dirX / dirLen) * aimRange,
               1,

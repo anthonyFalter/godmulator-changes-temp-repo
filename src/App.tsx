@@ -122,7 +122,7 @@ import {
   ZonePixelIcon,
 } from './components/GameIcons';
 import { IsometricWorldCanvas } from './components/IsometricWorldCanvas';
-import { TitanMobileJoysticks } from './components/TitanMobileJoysticks';
+import { TitanMobileJoysticks, TitanSkillSlotButton } from './components/TitanMobileJoysticks';
 
 const UNIT_DEF_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
 
@@ -569,6 +569,7 @@ export default function App() {
   const titanActionRef = useRef<{
     exit: () => void;
     skill1: () => void;
+    fireSkill1AtAim: () => void;
     skill2: () => void;
     skill3: () => void;
     skill4: () => void;
@@ -580,6 +581,7 @@ export default function App() {
       magnitude: number,
       outsideBounds: boolean,
     ) => void;
+    setSkillAimStick: (active: boolean, right: number, forward: number, magnitude: number) => void;
   } | null>(null);
 
   const [isTouchMobile, setIsTouchMobile] = useState<boolean>(() => {
@@ -616,6 +618,13 @@ export default function App() {
   const handleTitanCannonStick = useCallback(
     (active: boolean, right: number, forward: number, magnitude: number, outsideBounds: boolean) => {
       titanActionRef.current?.setCannonStick(active, right, forward, magnitude, outsideBounds);
+    },
+    [],
+  );
+
+  const handleTitanSkillAim = useCallback(
+    (active: boolean, right: number, forward: number, magnitude: number) => {
+      titanActionRef.current?.setSkillAimStick(active, right, forward, magnitude);
     },
     [],
   );
@@ -3220,107 +3229,84 @@ export default function App() {
               {/* Bottom-center: Pixel-icon skill hotbar + exit icon */}
               <div className="flex justify-center w-full">
                 <div className="pointer-events-auto px-panel p-1.5 flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    data-testid="titan-skill1-btn"
+                  <TitanSkillSlotButton
+                    testId="titan-skill1-btn"
+                    keyLabel="1"
+                    ariaLabel="Orbital"
                     disabled={activeTitan.phase === 'exiting' || activeTitan.skill1Cooldown > 0}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
+                    activeHighlight={activeTitan.skill1Targeting}
+                    cooldown={activeTitan.skill1Cooldown}
+                    cooldownColorClass="text-[#ffd3b6]"
+                    icon={<HudPixelIcon kind="titanOrbital" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />}
+                    onTap={() => {
                       soundEngine.playClick();
                       titanActionRef.current?.skill1();
                     }}
-                    className={`relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer disabled:opacity-60 ${
-                      activeTitan.skill1Targeting ? 'px-btn-active ring-2 ring-[#ef4444]' : 'px-btn'
-                    }`}
-                    aria-label="Orbital"
-                    title="Orbital"
-                  >
-                    <HudPixelIcon kind="titanOrbital" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
-                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#f4e7d4]/85">
-                      1
-                    </span>
-                    {activeTitan.skill1Cooldown > 0 && (
-                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#ffd3b6]">
-                        {activeTitan.skill1Cooldown.toFixed(1)}
-                      </span>
-                    )}
-                  </button>
+                    onFireAtAim={() => {
+                      soundEngine.playOrbitalLaser();
+                      titanActionRef.current?.fireSkill1AtAim();
+                    }}
+                    onSkillAim={handleTitanSkillAim}
+                  />
 
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    data-testid="titan-skill2-btn"
+                  <TitanSkillSlotButton
+                    testId="titan-skill2-btn"
+                    keyLabel="2"
+                    ariaLabel="Leap"
                     disabled={activeTitan.phase !== 'active' || activeTitan.skill2Cooldown > 0}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
+                    cooldown={activeTitan.skill2Cooldown}
+                    cooldownColorClass="text-[#fde68a]"
+                    icon={<HudPixelIcon kind="titanLeap" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />}
+                    onTap={() => {
                       soundEngine.playClick();
                       titanActionRef.current?.skill2();
                     }}
-                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer disabled:opacity-60"
-                    aria-label="Leap"
-                    title="Leap"
-                  >
-                    <HudPixelIcon kind="titanLeap" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
-                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#f4e7d4]/85">
-                      2
-                    </span>
-                    {activeTitan.skill2Cooldown > 0 && (
-                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#fde68a]">
-                        {activeTitan.skill2Cooldown.toFixed(1)}
-                      </span>
-                    )}
-                  </button>
+                    onFireAtAim={() => {
+                      soundEngine.playHeavyImpact();
+                      titanActionRef.current?.skill2();
+                    }}
+                    onSkillAim={handleTitanSkillAim}
+                  />
 
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    data-testid="titan-skill3-btn"
+                  <TitanSkillSlotButton
+                    testId="titan-skill3-btn"
+                    keyLabel="3"
+                    ariaLabel="Death Beam"
                     disabled={activeTitan.phase !== 'active' || activeTitan.skill3Cooldown > 0}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
+                    borderClass="border-[#ef4444]/80"
+                    keyColorClass="text-[#fca5a5]"
+                    cooldown={activeTitan.skill3Cooldown}
+                    cooldownColorClass="text-[#ff6b6b]"
+                    icon={<HudPixelIcon kind="titanDeathBeam" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />}
+                    onTap={() => {
                       soundEngine.playOrbitalLaser();
                       titanActionRef.current?.skill3();
                     }}
-                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer border-[#ef4444]/80 disabled:opacity-60"
-                    aria-label="Death Beam"
-                    title="Death Beam"
-                  >
-                    <HudPixelIcon kind="titanDeathBeam" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
-                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#fca5a5]">
-                      3
-                    </span>
-                    {activeTitan.skill3Cooldown > 0 && (
-                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#ff6b6b]">
-                        {activeTitan.skill3Cooldown.toFixed(1)}
-                      </span>
-                    )}
-                  </button>
+                    onFireAtAim={() => {
+                      soundEngine.playOrbitalLaser();
+                      titanActionRef.current?.skill3();
+                    }}
+                    onSkillAim={handleTitanSkillAim}
+                  />
 
-                  <button
-                    type="button"
-                    tabIndex={-1}
-                    data-testid="titan-skill4-btn"
+                  <TitanSkillSlotButton
+                    testId="titan-skill4-btn"
+                    keyLabel="4"
+                    ariaLabel="Missiles"
                     disabled={activeTitan.phase !== 'active' || activeTitan.skill4Cooldown > 0}
-                    onClick={(e) => {
-                      e.currentTarget.blur();
+                    cooldown={activeTitan.skill4Cooldown}
+                    cooldownColorClass="text-[#fdba74]"
+                    icon={<HudPixelIcon kind="titanMissiles" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />}
+                    onTap={() => {
                       soundEngine.playHeavyImpact();
                       titanActionRef.current?.skill4();
                     }}
-                    className="px-btn relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center cursor-pointer disabled:opacity-60"
-                    aria-label="Missiles"
-                    title="Missiles"
-                  >
-                    <HudPixelIcon kind="titanMissiles" className="w-7 h-7 sm:w-8 sm:h-8 pixelated-canvas" />
-                    <span className="absolute top-0.5 left-1 text-[9px] font-bold leading-none text-[#f4e7d4]/85">
-                      4
-                    </span>
-                    {activeTitan.skill4Cooldown > 0 && (
-                      <span className="absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold text-[#fdba74]">
-                        {activeTitan.skill4Cooldown.toFixed(1)}
-                      </span>
-                    )}
-                  </button>
+                    onFireAtAim={() => {
+                      soundEngine.playHeavyImpact();
+                      titanActionRef.current?.skill4();
+                    }}
+                    onSkillAim={handleTitanSkillAim}
+                  />
 
                   <div className="w-px h-8 bg-[#f59e0b]/25 mx-0.5" />
 

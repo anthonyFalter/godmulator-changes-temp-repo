@@ -202,3 +202,180 @@ export const TitanMobileJoysticks: React.FC<TitanMobileJoysticksProps> = React.m
     );
   },
 );
+
+interface TitanSkillSlotButtonProps {
+  testId: string;
+  keyLabel: string;
+  ariaLabel: string;
+  disabled: boolean;
+  activeHighlight?: boolean;
+  borderClass?: string;
+  keyColorClass?: string;
+  cooldown: number;
+  cooldownColorClass: string;
+  icon: React.ReactNode;
+  onTap: () => void;
+  onFireAtAim: () => void;
+  onSkillAim: (active: boolean, right: number, forward: number, magnitude: number) => void;
+}
+
+const SKILL_AIM_RADIUS = 56;
+const SKILL_DRAG_THRESHOLD = 10;
+
+export const TitanSkillSlotButton: React.FC<TitanSkillSlotButtonProps> = React.memo(
+  ({
+    testId,
+    keyLabel,
+    ariaLabel,
+    disabled,
+    activeHighlight = false,
+    borderClass = '',
+    keyColorClass = 'text-[#f4e7d4]/85',
+    cooldown,
+    cooldownColorClass,
+    icon,
+    onTap,
+    onFireAtAim,
+    onSkillAim,
+  }) => {
+    const btnRef = useRef<HTMLButtonElement | null>(null);
+    const pointerIdRef = useRef<number | null>(null);
+    const draggedRef = useRef(false);
+    const [aimUi, setAimUi] = useState<{ active: boolean; x: number; y: number }>({
+      active: false,
+      x: 0,
+      y: 0,
+    });
+
+    React.useEffect(() => {
+      return () => {
+        if (pointerIdRef.current !== null) {
+          pointerIdRef.current = null;
+          onSkillAim(false, 0, 0, 0);
+        }
+      };
+    }, [onSkillAim]);
+
+    const updateAimFromPointer = (clientX: number, clientY: number) => {
+      const el = btnRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width * 0.5;
+      const cy = rect.top + rect.height * 0.5;
+      const rawX = clientX - cx;
+      const rawY = clientY - cy;
+      const rawDist = Math.hypot(rawX, rawY);
+      if (rawDist >= SKILL_DRAG_THRESHOLD) {
+        draggedRef.current = true;
+      }
+      if (!draggedRef.current) return;
+
+      const clamped = Math.min(SKILL_AIM_RADIUS, rawDist);
+      const dirX = rawDist > 0.001 ? rawX / rawDist : 0;
+      const dirY = rawDist > 0.001 ? rawY / rawDist : 0;
+      const nx = (dirX * clamped) / SKILL_AIM_RADIUS;
+      const ny = (dirY * clamped) / SKILL_AIM_RADIUS;
+      const mag = clamped / SKILL_AIM_RADIUS;
+      setAimUi({ active: true, x: Math.round(dirX * clamped * 0.55), y: Math.round(dirY * clamped * 0.55) });
+      onSkillAim(true, nx, -ny, mag);
+    };
+
+    const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (disabled || e.pointerType !== 'touch') return;
+      e.stopPropagation();
+      e.preventDefault();
+      pointerIdRef.current = e.pointerId;
+      draggedRef.current = false;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    };
+
+    const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (pointerIdRef.current !== e.pointerId) return;
+      e.stopPropagation();
+      updateAimFromPointer(e.clientX, e.clientY);
+    };
+
+    const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (pointerIdRef.current !== e.pointerId) return;
+      e.stopPropagation();
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      const wasDragged = draggedRef.current;
+      pointerIdRef.current = null;
+      draggedRef.current = false;
+      setAimUi({ active: false, x: 0, y: 0 });
+      onSkillAim(false, 0, 0, 0);
+      if (!disabled) {
+        if (wasDragged) {
+          onFireAtAim();
+        } else {
+          onTap();
+        }
+      }
+    };
+
+    const handlePointerCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (pointerIdRef.current !== e.pointerId) return;
+      e.stopPropagation();
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      pointerIdRef.current = null;
+      draggedRef.current = false;
+      setAimUi({ active: false, x: 0, y: 0 });
+      onSkillAim(false, 0, 0, 0);
+    };
+
+    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+      e.currentTarget.blur();
+      // Touch interactions are handled in handlePointerUp to distinguish tap vs press-drag-release
+      if (e.detail === 0 || window.matchMedia('(pointer: fine)').matches) {
+        onTap();
+      }
+    };
+
+    return (
+      <button
+        ref={btnRef}
+        type="button"
+        tabIndex={-1}
+        data-testid={testId}
+        disabled={disabled}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
+        onClick={handleClick}
+        className={`relative w-11 h-11 sm:w-12 sm:h-12 flex items-center justify-center touch-none select-none cursor-pointer disabled:opacity-60 ${
+          activeHighlight || aimUi.active ? 'px-btn-active ring-2 ring-[#ef4444]' : 'px-btn'
+        } ${borderClass}`}
+        aria-label={ariaLabel}
+        title={ariaLabel}
+      >
+        {icon}
+        <span className={`absolute top-0.5 left-1 text-[9px] font-bold leading-none ${keyColorClass}`}>
+          {keyLabel}
+        </span>
+
+        {/* Pixelated aim indicator shown while press-dragging on mobile */}
+        {aimUi.active && (
+          <div className="pointer-events-none absolute -inset-4 border-2 border-[#ef4444] bg-[#ef4444]/15 shadow-[0_0_12px_rgba(239,68,68,0.6)] flex items-center justify-center z-30">
+            <div
+              style={{ transform: `translate3d(${aimUi.x}px, ${aimUi.y}px, 0)` }}
+              className="w-3.5 h-3.5 bg-[#ef4444] border border-[#fde047]"
+            />
+          </div>
+        )}
+
+        {cooldown > 0 && (
+          <span
+            className={`absolute inset-0 bg-black/65 flex items-center justify-center text-xs font-bold ${cooldownColorClass}`}
+          >
+            {cooldown.toFixed(1)}
+          </span>
+        )}
+      </button>
+    );
+  },
+);
