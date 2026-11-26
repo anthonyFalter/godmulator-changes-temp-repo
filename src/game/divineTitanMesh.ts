@@ -3083,121 +3083,216 @@ export class DivineTitanRenderer {
       if (!grp) {
         grp = new THREE.Group();
 
-        // 1. Initial blinding flash sphere
-        const flash = new THREE.Mesh(
-          new THREE.SphereGeometry(7.5, 22, 16),
-          new THREE.MeshBasicMaterial({
-            color: 0xfff8dc,
-            transparent: true,
-            opacity: 0.98,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          }),
-        );
-        flash.name = 'mc_flash';
-        grp.add(flash);
+        // 1. Initial blinding pixelated voxel flash burst
+        const flashGroup = new THREE.Group();
+        flashGroup.name = 'mc_flash';
+        const flashMat = new THREE.MeshBasicMaterial({
+          color: 0xfff8dc,
+          transparent: true,
+          opacity: 0.98,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(9.5, 9.5, 9.5), flashMat));
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(13.5, 5.5, 5.5), flashMat));
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(5.5, 5.5, 13.5), flashMat));
+        flashGroup.add(new THREE.Mesh(new THREE.BoxGeometry(5.5, 13.5, 5.5), flashMat));
+        grp.add(flashGroup);
 
-        // 2. Ground dust & ash base skirt torus
-        const skirt = new THREE.Mesh(
-          new THREE.TorusGeometry(4.2, 1.85, 14, 32),
-          new THREE.MeshStandardMaterial({
-            color: 0x4b3d38,
-            emissive: 0xff4500,
-            emissiveIntensity: 0.45,
-            roughness: 0.92,
-            transparent: true,
-            opacity: 0.88,
-          }),
-        );
-        skirt.rotation.x = Math.PI / 2;
-        skirt.position.y = 1.2;
-        skirt.name = 'mc_skirt';
-        grp.add(skirt);
-
-        // 3. Towering glowing molten stem pillar
-        const stemGroup = new THREE.Group();
-        stemGroup.name = 'mc_stem';
-        const stemCore = new THREE.Mesh(
-          new THREE.CylinderGeometry(1.6, 2.9, 1.0, 20),
-          new THREE.MeshBasicMaterial({
-            color: 0xff6a1a,
-            transparent: true,
-            opacity: 0.85,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          }),
-        );
-        stemCore.position.y = 0.5;
-        stemGroup.add(stemCore);
-
-        const stemSmoke = new THREE.Mesh(
-          new THREE.CylinderGeometry(2.3, 3.8, 1.0, 20),
-          new THREE.MeshStandardMaterial({
-            color: 0x3b3230,
-            emissive: 0xd93814,
-            emissiveIntensity: 0.55,
-            roughness: 0.95,
-            transparent: true,
-            opacity: 0.84,
-          }),
-        );
-        stemSmoke.position.y = 0.5;
-        stemGroup.add(stemSmoke);
-        grp.add(stemGroup);
-
-        // 4. Condensation Wilson shock-ring around mid-stem
-        const wilson = new THREE.Mesh(
-          new THREE.TorusGeometry(6.8, 0.7, 12, 36),
-          new THREE.MeshBasicMaterial({
-            color: 0xffedd5,
-            transparent: true,
-            opacity: 0.62,
-            depthWrite: false,
-          }),
-        );
-        wilson.rotation.x = Math.PI / 2;
-        wilson.name = 'mc_wilson';
-        grp.add(wilson);
-
-        // 5. Towering billowy Mushroom Cap (glowing fiery underside + dark ash crown lobes)
-        const capGroup = new THREE.Group();
-        capGroup.name = 'mc_cap';
-
-        const capGlowUnder = new THREE.Mesh(
-          new THREE.SphereGeometry(5.6, 22, 16),
-          new THREE.MeshBasicMaterial({
-            color: 0xff5a14,
-            transparent: true,
-            opacity: 0.85,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          }),
-        );
-        capGlowUnder.scale.set(1.35, 0.55, 1.35);
-        capGlowUnder.position.y = -0.9;
-        capGroup.add(capGlowUnder);
-
-        const capCrownMat = new THREE.MeshStandardMaterial({
-          color: 0x3f3634,
+        const ashDarkMat = new THREE.MeshStandardMaterial({
+          color: 0x352e2c,
           emissive: 0xc2410c,
-          emissiveIntensity: 0.45,
-          roughness: 0.94,
+          emissiveIntensity: 0.42,
+          roughness: 0.96,
+          flatShading: true,
+          transparent: true,
+          opacity: 0.94,
+        });
+        const ashMidMat = new THREE.MeshStandardMaterial({
+          color: 0x4d413d,
+          emissive: 0xd9480f,
+          emissiveIntensity: 0.35,
+          roughness: 0.95,
+          flatShading: true,
           transparent: true,
           opacity: 0.92,
         });
-        const capTop = new THREE.Mesh(new THREE.SphereGeometry(5.8, 22, 16), capCrownMat);
-        capTop.scale.set(1.25, 0.72, 1.25);
-        capTop.position.y = 1.4;
-        capGroup.add(capTop);
+        const moltenCoreMat = new THREE.MeshBasicMaterial({
+          color: 0xff6a1a,
+          transparent: true,
+          opacity: 0.92,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const radGlowMat = new THREE.MeshBasicMaterial({
+          color: 0xa3e635,
+          transparent: true,
+          opacity: 0.85,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
 
-        // 8 billowing radial smoke lobes forming the iconic nuclear mushroom rim
-        const lobeGeo = new THREE.SphereGeometry(3.4, 14, 12);
-        for (let l = 0; l < 8; l++) {
-          const a = (l / 8) * Math.PI * 2;
-          const lobe = new THREE.Mesh(lobeGeo, capCrownMat);
-          lobe.position.set(Math.cos(a) * 5.6, 0.1 + (l % 2) * 0.6, Math.sin(a) * 5.6);
-          lobe.scale.set(1.15, 0.85, 1.15);
-          capGroup.add(lobe);
+        // 2. Stepped pixelated voxel ground dust & ember base skirt
+        const skirtGroup = new THREE.Group();
+        skirtGroup.name = 'mc_skirt';
+        const skirtCoords: Array<[number, number, number, number]> = [
+          [4.6, 0, 2.8, 2.2],
+          [-4.6, 0, 2.8, 2.2],
+          [0, 4.6, 2.8, 2.2],
+          [0, -4.6, 2.8, 2.2],
+          [3.6, 3.6, 2.4, 1.8],
+          [-3.6, 3.6, 2.4, 1.8],
+          [3.6, -3.6, 2.4, 1.8],
+          [-3.6, -3.6, 2.4, 1.8],
+          [5.4, 2.0, 1.9, 1.4],
+          [-5.4, -2.0, 1.9, 1.4],
+          [2.0, -5.4, 1.9, 1.4],
+          [-2.0, 5.4, 1.9, 1.4],
+        ];
+        for (let i = 0; i < skirtCoords.length; i++) {
+          const [sx, sz, sw, sh] = skirtCoords[i];
+          const blk = new THREE.Mesh(
+            new THREE.BoxGeometry(sw, sh, sw),
+            i % 3 === 0 ? ashMidMat : ashDarkMat,
+          );
+          blk.position.set(sx, sh * 0.5, sz);
+          skirtGroup.add(blk);
+        }
+        grp.add(skirtGroup);
+
+        // 3. Towering stepped pixelated voxel stem pillar (normalized y = 0..1)
+        const stemGroup = new THREE.Group();
+        stemGroup.name = 'mc_stem';
+        const stemTiers = 7;
+        for (let tier = 0; tier < stemTiers; tier++) {
+          const frac = tier / stemTiers;
+          const h = 1 / stemTiers + 0.02;
+          const yPos = (tier + 0.5) / stemTiers;
+          const outerW = 5.4 - frac * 2.0 + (tier % 2 === 0 ? 0.5 : -0.2);
+          const innerW = outerW * 0.62;
+          const jx = (tier % 2 === 0 ? 1 : -1) * 0.25;
+          const jz = (tier % 3 === 0 ? -1 : 1) * 0.22;
+
+          const outerBlk = new THREE.Mesh(
+            new THREE.BoxGeometry(outerW, h, outerW),
+            tier % 2 === 0 ? ashDarkMat : ashMidMat,
+          );
+          outerBlk.position.set(jx, yPos, jz);
+          stemGroup.add(outerBlk);
+
+          const coreBlk = new THREE.Mesh(new THREE.BoxGeometry(innerW, h, innerW), moltenCoreMat);
+          coreBlk.position.set(0, yPos, 0);
+          stemGroup.add(coreBlk);
+        }
+        grp.add(stemGroup);
+
+        // 4. Pixelated blocky Wilson condensation shock-ring around mid-stem
+        const wilsonGroup = new THREE.Group();
+        wilsonGroup.name = 'mc_wilson';
+        const wilsonMat = new THREE.MeshBasicMaterial({
+          color: 0xffedd5,
+          transparent: true,
+          opacity: 0.72,
+          depthWrite: false,
+        });
+        const wilsonOffsets: Array<[number, number, number, number]> = [
+          [0, 6.2, 6.8, 1.5],
+          [0, -6.2, 6.8, 1.5],
+          [6.2, 0, 1.5, 6.8],
+          [-6.2, 0, 1.5, 6.8],
+          [4.8, 4.8, 2.2, 2.2],
+          [-4.8, 4.8, 2.2, 2.2],
+          [4.8, -4.8, 2.2, 2.2],
+          [-4.8, -4.8, 2.2, 2.2],
+        ];
+        for (const [wx, wz, ww, wd] of wilsonOffsets) {
+          const wBlk = new THREE.Mesh(new THREE.BoxGeometry(ww, 1.1, wd), wilsonMat);
+          wBlk.position.set(wx, 0, wz);
+          wilsonGroup.add(wBlk);
+        }
+        grp.add(wilsonGroup);
+
+        // 5. Towering Stepped Voxel / Pixelated Mushroom Cap (zero curvy spheres!)
+        const capGroup = new THREE.Group();
+        capGroup.name = 'mc_cap';
+
+        // Blazing molten + radioactive voxel underside slab
+        const underCore = new THREE.Mesh(new THREE.BoxGeometry(10.8, 2.4, 10.8), moltenCoreMat);
+        underCore.position.y = -1.1;
+        capGroup.add(underCore);
+
+        const underCrossA = new THREE.Mesh(new THREE.BoxGeometry(14.2, 1.8, 6.8), moltenCoreMat);
+        underCrossA.position.y = -0.9;
+        capGroup.add(underCrossA);
+
+        const underCrossB = new THREE.Mesh(new THREE.BoxGeometry(6.8, 1.8, 14.2), moltenCoreMat);
+        underCrossB.position.y = -0.9;
+        capGroup.add(underCrossB);
+
+        // Glowing radioactive green-gold pixel pockets on the underside rim
+        for (const [rx, rz] of [
+          [5.6, 5.6],
+          [-5.6, 5.6],
+          [5.6, -5.6],
+          [-5.6, -5.6],
+        ]) {
+          const radBlk = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.6, 2.4), radGlowMat);
+          radBlk.position.set(rx, -1.2, rz);
+          capGroup.add(radBlk);
+        }
+
+        // Tier 1: Wide blocky voxel mushroom overhang rim (stepped pixel grid)
+        const rimBlocks: Array<[number, number, number, number, number]> = [
+          [0, 0.5, 0, 12.6, 3.0],
+          [6.8, 0.2, 0, 4.0, 2.6],
+          [-6.8, 0.2, 0, 4.0, 2.6],
+          [0, 0.2, 6.8, 4.0, 2.6],
+          [0, 0.2, -6.8, 4.0, 2.6],
+          [5.2, 0.0, 5.2, 4.2, 2.4],
+          [-5.2, 0.0, 5.2, 4.2, 2.4],
+          [5.2, 0.0, -5.2, 4.2, 2.4],
+          [-5.2, 0.0, -5.2, 4.2, 2.4],
+        ];
+        for (let i = 0; i < rimBlocks.length; i++) {
+          const [bx, by, bz, bw, bh] = rimBlocks[i];
+          const b = new THREE.Mesh(
+            new THREE.BoxGeometry(bw, bh, bw),
+            i % 2 === 0 ? ashDarkMat : ashMidMat,
+          );
+          b.position.set(bx, by, bz);
+          capGroup.add(b);
+        }
+
+        // Tier 2: Stepped mid crown voxel slab + corner blocks
+        const midCrown = new THREE.Mesh(new THREE.BoxGeometry(10.2, 2.8, 10.2), ashMidMat);
+        midCrown.position.y = 2.8;
+        capGroup.add(midCrown);
+
+        for (const [cx, cz] of [
+          [4.2, 0],
+          [-4.2, 0],
+          [0, 4.2],
+          [0, -4.2],
+        ]) {
+          const shoulder = new THREE.Mesh(new THREE.BoxGeometry(3.8, 2.2, 3.8), ashDarkMat);
+          shoulder.position.set(cx, 2.6, cz);
+          capGroup.add(shoulder);
+        }
+
+        // Tier 3: Boxy stepped apex crown block + floating pixel embers
+        const topCrown = new THREE.Mesh(new THREE.BoxGeometry(6.2, 2.4, 6.2), ashDarkMat);
+        topCrown.position.y = 5.0;
+        capGroup.add(topCrown);
+
+        for (const [ex, ey, ez] of [
+          [4.5, 6.2, 2.2],
+          [-4.2, 6.6, -2.5],
+          [2.0, 7.0, -4.4],
+          [-2.4, 6.4, 4.5],
+        ]) {
+          const ember = new THREE.Mesh(new THREE.BoxGeometry(1.15, 1.15, 1.15), moltenCoreMat);
+          ember.position.set(ex, ey, ez);
+          capGroup.add(ember);
         }
         grp.add(capGroup);
 
@@ -3211,50 +3306,62 @@ export class DivineTitanRenderer {
       const fadeOut = t > 0.68 ? 1 - (t - 0.68) / 0.32 : 1;
       const curHeight = 3.5 + riseEase * (mc.maxHeight - 3.5);
 
-      // Blinding flash decays rapidly in first 0.55s
-      const flash = grp.getObjectByName('mc_flash') as THREE.Mesh | undefined;
+      // Blinding voxel flash decays rapidly in first 0.55s
+      const flash = grp.getObjectByName('mc_flash');
       if (flash) {
         const ft = Math.min(1, mc.elapsed / 0.55);
         flash.visible = ft < 1;
-        flash.scale.setScalar(0.8 + ft * 2.2);
-        (flash.material as THREE.MeshBasicMaterial).opacity = (1 - ft) * (1 - ft);
-      }
-
-      const skirt = grp.getObjectByName('mc_skirt') as THREE.Mesh | undefined;
-      if (skirt) {
-        const sk = 0.65 + Math.pow(t, 0.55) * 2.35;
-        skirt.scale.set(sk, sk, 0.8 + t * 0.5);
-        (skirt.material as THREE.MeshStandardMaterial).opacity = 0.88 * fadeOut;
-      }
-
-      const stem = grp.getObjectByName('mc_stem');
-      if (stem) {
-        const stemW = 0.85 + t * 0.55;
-        stem.scale.set(stemW, curHeight, stemW);
-        stem.traverse((c) => {
+        flash.scale.setScalar(0.8 + ft * 2.1);
+        flash.traverse((c) => {
           if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-            c.material.opacity = 0.84 * fadeOut;
+            c.material.opacity = (1 - ft) * (1 - ft);
           }
         });
       }
 
-      const wilson = grp.getObjectByName('mc_wilson') as THREE.Mesh | undefined;
+      const skirt = grp.getObjectByName('mc_skirt');
+      if (skirt) {
+        const sk = 0.65 + Math.pow(t, 0.55) * 2.2;
+        skirt.scale.set(sk, 0.8 + t * 0.5, sk);
+        skirt.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+            c.material.opacity = 0.9 * fadeOut;
+          }
+        });
+      }
+
+      const stem = grp.getObjectByName('mc_stem');
+      if (stem) {
+        const stemW = 0.85 + t * 0.45;
+        stem.scale.set(stemW, curHeight, stemW);
+        stem.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+            c.material.opacity = 0.88 * fadeOut;
+          }
+        });
+      }
+
+      const wilson = grp.getObjectByName('mc_wilson');
       if (wilson) {
-        wilson.position.y = curHeight * 0.58;
-        const ws = 0.7 + Math.pow(t, 0.5) * 1.9;
-        wilson.scale.setScalar(ws);
-        (wilson.material as THREE.MeshBasicMaterial).opacity = 0.62 * fadeOut * (1 - t * 0.4);
+        wilson.position.y = curHeight * 0.56;
+        const ws = 0.72 + Math.pow(t, 0.5) * 1.85;
+        wilson.scale.set(ws, 1, ws);
+        wilson.traverse((c) => {
+          if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
+            c.material.opacity = 0.68 * fadeOut * (1 - t * 0.4);
+          }
+        });
       }
 
       const cap = grp.getObjectByName('mc_cap');
       if (cap) {
         cap.position.y = curHeight;
-        cap.rotation.y = elapsedTotal * 0.22;
-        const capScale = 0.45 + Math.pow(Math.min(1, t * 1.8), 0.65) * 1.15;
+        cap.rotation.y = Math.floor(elapsedTotal * 2) * 0.04; // subtle stepped retro rotation
+        const capScale = 0.48 + Math.pow(Math.min(1, t * 1.8), 0.65) * 1.1;
         cap.scale.setScalar(capScale);
         cap.traverse((c) => {
           if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-            c.material.opacity = 0.9 * fadeOut;
+            c.material.opacity = 0.92 * fadeOut;
           }
         });
       }

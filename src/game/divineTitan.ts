@@ -18,7 +18,7 @@ export const TITAN_SKILL2_COOLDOWN = 5.5;
 export const TITAN_SKILL3_COOLDOWN = 16.0;
 export const TITAN_SKILL4_COOLDOWN = 8.5;
 export const TITAN_DEATH_BEAM_COMBINE = 1.45;
-export const TITAN_DEATH_BEAM_FIRE = 7.0;
+export const TITAN_DEATH_BEAM_FIRE = 4.0;
 export const TITAN_DEATH_BEAM_DETONATE = 2.0;
 export const TITAN_LEAP_MAX_RANGE = 24.0;
 export const TITAN_SUMMON_DURATION = 0.78;
@@ -104,6 +104,80 @@ function damageWorldWonders(state: SimulationState, cx: number, cz: number, radi
           state.worldWonders.splice(i, 1);
         }
       }
+    }
+  }
+}
+
+function igniteAndDevastateTile(
+  state: SimulationState,
+  t: TileData,
+  opts: {
+    terrain?: TileData['terrain'];
+    fireDuration?: number;
+    fireColor?: string;
+    devastateDuration?: number;
+    cursedDuration?: number;
+    lowerHeightBy?: number;
+    clearAllResources?: boolean;
+  },
+): void {
+  if (t.height === 0) return;
+  const allowFire = state.worldRules?.wildfireSpread !== false;
+  const grid = state.worldGrid as WorldGridBuffers | undefined;
+
+  t.blessedTimer = 0;
+  if (t.farmSettlementId) {
+    t.farmSettlementId = undefined;
+  }
+
+  if (t.resourceNode === 'timber_grove') {
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+    t.burntTree = true;
+  } else if (t.resourceNode === 'berry_bush' || (opts.clearAllResources && t.resourceNode !== 'none')) {
+    t.resourceNode = 'none';
+    t.resourceAmount = 0;
+  }
+
+  if (opts.lowerHeightBy && opts.lowerHeightBy > 0 && !t.buildingId) {
+    t.height = Math.max(1, t.height - opts.lowerHeightBy);
+  }
+  if (opts.terrain && !t.buildingId) {
+    t.terrain = opts.terrain;
+  }
+  if (allowFire && opts.fireDuration && opts.fireDuration > 0) {
+    t.onFireTimer = Math.max(t.onFireTimer, opts.fireDuration);
+    if (opts.fireColor) {
+      t.fireColor = opts.fireColor;
+    }
+  }
+  if (opts.devastateDuration && opts.devastateDuration > 0) {
+    t.devastatedTimer = Math.max(t.devastatedTimer ?? 0, opts.devastateDuration);
+  }
+  if (opts.cursedDuration && opts.cursedDuration > 0) {
+    t.cursedTimer = Math.max(t.cursedTimer, opts.cursedDuration);
+  }
+  if (grid) {
+    syncTileToWorldGrid(grid, t);
+  }
+}
+
+function irradiateUnitsInRadius(
+  state: SimulationState,
+  cx: number,
+  cz: number,
+  radius: number,
+  duration: number,
+): void {
+  const rSq = radius * radius;
+  for (let i = 0; i < state.units.length; i++) {
+    const u = state.units[i];
+    if (u.state === 'ko' || u.statusEffects.shielded) continue;
+    const dx = u.x - cx;
+    const dz = u.z - cz;
+    if (dx * dx + dz * dz <= rSq) {
+      u.statusEffects.cursed = Math.max(u.statusEffects.cursed ?? 0, duration);
+      u.statusEffects.plagued = Math.max(u.statusEffects.plagued ?? 0, duration);
     }
   }
 }
@@ -452,30 +526,44 @@ export function triggerTitanSlash(state: SimulationState, aimX?: number, aimZ?: 
     }
   }
 
-  // Scorch the impact point & clear trees hit by the laser blast
-  const allowFire = state.worldRules?.wildfireSpread !== false;
-  const minX = Math.max(0, Math.floor(targetX - 2.2));
-  const maxX = Math.min(state.gridSize - 1, Math.ceil(targetX + 2.2));
-  const minZ = Math.max(0, Math.floor(targetZ - 2.2));
-  const maxZ = Math.min(state.gridSize - 1, Math.ceil(targetZ + 2.2));
+  // Scorch & ignite wildfires along the laser beam path + blast a fiery mini-crater at impact
+  const pathSteps = Math.max(4, Math.ceil(clampedDist * 0.85));
+  for (let s = 2; s < pathSteps; s++) {
+    const frac = s / pathSteps;
+    const px = titan.x + segX * frac;
+    const pz = titan.z + segZ * frac;
+    const pt = getTileAt(state, px, pz);
+    if (pt && pt.height > 0 && s % 2 === 0) {
+      igniteAndDevastateTile(state, pt, {
+        terrain: 'scorched',
+        fireDuration: 8.5,
+        fireColor: '#ff3b1f',
+        devastateDuration: 20,
+      });
+    }
+  }
+
+  const impactR = 3.1;
+  const minX = Math.max(0, Math.floor(targetX - impactR));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(targetX + impactR));
+  const minZ = Math.max(0, Math.floor(targetZ - impactR));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(targetZ + impactR));
   for (let tz = minZ; tz <= maxZ; tz++) {
     for (let tx = minX; tx <= maxX; tx++) {
       const rx = tx - targetX;
       const rz = tz - targetZ;
       const dSq = rx * rx + rz * rz;
-      if (dSq > 5.0) continue;
+      if (dSq > impactR * impactR) continue;
       const t = state.tiles[tz * state.gridSize + tx];
       if (!t || t.height === 0) continue;
-      if (dSq <= 2.6) {
-        t.terrain = 'scorched';
-        if (allowFire && dSq <= 1.2) {
-          t.onFireTimer = Math.max(t.onFireTimer, 4);
-        }
-      }
-      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-        t.resourceNode = 'none';
-        t.resourceAmount = 0;
-      }
+      igniteAndDevastateTile(state, t, {
+        terrain: dSq <= 2.4 ? 'volcanic_wasteland' : 'scorched',
+        fireDuration: dSq <= 4.5 ? 11.5 : 7.5,
+        fireColor: '#ff3b1f',
+        devastateDuration: 28,
+        lowerHeightBy: dSq <= 1.6 && t.height > 1 ? 1 : 0,
+        clearAllResources: dSq <= 2.4,
+      });
     }
   }
 
@@ -681,42 +769,40 @@ export function executeTitanLandingImpact(state: SimulationState, targetX: numbe
         const effDSq = dSq + angleNoise;
 
         if (dSq <= 4.5) {
-          // Deep central impact pit
+          // Deep central impact pit + blazing firestorm
           t.height = Math.max(1, Math.min(baseH, tileH) - 2);
-          t.terrain = 'scorched';
-          t.onFireTimer = allowFire && dSq <= 1.5 ? 5 : 0;
-          if (!t.buildingId) {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
-          syncGrid(t);
+          igniteAndDevastateTile(state, t, {
+            terrain: 'scorched',
+            fireDuration: 12.5,
+            fireColor: '#ff6b00',
+            devastateDuration: 42,
+            clearAllResources: true,
+          });
         } else if (effDSq <= 14.0) {
-          // Stepped inner crater bowl
+          // Stepped inner crater bowl + scattered fires
           t.height = Math.max(1, Math.min(baseH, tileH) - 1);
-          t.terrain = 'scorched';
-          t.onFireTimer = 0;
-          if (!t.buildingId) {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
-          syncGrid(t);
+          igniteAndDevastateTile(state, t, {
+            terrain: 'scorched',
+            fireDuration: (tx + tz) % 2 === 0 ? 9.5 : 0,
+            fireColor: '#ff6b00',
+            devastateDuration: 36,
+            clearAllResources: true,
+          });
         } else if (effDSq <= 24.5 && !t.buildingId) {
           // Raised rocky crater rim
           t.height = Math.min(10, tileH + 1);
-          t.terrain = effDSq <= 19.5 ? 'rock' : 'scorched';
-          t.onFireTimer = 0;
-          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
-          syncGrid(t);
+          igniteAndDevastateTile(state, t, {
+            terrain: effDSq <= 19.5 ? 'rock' : 'scorched',
+            fireDuration: (tx * 3 + tz) % 3 === 0 ? 7.0 : 0,
+            fireColor: '#ff5400',
+            devastateDuration: 28,
+          });
         } else if (!t.buildingId) {
           // Outer scorched shockwave ring
-          t.terrain = 'scorched';
-          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
+          igniteAndDevastateTile(state, t, {
+            terrain: 'scorched',
+            devastateDuration: 22,
+          });
           t.crushedTimer = Math.max(t.crushedTimer ?? 0, 12);
         }
       }
@@ -761,9 +847,8 @@ export function executeTitanLandingImpact(state: SimulationState, targetX: numbe
 
 function applyOrbitalLaserDamage(state: SimulationState, strike: TitanOrbitalStrike): void {
   const { targetX, targetZ, radius } = strike;
-  damageUnitsAndStructuresInRadius(state, targetX, targetZ, radius, 260, 210, 0.8);
+  damageUnitsAndStructuresInRadius(state, targetX, targetZ, radius, 290, 240, 1.0);
 
-  const allowFire = state.worldRules?.wildfireSpread !== false;
   const rSq = radius * radius;
   const minX = Math.max(0, Math.floor(targetX - radius));
   const maxX = Math.min(state.gridSize - 1, Math.ceil(targetX + radius));
@@ -777,15 +862,32 @@ function applyOrbitalLaserDamage(state: SimulationState, strike: TitanOrbitalStr
       if (dSq > rSq) continue;
       const t = state.tiles[tz * state.gridSize + tx];
       if (!t || t.height === 0) continue;
-      if (dSq <= rSq * 0.62) {
-        t.terrain = 'scorched';
-        if (allowFire && dSq <= rSq * 0.35) {
-          t.onFireTimer = Math.max(t.onFireTimer, 6);
-        }
-        if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-          t.resourceNode = 'none';
-          t.resourceAmount = 0;
-        }
+
+      if (dSq <= rSq * 0.28) {
+        // Glassed molten core pit + raging firestorm
+        igniteAndDevastateTile(state, t, {
+          terrain: 'scorched',
+          fireDuration: 15.0,
+          fireColor: '#ff3b1f',
+          devastateDuration: 46,
+          lowerHeightBy: t.height > 1 && strike.elapsed < 0.25 ? 1 : 0,
+          clearAllResources: true,
+        });
+      } else if (dSq <= rSq * 0.68) {
+        igniteAndDevastateTile(state, t, {
+          terrain: (tx + tz) % 3 === 0 ? 'volcanic_wasteland' : 'scorched',
+          fireDuration: 11.5,
+          fireColor: '#ff5400',
+          devastateDuration: 38,
+          clearAllResources: true,
+        });
+      } else {
+        igniteAndDevastateTile(state, t, {
+          terrain: 'scorched',
+          fireDuration: (tx + tz) % 2 === 0 ? 8.5 : 0,
+          fireColor: '#ff6b00',
+          devastateDuration: 28,
+        });
       }
     }
   }
@@ -921,9 +1023,22 @@ function applyDeathBeamTickDamage(state: SimulationState, titan: DivineTitanStat
     }
   }
 
-  // Scorch endpoint area while beam burns
-  const allowFire = state.worldRules?.wildfireSpread !== false;
-  const r = 4.8;
+  // Scorch & ignite wildfires along the burning beam path + melt endpoint area
+  const beamSteps = Math.max(5, Math.ceil(Math.hypot(segX, segZ) * 0.6));
+  for (let s = 2; s < beamSteps; s++) {
+    const frac = s / beamSteps;
+    const pt = getTileAt(state, titan.x + segX * frac, titan.z + segZ * frac);
+    if (pt && pt.height > 0 && s % 2 === 0) {
+      igniteAndDevastateTile(state, pt, {
+        terrain: 'scorched',
+        fireDuration: 10.5,
+        fireColor: '#ff3b1f',
+        devastateDuration: 32,
+      });
+    }
+  }
+
+  const r = 5.4;
   const minX = Math.max(0, Math.floor(db.targetX - r));
   const maxX = Math.min(state.gridSize - 1, Math.ceil(db.targetX + r));
   const minZ = Math.max(0, Math.floor(db.targetZ - r));
@@ -936,14 +1051,14 @@ function applyDeathBeamTickDamage(state: SimulationState, titan: DivineTitanStat
       if (dSq > r * r) continue;
       const t = state.tiles[tz * state.gridSize + tx];
       if (!t || t.height === 0) continue;
-      t.terrain = 'scorched';
-      if (allowFire && dSq <= 10) {
-        t.onFireTimer = Math.max(t.onFireTimer, 8);
-      }
-      if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-        t.resourceNode = 'none';
-        t.resourceAmount = 0;
-      }
+      igniteAndDevastateTile(state, t, {
+        terrain: dSq <= 9.0 ? 'volcanic_wasteland' : 'scorched',
+        fireDuration: dSq <= 16.0 ? 14.0 : 9.0,
+        fireColor: '#ff3b1f',
+        devastateDuration: 42,
+        cursedDuration: 18,
+        clearAllResources: dSq <= 12.0,
+      });
     }
   }
 }
@@ -961,12 +1076,15 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
     if (grid) syncTileToWorldGrid(grid, t);
   };
 
-  // Colossal thermonuclear-scale blast radius
-  const blastR = 13.5;
-  damageUnitsAndStructuresInRadius(state, gx, gz, blastR, 1400, 1200, 7.5);
+  // Colossal thermonuclear-scale blast radius + radiation sickness across outer fallout zone
+  const blastR = 14.0;
+  const falloutR = 16.5;
+  damageUnitsAndStructuresInRadius(state, gx, gz, blastR, 1500, 1300, 8.0);
+  irradiateUnitsInRadius(state, gx, gz, falloutR + 2.0, 42);
+
+  if (!state.activeHazards) state.activeHazards = [];
 
   if (isWater) {
-    if (!state.activeHazards) state.activeHazards = [];
     state.activeHazards.push({
       id: nextTitanFxId('haz'),
       kind: 'tsunami_wave',
@@ -979,63 +1097,107 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
       duration: 6.5,
       tickTimer: 0,
     });
-  } else {
-    // Carve a colossal multi-ring nuclear-scale crater on land
-    const craterR = 9.2;
-    const craterRSq = craterR * craterR;
-    const baseH = Math.max(2, centerTile?.height ?? 2);
-    const allowFire = state.worldRules?.wildfireSpread !== false;
+  }
 
-    const minX = Math.max(0, Math.floor(gx - craterR - 1));
-    const maxX = Math.min(state.gridSize - 1, Math.ceil(gx + craterR + 1));
-    const minZ = Math.max(0, Math.floor(gz - craterR - 1));
-    const maxZ = Math.min(state.gridSize - 1, Math.ceil(gz + craterR + 1));
+  // Carve a colossal multi-ring nuclear crater + irradiate & ignite the entire surrounding fallout zone!
+  const falloutRSq = falloutR * falloutR;
+  const baseH = Math.max(2, centerTile?.height ?? 2);
 
-    for (let tz = minZ; tz <= maxZ; tz++) {
-      for (let tx = minX; tx <= maxX; tx++) {
-        const dx = tx - gx;
-        const dz = tz - gz;
-        const dSq = dx * dx + dz * dz;
-        if (dSq > craterRSq) continue;
-        const t = state.tiles[tz * state.gridSize + tx];
-        if (!t || t.height === 0) continue;
+  const minX = Math.max(0, Math.floor(gx - falloutR - 1));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(gx + falloutR + 1));
+  const minZ = Math.max(0, Math.floor(gz - falloutR - 1));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(gz + falloutR + 1));
 
-        const tileH = Math.max(1, t.height);
-        if (dSq <= 12.0) {
-          t.height = Math.max(1, Math.min(baseH, tileH) - 3);
-          t.terrain = 'scorched';
-          t.onFireTimer = allowFire ? 10 : 0;
-          if (!t.buildingId) {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
+  for (let tz = minZ; tz <= maxZ; tz++) {
+    for (let tx = minX; tx <= maxX; tx++) {
+      const dx = tx - gx;
+      const dz = tz - gz;
+      const dSq = dx * dx + dz * dz;
+      if (dSq > falloutRSq) continue;
+      const t = state.tiles[tz * state.gridSize + tx];
+      if (!t) continue;
+
+      if (t.height === 0) {
+        // Irradiate & poison nearby water into glowing toxic fallout pools
+        if (dSq <= 105.0) {
+          t.waterKind = 'poison';
+          t.cursedTimer = Math.max(t.cursedTimer, 45);
+          delete t.isBridge;
           syncGrid(t);
-        } else if (dSq <= 34.0) {
-          t.height = Math.max(1, Math.min(baseH, tileH) - 2);
-          t.terrain = 'scorched';
-          t.onFireTimer = allowFire && dSq <= 24 ? 7 : 0;
-          if (!t.buildingId) {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
-          syncGrid(t);
-        } else if (dSq <= 58.0 && !t.buildingId) {
-          t.height = Math.min(10, tileH + 1);
-          t.terrain = dSq <= 48 ? 'rock' : 'scorched';
-          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
-          syncGrid(t);
-        } else if (!t.buildingId) {
-          t.terrain = 'scorched';
-          if (t.resourceNode === 'timber_grove' || t.resourceNode === 'berry_bush') {
-            t.resourceNode = 'none';
-            t.resourceAmount = 0;
-          }
         }
+        continue;
+      }
+
+      const tileH = Math.max(1, t.height);
+      if (!isWater && dSq <= 14.0) {
+        // Ground zero: deep molten thermonuclear pit + raging firestorm + heavy radiation
+        t.height = Math.max(1, Math.min(baseH, tileH) - 3);
+        igniteAndDevastateTile(state, t, {
+          terrain: 'volcanic_wasteland',
+          fireDuration: 18.0,
+          fireColor: '#ff6b00',
+          devastateDuration: 68,
+          cursedDuration: 62,
+          clearAllResources: true,
+        });
+      } else if (!isWater && dSq <= 38.0) {
+        // Inner blast bowl: charred & irradiated wasteland + firestorm
+        t.height = Math.max(1, Math.min(baseH, tileH) - 2);
+        igniteAndDevastateTile(state, t, {
+          terrain: (tx + tz) % 4 === 0 ? 'blighted_mire' : 'scorched',
+          fireDuration: 14.5,
+          fireColor: (tx + tz) % 5 === 0 ? '#84cc16' : '#ff6b00',
+          devastateDuration: 60,
+          cursedDuration: 55,
+          clearAllResources: true,
+        });
+      } else if (!isWater && dSq <= 64.0 && !t.buildingId) {
+        // Raised shattered crater rim + burning radioactive embers
+        t.height = Math.min(10, tileH + 1);
+        igniteAndDevastateTile(state, t, {
+          terrain: dSq <= 50.0 ? 'rock' : (tx + tz) % 3 === 0 ? 'blighted_mire' : 'scorched',
+          fireDuration: (tx + tz) % 2 === 0 ? 11.5 : 0,
+          fireColor: (tx * 3 + tz) % 4 === 0 ? '#84cc16' : '#ff5400',
+          devastateDuration: 50,
+          cursedDuration: 46,
+        });
+      } else if (dSq <= 135.0) {
+        // Mid irradiation ring: blighted radioactive fallout + blazing wildfires
+        igniteAndDevastateTile(state, t, {
+          terrain: (tx * 7 + tz * 13) % 3 === 0 ? 'blighted_mire' : 'scorched',
+          fireDuration: (tx + tz) % 2 === 0 ? 10.0 : 0,
+          fireColor: (tx + tz) % 4 === 0 ? '#84cc16' : '#ff6b00',
+          devastateDuration: 42,
+          cursedDuration: 40,
+        });
+      } else {
+        // Outer fallout fringe: lingering radiation + scorched grass/trees
+        igniteAndDevastateTile(state, t, {
+          terrain: (tx + tz) % 3 === 0 ? 'blighted_mire' : undefined,
+          fireDuration: (tx * 5 + tz * 3) % 4 === 0 ? 7.5 : 0,
+          fireColor: '#84cc16',
+          devastateDuration: 28,
+          cursedDuration: 32,
+        });
       }
     }
+  }
+
+  // Spawn 2 lingering radioactive fallout clouds drifting over ground zero
+  for (let c = 0; c < 2; c++) {
+    const ang = c * Math.PI + 0.6;
+    state.activeHazards.push({
+      id: nextTitanFxId('haz'),
+      kind: 'acid_cloud',
+      x: clamp(gx + Math.cos(ang) * 3.5, 2, state.gridSize - 3),
+      z: clamp(gz + Math.sin(ang) * 3.5, 2, state.gridSize - 3),
+      windX: Math.cos(ang + 0.7) * 0.55,
+      windZ: Math.sin(ang + 0.7) * 0.55,
+      radius: 7.5,
+      remaining: 18.0,
+      duration: 18.0,
+      tickTimer: 0,
+    });
   }
 
   const gy = getTitanGroundY(state, gx, gz);
@@ -1062,11 +1224,11 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
       elapsed: 0,
       duration: 1.15,
       kind: 'slam',
-      color: '#fde047',
+      color: '#a3e635',
     },
   );
 
-  // Spawn towering 3D Mushroom Cloud!
+  // Spawn towering pixelated 3D Mushroom Cloud!
   const cloud: TitanMushroomCloud = {
     id: nextTitanFxId('tmc'),
     x: gx,
@@ -1080,7 +1242,11 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
   titan.mushroomClouds.push(cloud);
 
   titan.pendingTrauma = 1.0;
-  pushChronicle(state, 'The God Titan Death Beam detonated in a towering mushroom cloud!', 'warning');
+  pushChronicle(
+    state,
+    'The God Titan Death Beam detonated in a nuclear mushroom cloud, igniting firestorms and irradiating the land!',
+    'warning',
+  );
 }
 
 function launchNextBarrageMissile(state: SimulationState, titan: DivineTitanState): void {
@@ -1319,17 +1485,29 @@ export function stepDivineTitan(
     m.z = inv * inv * m.startZ + 2 * inv * t * m.ctrlZ + t * t * m.targetZ;
 
     if (t >= 1) {
-      // Missile detonation!
-      damageUnitsAndStructuresInRadius(state, m.targetX, m.targetZ, 3.4, 240, 190, 2.0);
-      const tile = getTileAt(state, m.targetX, m.targetZ);
-      if (tile && tile.height > 0) {
-        tile.terrain = 'scorched';
-        if (state.worldRules?.wildfireSpread !== false) {
-          tile.onFireTimer = Math.max(tile.onFireTimer, 4);
-        }
-        if (tile.resourceNode === 'timber_grove' || tile.resourceNode === 'berry_bush') {
-          tile.resourceNode = 'none';
-          tile.resourceAmount = 0;
+      // Destructive incendiary missile detonation!
+      damageUnitsAndStructuresInRadius(state, m.targetX, m.targetZ, 3.8, 280, 230, 2.4);
+      const mr = 2.5;
+      const minX = Math.max(0, Math.floor(m.targetX - mr));
+      const maxX = Math.min(state.gridSize - 1, Math.ceil(m.targetX + mr));
+      const minZ = Math.max(0, Math.floor(m.targetZ - mr));
+      const maxZ = Math.min(state.gridSize - 1, Math.ceil(m.targetZ + mr));
+      for (let tz = minZ; tz <= maxZ; tz++) {
+        for (let tx = minX; tx <= maxX; tx++) {
+          const rx = tx - m.targetX;
+          const rz = tz - m.targetZ;
+          const dSq = rx * rx + rz * rz;
+          if (dSq > mr * mr) continue;
+          const tile = state.tiles[tz * state.gridSize + tx];
+          if (!tile || tile.height === 0) continue;
+          igniteAndDevastateTile(state, tile, {
+            terrain: dSq <= 1.8 ? 'volcanic_wasteland' : 'scorched',
+            fireDuration: dSq <= 3.0 ? 12.0 : 8.0,
+            fireColor: '#ff5400',
+            devastateDuration: 32,
+            lowerHeightBy: dSq <= 1.2 && tile.height > 1 ? 1 : 0,
+            clearAllResources: dSq <= 2.2,
+          });
         }
       }
       titan.shockwaves.push({
@@ -1337,13 +1515,13 @@ export function stepDivineTitan(
         x: m.targetX,
         y: m.targetY - 0.1,
         z: m.targetZ,
-        maxRadius: 4.0,
+        maxRadius: 4.5,
         elapsed: 0,
         duration: 0.48,
         kind: 'step',
         color: '#f97316',
       });
-      titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.28);
+      titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.3);
       titan.missiles.splice(i, 1);
     }
   }

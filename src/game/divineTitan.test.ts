@@ -260,7 +260,7 @@ describe('Divine Titan controllable god power', () => {
     assert.ok(TITAN_SUMMON_DURATION > 0);
   });
 
-  it('Skill 3 Death Beam locks controls, combines cannons, fires 7s beam, and detonates with towering mushroom cloud', () => {
+  it('Skill 3 Death Beam locks controls, combines cannons, fires 4s beam, and detonates with pixelated mushroom cloud, firestorm, and irradiation', () => {
     const sim = createFlatTestSim();
     castGodPower(sim, 'divine_titan', 10, 16);
     sim.divineTitan!.phase = 'active';
@@ -275,7 +275,7 @@ describe('Divine Titan controllable god power', () => {
     assert.equal(ok, true);
     assert.equal(sim.divineTitan!.phase, 'death_beam');
     assert.equal(sim.divineTitan!.deathBeam!.subPhase, 'combining');
-    assert.equal(sim.divineTitan!.deathBeam!.fireDuration, 7.0);
+    assert.equal(sim.divineTitan!.deathBeam!.fireDuration, 4.0);
 
     const lockedYaw = sim.divineTitan!.turretYaw;
 
@@ -296,7 +296,7 @@ describe('Divine Titan controllable god power', () => {
     assert.equal(sim.divineTitan!.turretYaw, lockedYaw, 'Cannon aim must be locked during Death Beam cutscene');
     assert.equal(sim.divineTitan!.deathBeam!.subPhase, 'firing');
 
-    // Step through the 7-second firing phase into detonation
+    // Step through the 4-second firing phase into detonation
     const fireSteps = Math.ceil((TITAN_DEATH_BEAM_FIRE + 0.15) / 0.05);
     for (let i = 0; i < fireSteps; i++) {
       stepDivineTitan(sim, 0.05, {
@@ -311,9 +311,13 @@ describe('Divine Titan controllable god power', () => {
     assert.equal(sim.divineTitan!.deathBeam!.subPhase, 'detonating');
     assert.equal(sim.divineTitan!.mushroomClouds.length, 1, 'Must spawn towering mushroom cloud on detonation');
     assert.ok(sim.divineTitan!.mushroomClouds[0].maxHeight >= 24);
+    const blastTile = sim.tiles[targetZ * sim.gridSize + targetX];
+    assert.ok(blastTile.height < heightBefore, 'Death Beam detonation must carve a massive crater');
+    assert.ok(blastTile.onFireTimer > 0, 'Death Beam detonation must ignite raging fires');
+    assert.ok(blastTile.cursedTimer > 0, 'Death Beam detonation must irradiate the surrounding blast zone');
     assert.ok(
-      sim.tiles[targetZ * sim.gridSize + targetX].height < heightBefore,
-      'Death Beam detonation must carve a massive crater',
+      sim.activeHazards.some((h) => h.kind === 'acid_cloud'),
+      'Death Beam detonation must spawn lingering radioactive fallout clouds',
     );
 
     // Step through detonation climax back to active control

@@ -3232,7 +3232,7 @@ export default function App() {
                       titanActionRef.current?.skill3();
                     }}
                     className="px-btn px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-[#ff6b6b] border-[#ef4444] cursor-pointer disabled:opacity-50"
-                    title="Skill 3: Fuse twin cannons for a 7s Death Beam + Mushroom Cloud Detonation (Key 3)"
+                    title="Skill 3: Fuse twin cannons for a 4s Death Beam + Nuclear Mushroom Cloud (Key 3)"
                   >
                     [3] Death Beam
                     {activeTitan.skill3Cooldown > 0 ? ` (${activeTitan.skill3Cooldown.toFixed(1)}s)` : ''}

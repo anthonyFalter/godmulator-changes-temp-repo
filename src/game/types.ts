@@ -1143,7 +1143,7 @@ export interface TitanDeathBeamState {
   subPhase: 'combining' | 'firing' | 'detonating';
   elapsed: number;
   combineDuration: number; // ~1.45s cannons slide together & charge
-  fireDuration: number;    // 7.0s continuous colossal death beam
+  fireDuration: number;    // 4.0s continuous colossal death beam
   detonateDuration: number; // ~2.0s cutscene climax on mushroom cloud
   originX: number;
   originY: number;
