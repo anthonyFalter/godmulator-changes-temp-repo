@@ -238,6 +238,14 @@ interface IsometricWorldCanvasProps {
     skill2: () => void;
     skill3: () => void;
     skill4: () => void;
+    setMoveStick: (right: number, forward: number) => void;
+    setCannonStick: (
+      active: boolean,
+      right: number,
+      forward: number,
+      magnitude: number,
+      outsideBounds: boolean,
+    ) => void;
   } | null>;
 }
 
@@ -822,6 +830,14 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     const titanFallbackPt = new THREE.Vector3();
     let wasTitanActive = false;
     let titanHudSyncTimer = 0;
+    const titanMobileMove = { right: 0, forward: 0 };
+    const titanMobileCannon = {
+      active: false,
+      right: 0,
+      forward: 0,
+      magnitude: 0,
+      outsideBounds: false,
+    };
 
     if (titanActionRef) {
       titanActionRef.current = {
@@ -863,6 +879,23 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (triggerTitanMissileBarrage(simRef.current, tx, tz)) {
             propsRef.current.onSyncHud();
           }
+        },
+        setMoveStick: (right: number, forward: number) => {
+          titanMobileMove.right = right;
+          titanMobileMove.forward = forward;
+        },
+        setCannonStick: (
+          active: boolean,
+          right: number,
+          forward: number,
+          magnitude: number,
+          outsideBounds: boolean,
+        ) => {
+          titanMobileCannon.active = active;
+          titanMobileCannon.right = right;
+          titanMobileCannon.forward = forward;
+          titanMobileCannon.magnitude = magnitude;
+          titanMobileCannon.outsideBounds = outsideBounds;
         },
       };
     }
@@ -14409,14 +14442,41 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
         const isCutscene = currentTitan.phase === 'death_beam';
         if (currentGameState === 'playing' && !propsRef.current.hasBlockingModal) {
+          const kbForward =
+            (keysPressed.has('KeyW') || keysPressed.has('ArrowUp') ? 1 : 0) -
+            (keysPressed.has('KeyS') || keysPressed.has('ArrowDown') ? 1 : 0);
+          const kbRight =
+            (keysPressed.has('KeyD') || keysPressed.has('ArrowRight') ? 1 : 0) -
+            (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft') ? 1 : 0);
           const moveForward = isCutscene
             ? 0
-            : (keysPressed.has('KeyW') || keysPressed.has('ArrowUp') ? 1 : 0) -
-              (keysPressed.has('KeyS') || keysPressed.has('ArrowDown') ? 1 : 0);
+            : THREE.MathUtils.clamp(kbForward + titanMobileMove.forward, -1, 1);
           const moveRight = isCutscene
             ? 0
-            : (keysPressed.has('KeyD') || keysPressed.has('ArrowRight') ? 1 : 0) -
-              (keysPressed.has('KeyA') || keysPressed.has('ArrowLeft') ? 1 : 0);
+            : THREE.MathUtils.clamp(kbRight + titanMobileMove.right, -1, 1);
+
+          // Left mobile joystick aims the cannon in camera-relative world coordinates
+          if (!isCutscene && titanMobileCannon.active && titanMobileCannon.magnitude > 0.12) {
+            const fwdX = -Math.sin(camYaw);
+            const fwdZ = -Math.cos(camYaw);
+            const rightX = Math.cos(camYaw);
+            const rightZ = -Math.sin(camYaw);
+            const dirX = fwdX * titanMobileCannon.forward + rightX * titanMobileCannon.right;
+            const dirZ = fwdZ * titanMobileCannon.forward + rightZ * titanMobileCannon.right;
+            const dirLen = Math.hypot(dirX, dirZ) || 1;
+            const aimRange = 8 + titanMobileCannon.magnitude * 20;
+            titanAimWorld.x = THREE.MathUtils.clamp(
+              currentTitan.x + (dirX / dirLen) * aimRange,
+              1,
+              simRef.current.gridSize - 2,
+            );
+            titanAimWorld.z = THREE.MathUtils.clamp(
+              currentTitan.z + (dirZ / dirLen) * aimRange,
+              1,
+              simRef.current.gridSize - 2,
+            );
+          }
+
           const stepRes = stepDivineTitan(simRef.current, dt, {
             moveForward,
             moveRight,
@@ -14424,6 +14484,26 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
             aimX: isCutscene ? null : titanAimWorld.x,
             aimZ: isCutscene ? null : titanAimWorld.z,
           });
+
+          // Auto-fire cannon when left mobile joystick is dragged outside its outer bounds
+          const activeAfterStep = simRef.current.divineTitan;
+          if (
+            activeAfterStep &&
+            activeAfterStep.phase === 'active' &&
+            titanMobileCannon.active &&
+            titanMobileCannon.outsideBounds &&
+            titanAimWorld.x !== null &&
+            titanAimWorld.z !== null
+          ) {
+            if (activeAfterStep.skill1Targeting) {
+              if (triggerTitanOrbitalStrike(simRef.current, titanAimWorld.x, titanAimWorld.z)) {
+                propsRef.current.onSyncHud();
+              }
+            } else if (triggerTitanSlash(simRef.current, titanAimWorld.x, titanAimWorld.z)) {
+              propsRef.current.onSyncHud();
+            }
+          }
+
           if (simRef.current.divineTitan && simRef.current.divineTitan.pendingTrauma > 0) {
             trauma = Math.min(1, Math.max(trauma, simRef.current.divineTitan.pendingTrauma));
             simRef.current.divineTitan.pendingTrauma = 0;

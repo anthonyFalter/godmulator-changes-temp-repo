@@ -122,6 +122,7 @@ import {
   ZonePixelIcon,
 } from './components/GameIcons';
 import { IsometricWorldCanvas } from './components/IsometricWorldCanvas';
+import { TitanMobileJoysticks } from './components/TitanMobileJoysticks';
 
 const UNIT_DEF_BY_ROLE = new Map(UNITS.map((d) => [d.role, d]));
 
@@ -571,7 +572,53 @@ export default function App() {
     skill2: () => void;
     skill3: () => void;
     skill4: () => void;
+    setMoveStick: (right: number, forward: number) => void;
+    setCannonStick: (
+      active: boolean,
+      right: number,
+      forward: number,
+      magnitude: number,
+      outsideBounds: boolean,
+    ) => void;
   } | null>(null);
+
+  const [isTouchMobile, setIsTouchMobile] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return (
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.matchMedia('(max-width: 768px)').matches ||
+      (window.matchMedia('(max-width: 960px)').matches && (navigator.maxTouchPoints ?? 0) > 0)
+    );
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const updateMobile = () => {
+      setIsTouchMobile(
+        window.matchMedia('(pointer: coarse)').matches ||
+          window.matchMedia('(max-width: 768px)').matches ||
+          (window.matchMedia('(max-width: 960px)').matches && (navigator.maxTouchPoints ?? 0) > 0),
+      );
+    };
+    window.addEventListener('resize', updateMobile);
+    const mq = window.matchMedia('(pointer: coarse)');
+    mq.addEventListener?.('change', updateMobile);
+    return () => {
+      window.removeEventListener('resize', updateMobile);
+      mq.removeEventListener?.('change', updateMobile);
+    };
+  }, []);
+
+  const handleTitanMoveStick = useCallback((right: number, forward: number) => {
+    titanActionRef.current?.setMoveStick(right, forward);
+  }, []);
+
+  const handleTitanCannonStick = useCallback(
+    (active: boolean, right: number, forward: number, magnitude: number, outsideBounds: boolean) => {
+      titanActionRef.current?.setCannonStick(active, right, forward, magnitude, outsideBounds);
+    },
+    [],
+  );
 
   useEffect(() => {
     document.body.dataset.state = gameState;
@@ -3295,6 +3342,12 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {isTouchMobile && (
+                <TitanMobileJoysticks
+                  onMoveStick={handleTitanMoveStick}
+                  onCannonStick={handleTitanCannonStick}
+                />
+              )}
             </div>
           )}
         </>
