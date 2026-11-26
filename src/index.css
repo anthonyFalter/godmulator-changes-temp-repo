@@ -546,6 +546,10 @@
   pointer-events: none;
   z-index: 5;
 }
+.overflow-x-auto .px-btn-active::before,
+.overflow-x-auto .px-slot-active::before {
+  top: -1px;
+}
 
 /* Contextual Metallic Pixel Progress / Health Bar (Inspectors, Loading & Perf HUD ONLY) */
 .px-bar-track {

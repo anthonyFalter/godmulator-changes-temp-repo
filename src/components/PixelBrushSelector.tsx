@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { getPixelCircleCells } from '../game/brushSizes';
 import { soundEngine } from '../game/sound';
 import { HudPixelIcon } from './GameIcons';
@@ -71,14 +72,16 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
-    const onResize = () => updatePopoverPosition();
+    const onResizeOrScroll = () => updatePopoverPosition();
     window.addEventListener('pointerdown', onPointerDown);
     window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('resize', onResize);
+    window.addEventListener('resize', onResizeOrScroll);
+    window.addEventListener('scroll', onResizeOrScroll, true);
     return () => {
       window.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', onResizeOrScroll);
+      window.removeEventListener('scroll', onResizeOrScroll, true);
     };
   }, [open]);
 
@@ -131,41 +134,46 @@ export const PixelBrushSelector: React.FC<PixelBrushSelectorProps> = ({
         />
       </button>
 
-      {open && popoverPos && (
-        <div
-          ref={popoverRef}
-          role="dialog"
-          aria-label="Brush Size Slider"
-          data-testid="brush-size-popover"
-          style={{ left: popoverPos.left, bottom: popoverPos.bottom }}
-          className="px-panel fixed z-50 w-48 p-2.5 space-y-2"
-        >
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[#bfa88f]">Brush Size</span>
-            <span className="font-pixel-num font-bold text-[#f2c478] tabular-nums">
-              {valueHint}
-            </span>
-          </div>
-          <input
-            type="range"
-            data-testid="brush-size-slider"
-            min={1}
-            max={10}
-            step={1}
-            value={clampedSize}
-            onChange={(e) => {
-              const nextSize = Number(e.target.value);
-              onChange(nextSize);
-            }}
-            className="px-range w-full cursor-pointer"
-          />
-          <div className="flex items-center justify-between text-[10px] text-[#9e866f] font-pixel-num">
-            <span>1</span>
-            <span>5</span>
-            <span>10</span>
-          </div>
-        </div>
-      )}
+      {open &&
+        popoverPos &&
+        (() => {
+          const pop = (
+            <div
+              ref={popoverRef}
+              role="dialog"
+              aria-label="Brush Size Slider"
+              data-testid="brush-size-popover"
+              style={{ left: popoverPos.left, bottom: popoverPos.bottom }}
+              className="px-panel fixed z-50 w-48 p-2.5 space-y-2"
+            >
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-[#bfa88f]">Brush Size</span>
+                <span className="font-pixel-num font-bold text-[#f2c478] tabular-nums">
+                  {valueHint}
+                </span>
+              </div>
+              <input
+                type="range"
+                data-testid="brush-size-slider"
+                min={1}
+                max={10}
+                step={1}
+                value={clampedSize}
+                onChange={(e) => {
+                  const nextSize = Number(e.target.value);
+                  onChange(nextSize);
+                }}
+                className="px-range w-full cursor-pointer"
+              />
+              <div className="flex items-center justify-between text-[10px] text-[#9e866f] font-pixel-num">
+                <span>1</span>
+                <span>5</span>
+                <span>10</span>
+              </div>
+            </div>
+          );
+          return typeof document !== 'undefined' ? createPortal(pop, document.body) : pop;
+        })()}
     </div>
   );
 };

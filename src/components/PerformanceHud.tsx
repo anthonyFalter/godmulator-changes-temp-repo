@@ -6,6 +6,7 @@ import { HudPixelIcon } from './GameIcons';
 interface PerformanceHudProps {
   stats: PerfTelemetrySnapshot;
   strictLossless: boolean;
+  performanceModeLabel?: string;
   onClose: () => void;
 }
 
@@ -15,6 +16,7 @@ const METER_INDICES = Array.from({ length: METER_SEGMENTS }, (_, i) => i);
 export const PerformanceHud: React.FC<PerformanceHudProps> = React.memo(({
   stats,
   strictLossless,
+  performanceModeLabel,
   onClose,
 }) => {
   const fpsTextClass =
@@ -33,10 +35,11 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = React.memo(({
     0,
     Math.min(METER_SEGMENTS, Math.round((stats.fps / 60) * METER_SEGMENTS)),
   );
+  const modeLabel = performanceModeLabel ?? (strictLossless ? 'Quality' : 'Dynamic');
 
   return (
     <aside
-      className="pointer-events-auto fixed left-2 top-[62px] sm:left-4 sm:top-[68px] z-40 w-[min(232px,calc(100vw-16px))] px-panel p-2.5 sm:p-3 text-xs text-[#eadbc6] select-none"
+      className="pointer-events-auto fixed right-2 top-[62px] sm:right-4 sm:top-[68px] z-40 w-[min(232px,calc(100vw-16px))] px-panel p-2.5 sm:p-3 text-xs text-[#eadbc6] select-none"
       aria-label="Performance Monitor"
       data-testid="performance-hud"
     >
@@ -47,7 +50,7 @@ export const PerformanceHud: React.FC<PerformanceHudProps> = React.memo(({
             Performance
           </h2>
           <div className="mt-0.5 text-[10px] text-[#9e866f] leading-none">
-            {strictLossless ? 'Quality' : 'Dynamic'} (F3)
+            {modeLabel} (F3)
           </div>
         </div>
 

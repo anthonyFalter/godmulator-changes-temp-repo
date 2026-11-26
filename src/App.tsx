@@ -483,6 +483,21 @@ export default function App() {
   const [followingEntityId, setFollowingEntityId] = useState<string | null>(null);
   const [hoveredHint, setHoveredHint] = useState<HoveredHint | null>(null);
   const [statusFeedback, setStatusFeedback] = useState<string>('Click land to spawn a Human');
+  const [statusToastVisible, setStatusToastVisible] = useState<boolean>(false);
+  const statusToastInitRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!statusToastInitRef.current) {
+      statusToastInitRef.current = true;
+      return;
+    }
+    if (!statusFeedback) {
+      setStatusToastVisible(false);
+      return;
+    }
+    setStatusToastVisible(true);
+    const tid = window.setTimeout(() => setStatusToastVisible(false), 3600);
+    return () => window.clearTimeout(tid);
+  }, [statusFeedback]);
   const [activeZones, setActiveZones] = useState<ZoneToggleState>(() => ({
     ...DEFAULT_ZONE_TOGGLES,
   }));
@@ -509,6 +524,7 @@ export default function App() {
   // Local World Cache / Save / Continue & Quit Guard state
   const captureThumbnailRef = useRef<(() => string | null) | null>(null);
   const activeSaveIdRef = useRef<string | null>(null);
+  const lastSavedElapsedRef = useRef<number | null>(null);
   const [hasSavedWorld, setHasSavedWorld] = useState<boolean>(false);
   const [isSavingWorld, setIsSavingWorld] = useState<boolean>(false);
   const [saveModalStep, setSaveModalStep] = useState<'confirm' | 'details' | 'overwrite' | null>(null);
@@ -783,6 +799,7 @@ export default function App() {
       simRef.current.worldDescription = saved.description ?? '';
       simRef.current.seasonPreset = seasonPreset;
       setWorldConfig((prev) => ({ ...prev, worldName: saved.name }));
+      lastSavedElapsedRef.current = simRef.current.year;
       setHasSavedWorld(true);
       setSaveModalStep(null);
       soundEngine.playBuild();
@@ -829,7 +846,11 @@ export default function App() {
   }, [refreshSavedWorlds]);
 
   const handleRequestMainMenu = useCallback(() => {
-    if (hasSavedWorld) {
+    const isCleanSinceLastSave =
+      hasSavedWorld &&
+      lastSavedElapsedRef.current !== null &&
+      Math.abs(simRef.current.year - lastSavedElapsedRef.current) < 0.05;
+    if (isCleanSinceLastSave) {
       handleConfirmQuitToMainMenu();
       return;
     }
@@ -846,6 +867,7 @@ export default function App() {
       const restored = restoreSimulationFromSave(fresh);
       simRef.current = restored;
       activeSaveIdRef.current = fresh.id;
+      lastSavedElapsedRef.current = restored.year;
       setHasSavedWorld(true);
       setSeedInput(String(restored.seed));
       setWorldConfig((prev) => ({
@@ -982,23 +1004,44 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-      if (saveModalStep && e.code === 'Escape') {
-        e.preventDefault();
-        setSaveModalStep(null);
-        setSaveThenQuit(false);
+      if (saveModalStep) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setSaveModalStep(null);
+          setSaveThenQuit(false);
+        }
         return;
       }
 
-      if (quitConfirmOpen && e.code === 'Escape') {
-        e.preventDefault();
-        setQuitConfirmOpen(false);
+      if (quitConfirmOpen) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setQuitConfirmOpen(false);
+        }
         return;
       }
 
-      if ((showGodRulesModal || showWorldInfoModal) && e.code === 'Escape') {
-        e.preventDefault();
-        setShowGodRulesModal(false);
-        setShowWorldInfoModal(false);
+      if (showGodRulesModal || showWorldInfoModal) {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setShowGodRulesModal(false);
+          setShowWorldInfoModal(false);
+        }
+        return;
+      }
+
+      if (
+        gameState === 'playing' &&
+        simRef.current.activeWorldEvent?.cinematicActive &&
+        simRef.current.activeWorldEvent.remaining > 0
+      ) {
+        if (e.code === 'Escape' || e.code === 'Enter' || e.code === 'Space') {
+          e.preventDefault();
+          dismissWorldEventCinematic(simRef.current);
+          cameraActionRef.current.zoomDelta += 14;
+          soundEngine.playClick();
+          setHudTick((t) => t + 1);
+        }
         return;
       }
 
@@ -1757,6 +1800,7 @@ export default function App() {
         key={sim.gridSize}
         simRef={simRef}
         gameState={gameState}
+        hasBlockingModal={hasAnyBlockingModal || isEventCinematic}
         timeScale={timeScale}
         activeTool={activeTool}
         brushRadius={brushRadius}
@@ -1784,11 +1828,30 @@ export default function App() {
         onPerfTelemetry={setPerfTelemetry}
       />
 
+      {/* Global Status Feedback Toast (visible across all tabs & save/modal errors) */}
+      {statusToastVisible && statusFeedback && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="global-status-toast"
+          className="pointer-events-none fixed left-1/2 -translate-x-1/2 top-[60px] sm:top-[66px] z-[60] max-w-[min(420px,calc(100vw-24px))] px-panel px-3 py-1.5 text-center text-[11px] sm:text-xs font-semibold text-[#fff3df] shadow-lg"
+        >
+          {statusFeedback}
+        </div>
+      )}
+
       {/* Optional Phase 0 Performance Debug HUD (toggled via F3 or Settings) */}
-      {graphicsSettings.showPerformanceHud && perfTelemetry && !hasAnyBlockingModal && (
+      {gameState === 'playing' && graphicsSettings.showPerformanceHud && perfTelemetry && !hasAnyBlockingModal && (
         <PerformanceHud
           stats={perfTelemetry}
           strictLossless={graphicsSettings.strictLossless !== false}
+          performanceModeLabel={
+            graphicsSettings.strictLossless !== false
+              ? 'Quality'
+              : graphicsSettings.autoOptimizeFps !== false
+                ? 'Dynamic'
+                : 'Performance'
+          }
           onClose={() => {
             setGraphicsSettings((prev) => {
               const next = { ...prev, showPerformanceHud: false };

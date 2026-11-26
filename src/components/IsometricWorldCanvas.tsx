@@ -172,6 +172,7 @@ import { UnitPixelIcon } from './GameIcons';
 interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
   gameState: GameLifecycleState;
+  hasBlockingModal?: boolean;
   timeScale: number;
   activeTool: ActiveTool;
   brushRadius: number;
@@ -243,6 +244,7 @@ interface PooledParticle {
 export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.memo(({
   simRef,
   gameState,
+  hasBlockingModal = false,
   timeScale,
   activeTool,
   brushRadius,
@@ -274,9 +276,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   const kingMarkersLayerRef = useRef<HTMLDivElement | null>(null);
   const warArrowLabelsLayerRef = useRef<HTMLDivElement | null>(null);
 
-  // Store latest props in refs so WebGLRenderer mounts once and never tears down on HUD updates
-  const propsRef = useRef({
+  // Store latest props in refs synchronously so WebGLRenderer & event listeners never observe stale props
+  const latestProps = {
     gameState,
+    hasBlockingModal,
     timeScale,
     activeTool,
     brushRadius,
@@ -298,57 +301,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     onBreakFollow,
     onSyncHud,
     onPerfTelemetry,
-  });
-
-  useEffect(() => {
-    propsRef.current = {
-      gameState,
-      timeScale,
-      activeTool,
-      brushRadius,
-      brushSize,
-      brushInputMode,
-      mobilePanMode,
-      pixelScale,
-      lightingPreset,
-      seasonPreset,
-      graphicsSettings,
-      hoveredEntityId,
-      selectedEntityId,
-      followingEntityId,
-      zoneOverlayBuffers,
-      onTileInteract,
-      onHoverTileChange,
-      onHoverEntityChange,
-      onSelectEntity,
-      onBreakFollow,
-      onSyncHud,
-      onPerfTelemetry,
-    };
-  }, [
-    gameState,
-    timeScale,
-    activeTool,
-    brushRadius,
-    brushSize,
-    brushInputMode,
-    mobilePanMode,
-    pixelScale,
-    lightingPreset,
-    seasonPreset,
-    graphicsSettings,
-    hoveredEntityId,
-    selectedEntityId,
-    followingEntityId,
-    zoneOverlayBuffers,
-    onTileInteract,
-    onHoverTileChange,
-    onHoverEntityChange,
-    onSelectEntity,
-    onBreakFollow,
-    onSyncHud,
-    onPerfTelemetry,
-  ]);
+  };
+  const propsRef = useRef(latestProps);
+  propsRef.current = latestProps;
 
   useEffect(() => {
     const container = mountRef.current;
@@ -7539,6 +7494,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     let isPointerDragging = false;
+    let isAltDragging = false;
+    let mousePointerDownOnCanvas = false;
     let dragStartClient = { x: 0, y: 0 };
     let pointerDownMoved = false;
 
@@ -7927,13 +7884,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      if (e.button === 2 || e.button === 1 || e.shiftKey) {
+      if (propsRef.current.hasBlockingModal) {
+        return;
+      }
+
+      if (e.button === 2 || e.button === 1 || e.shiftKey || (e.button === 0 && e.altKey)) {
         isPointerDragging = true;
+        isAltDragging = e.button === 0 && e.altKey;
+        mousePointerDownOnCanvas = false;
         dragStartClient = { x: e.clientX, y: e.clientY };
         pointerDownMoved = false;
         return;
       }
       isPointerDragging = false;
+      isAltDragging = false;
+      mousePointerDownOnCanvas = e.button === 0;
       dragStartClient = { x: e.clientX, y: e.clientY };
       pointerDownMoved = false;
       const nowMs = performance.now();
@@ -8118,8 +8083,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       if (isPointerDragging || (e.buttons === 1 && e.altKey)) {
+        if (e.buttons === 1 && e.altKey) isAltDragging = true;
         panCameraByScreenDelta(dx, dy, frustumSize * 0.0022);
         dragStartClient = { x: e.clientX, y: e.clientY };
+        return;
+      }
+
+      if (!isHoldPainting && e.target !== renderer.domElement) {
         return;
       }
 
@@ -8132,6 +8102,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           isHoldPainting &&
           (e.buttons & 1) === 1 &&
           propsRef.current.gameState === 'playing' &&
+          !propsRef.current.hasBlockingModal &&
           propsRef.current.brushInputMode === 'hold' &&
           hoveredTileCoords
         ) {
@@ -8141,18 +8112,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const onPointerLeave = () => {
-      if (isHoldPainting) {
-        isHoldPainting = false;
-        paintedStrokeTiles.clear();
-      strokeFlattenHeight = null;
-        lastPaintTile = null;
-        lastHoldCastPos = null;
-      }
       if (hoveredEntityInternal !== null && !draggedUnitId) {
         hoveredEntityInternal = null;
         propsRef.current.onHoverEntityChange?.(null);
       }
-      if (hoveredTileCoords !== null) {
+      if (!isHoldPainting && hoveredTileCoords !== null) {
         hoveredTileCoords = null;
         propsRef.current.onHoverTileChange(null);
       }
@@ -8252,6 +8216,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
+      const wasDownOnCanvas = mousePointerDownOnCanvas;
+      mousePointerDownOnCanvas = false;
+      const wasAltDragging = isAltDragging;
+      isAltDragging = false;
+
       if (draggedUnitId) {
         const nowMs = performance.now();
         const timeSinceMove = nowMs - lastDragWorld.time;
@@ -8270,16 +8239,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (isHoldPainting) {
         isHoldPainting = false;
         paintedStrokeTiles.clear();
-      strokeFlattenHeight = null;
+        strokeFlattenHeight = null;
         lastPaintTile = null;
         lastHoldCastPos = null;
         return;
       }
-      if (isPointerDragging) {
+      if (isPointerDragging || wasAltDragging) {
         isPointerDragging = false;
         return;
       }
-      if (!pointerDownMoved && e.button === 0 && propsRef.current.gameState === 'playing') {
+      if (
+        wasDownOnCanvas &&
+        e.type === 'pointerup' &&
+        !pointerDownMoved &&
+        e.button === 0 &&
+        !e.altKey &&
+        propsRef.current.gameState === 'playing' &&
+        !propsRef.current.hasBlockingModal
+      ) {
         hoverRaycastTimer = performance.now();
         updateHoverTile(e.clientX, e.clientY);
         if (propsRef.current.activeTool.kind === 'inspect') {
@@ -8292,6 +8269,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     };
 
     const onWheel = (e: WheelEvent) => {
+      if (propsRef.current.gameState !== 'playing' || propsRef.current.hasBlockingModal) return;
       e.preventDefault();
       const maxZoomOut = getResponsiveMaxZoomOut(simRef.current.gridSize, getCurrentAspect());
       // Normalize across pixel (0), line (1 - Firefox/mice), and page (2) wheel modes
@@ -8317,9 +8295,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (propsRef.current.gameState !== 'playing' || propsRef.current.hasBlockingModal) return;
       keysPressed.add(e.code);
-
-      if (propsRef.current.gameState !== 'playing') return;
 
       // Single-press desktop camera view shortcuts
       if (e.code === 'BracketLeft') {
@@ -8348,6 +8325,8 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       touchGestureMode = 'none';
       oneFingerInfo = null;
       twoFingerLast = null;
+      mousePointerDownOnCanvas = false;
+      isAltDragging = false;
       isPointerDragging = false;
       isHoldPainting = false;
       paintedStrokeTiles.clear();
@@ -8357,17 +8336,21 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       if (draggedUnitId) {
         releaseDragUnit(simRef.current, draggedUnitId, 0, 0);
         draggedUnitId = null;
+        dragVelocity = { x: 0, z: 0 };
+        propsRef.current.onSyncHud();
       }
     };
 
+    const onContextMenu = (e: MouseEvent) => e.preventDefault();
+
     const domElem = renderer.domElement;
     domElem.addEventListener('pointerdown', onPointerDown);
-    domElem.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointermove', onPointerMove);
     domElem.addEventListener('pointerleave', onPointerLeave);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
     domElem.addEventListener('wheel', onWheel, { passive: false });
-    domElem.addEventListener('contextmenu', (e) => e.preventDefault());
+    domElem.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('blur', clearInputs);
@@ -14374,7 +14357,13 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         }
 
         const activeFollowId = propsRef.current.followingEntityId;
-        if (activeFollowId && !panKeyMoved && !isPointerDragging) {
+        if (
+          activeFollowId &&
+          !panKeyMoved &&
+          !isPointerDragging &&
+          !isAltDragging &&
+          touchGestureMode !== 'one_finger_pan'
+        ) {
           const followUnit = simRef.current.units.find(
             (u) => u.id === activeFollowId && u.state !== 'ko',
           );
@@ -14392,6 +14381,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         } else {
           camDesiredTarget.x = THREE.MathUtils.clamp(camDesiredTarget.x, 2, simRef.current.gridSize - 3);
+          camDesiredTarget.y = 1.2;
           camDesiredTarget.z = THREE.MathUtils.clamp(camDesiredTarget.z, 2, simRef.current.gridSize - 3);
         }
       }
@@ -17428,11 +17418,12 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       window.visualViewport?.removeEventListener('resize', updateSize);
       clearTouchPaintGrace();
       domElem.removeEventListener('pointerdown', onPointerDown);
-      domElem.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointermove', onPointerMove);
       domElem.removeEventListener('pointerleave', onPointerLeave);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
       domElem.removeEventListener('wheel', onWheel);
+      domElem.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', clearInputs);
@@ -17804,7 +17795,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
                   title={`Click to inspect ${lbl.name}`}
                   style={sharedStyle}
                   onPointerDown={(e) => e.stopPropagation()}
-                  onPointerUp={(e) => e.stopPropagation()}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}
                   onClick={(e) => {
