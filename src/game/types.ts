@@ -929,6 +929,8 @@ export interface GraphicsSettings {
   showPerformanceHud?: boolean;
   /** Toggle screen/camera shake effects during impacts & god powers (default true) */
   cameraShake?: boolean;
+  /** Toggle camera effects such as impact frames, flashes, and hitstop (default true) */
+  cameraEffects?: boolean;
 }
 
 export interface PerfTelemetrySnapshot {

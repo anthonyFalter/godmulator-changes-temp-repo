@@ -7506,7 +7506,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
 
       activeImpactFrame.elapsed += frameDt;
       const prog = activeImpactFrame.elapsed / activeImpactFrame.duration;
-      if (prog >= 1 || propsRef.current.gameState !== 'playing') {
+      if (
+        prog >= 1 ||
+        propsRef.current.gameState !== 'playing' ||
+        propsRef.current.graphicsSettings?.cameraEffects === false
+      ) {
         activeImpactFrame = null;
         if (mountEl) mountEl.style.filter = '';
         return;
@@ -14621,16 +14625,18 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           if (simRef.current.divineTitan && simRef.current.divineTitan.pendingImpactFrame) {
             const ev = simRef.current.divineTitan.pendingImpactFrame;
             simRef.current.divineTitan.pendingImpactFrame = null;
-            hitstopTimer = Math.max(hitstopTimer, ev.hitstop);
-            triggerLightFlash(
-              ev.worldX,
-              ev.worldY + 2.5,
-              ev.worldZ,
-              ev.kind === 'death_beam_mushroom' ? '#ff3b1f' : '#ff2a55',
-              ev.kind === 'death_beam_mushroom' ? 88 : 64,
-            );
             soundEngine.playHeavyImpact();
-            triggerImpactFrame(ev);
+            if (propsRef.current.graphicsSettings?.cameraEffects !== false) {
+              hitstopTimer = Math.max(hitstopTimer, ev.hitstop);
+              triggerLightFlash(
+                ev.worldX,
+                ev.worldY + 2.5,
+                ev.worldZ,
+                ev.kind === 'death_beam_mushroom' ? '#ff3b1f' : '#ff2a55',
+                ev.kind === 'death_beam_mushroom' ? 88 : 64,
+              );
+              triggerImpactFrame(ev);
+            }
           }
           titanHudSyncTimer += dt;
           if (stepRes.exited || stepRes.landed || titanHudSyncTimer >= 0.16) {
@@ -14850,7 +14856,9 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       simSteppedThisFrame = false;
       const clampedSimSpeed = getEffectiveSimulationSpeed(propsRef.current.timeScale);
       const simStepDt = Math.min(dt, autoOptDecisions.maxSimDt);
-      if (hitstopTimer > 0) {
+      if (propsRef.current.graphicsSettings?.cameraEffects === false) {
+        hitstopTimer = 0;
+      } else if (hitstopTimer > 0) {
         hitstopTimer = Math.max(0, hitstopTimer - dt);
       } else if (propsRef.current.gameState === 'playing' && clampedSimSpeed > 0) {
         simAccumulator = Math.min(FIXED_SIM_DT * 2.5, simAccumulator + simStepDt);

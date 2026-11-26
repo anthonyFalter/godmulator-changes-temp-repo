@@ -169,6 +169,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       : 'performance';
   const showPerfHud = Boolean(settings.showPerformanceHud);
   const cameraShakeEnabled = settings.cameraShake !== false;
+  const cameraEffectsEnabled = settings.cameraEffects !== false;
 
   const updateField = <K extends keyof Omit<GraphicsSettings, 'preset'>>(
     key: K,
@@ -184,6 +185,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       strictLossless: settings.strictLossless ?? true,
       showPerformanceHud: showPerfHud,
       cameraShake: cameraShakeEnabled,
+      cameraEffects: cameraEffectsEnabled,
       [key]: value,
     };
     onChange({
@@ -205,6 +207,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
       strictLossless,
       showPerformanceHud: showPerfHud,
       cameraShake: cameraShakeEnabled,
+      cameraEffects: cameraEffectsEnabled,
     };
     onChange({
       ...partial,
@@ -253,6 +256,7 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
                 isQualityMode,
                 showPerfHud,
                 cameraShakeEnabled,
+                cameraEffectsEnabled,
               ),
             );
           }}
@@ -352,6 +356,25 @@ export const GraphicsSettingsPanel: React.FC<GraphicsSettingsPanelProps> = ({
           }`}
         >
           {cameraShakeEnabled ? 'On' : 'Off'}
+        </button>
+      </div>
+
+      {/* Camera Effects */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 pt-0.5">
+        <div className="min-w-0">
+          <div className="text-[#eadbc6]">Camera Effects</div>
+          <div className="text-[10px] text-[#9e866f]">Impact frames, flashes &amp; hitstop</div>
+        </div>
+        <button
+          type="button"
+          data-testid="gfx-camera-effects"
+          aria-pressed={cameraEffectsEnabled}
+          onClick={() => updateField('cameraEffects', !cameraEffectsEnabled)}
+          className={`px-3 py-1 text-[11px] font-semibold cursor-pointer shrink-0 ${
+            cameraEffectsEnabled ? 'px-btn-active font-bold' : 'px-btn'
+          }`}
+        >
+          {cameraEffectsEnabled ? 'On' : 'Off'}
         </button>
       </div>
 

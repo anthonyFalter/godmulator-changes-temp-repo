@@ -19,11 +19,12 @@ export const DEFAULT_GRAPHICS_SETTINGS: GraphicsSettings = {
   strictLossless: true,
   showPerformanceHud: false,
   cameraShake: true,
+  cameraEffects: true,
 };
 
 export const GRAPHICS_PRESET_CONFIGS: Record<
   Exclude<GraphicsQualityPreset, 'custom'>,
-  Omit<GraphicsSettings, 'preset' | 'strictLossless' | 'showPerformanceHud' | 'cameraShake'>
+  Omit<GraphicsSettings, 'preset' | 'strictLossless' | 'showPerformanceHud' | 'cameraShake' | 'cameraEffects'>
 > = {
   high: {
     shadows: 'on',
@@ -71,6 +72,7 @@ export function applyGraphicsPreset(
   strictLossless = true,
   showPerformanceHud = false,
   cameraShake = true,
+  cameraEffects = true,
 ): GraphicsSettings {
   return {
     preset,
@@ -79,6 +81,7 @@ export function applyGraphicsPreset(
     strictLossless,
     showPerformanceHud,
     cameraShake,
+    cameraEffects,
   };
 }
 
@@ -175,6 +178,10 @@ export function sanitizeGraphicsSettings(raw: unknown): GraphicsSettings {
     typeof obj.cameraShake === 'boolean'
       ? obj.cameraShake
       : DEFAULT_GRAPHICS_SETTINGS.cameraShake;
+  const cameraEffects =
+    typeof obj.cameraEffects === 'boolean'
+      ? obj.cameraEffects
+      : DEFAULT_GRAPHICS_SETTINGS.cameraEffects;
 
   return {
     preset: inferGraphicsPreset({
@@ -192,6 +199,7 @@ export function sanitizeGraphicsSettings(raw: unknown): GraphicsSettings {
     strictLossless,
     showPerformanceHud,
     cameraShake,
+    cameraEffects,
   };
 }
 
