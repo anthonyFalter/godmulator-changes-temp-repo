@@ -1262,8 +1262,8 @@ function executeDeathBeamDetonation(state: SimulationState, titan: DivineTitanSt
     worldX: gx,
     worldY: gy + 2.5,
     worldZ: gz,
-    duration: 0.22,
-    hitstop: 0.09,
+    duration: 0.42,
+    hitstop: 0.16,
   };
   pushChronicle(
     state,
@@ -1605,8 +1605,8 @@ export function stepDivineTitan(
           worldX: st.targetX,
           worldY: strikeGroundY + 1.5,
           worldZ: st.targetZ,
-          duration: 0.16,
-          hitstop: 0.06,
+          duration: 0.34,
+          hitstop: 0.12,
         };
       }
     } else if (st.phase === 'firing') {

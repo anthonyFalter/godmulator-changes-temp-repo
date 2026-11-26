@@ -7513,12 +7513,24 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       }
 
       if (mountEl) {
-        if (prog < 0.45) {
-          // Beat 1: Invert colors
-          mountEl.style.filter = 'invert(1) contrast(1.25)';
+        if (prog < 0.16) {
+          // Frame 1: Color Invert jolt
+          mountEl.style.filter = 'invert(1) contrast(1.45) saturate(1.4)';
+        } else if (prog < 0.32) {
+          // Frame 2: Blinding High-Key B&W
+          mountEl.style.filter = 'grayscale(1) contrast(3.6) brightness(1.45)';
+        } else if (prog < 0.50) {
+          // Frame 3: Inverted Negative B&W (stark white lines on black)
+          mountEl.style.filter = 'invert(1) grayscale(1) contrast(4.2) brightness(0.95)';
+        } else if (prog < 0.66) {
+          // Frame 4: Hard Color Invert snap
+          mountEl.style.filter = 'invert(1) contrast(2.2) saturate(1.8)';
+        } else if (prog < 0.84) {
+          // Frame 5: Crushed Dark-Ink B&W
+          mountEl.style.filter = 'grayscale(1) contrast(3.8) brightness(0.72)';
         } else {
-          // Beat 2: High-contrast black & white
-          mountEl.style.filter = 'grayscale(1) contrast(1.75)';
+          // Frame 6: Crisp B&W flash release
+          mountEl.style.filter = 'grayscale(1) contrast(2.2) brightness(1.18)';
         }
       }
     };
