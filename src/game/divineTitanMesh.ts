@@ -9,7 +9,7 @@ import {
 import { TITAN_EXIT_DURATION, TITAN_SUMMON_DURATION } from './divineTitan';
 
 // ---------------------------------------------------------------------------
-// Procedural High-Resolution Canvas Textures (512x512)
+// Procedural High-Resolution Sci-Fi Conqueror Textures (512x512)
 // ---------------------------------------------------------------------------
 
 function createArmorPlateTextures(): {
@@ -22,27 +22,27 @@ function createArmorPlateTextures(): {
   colorCanvas.height = size;
   const ctx = colorCanvas.getContext('2d')!;
 
-  // Base ceramic-titanium off-white gradient (inspired by sleek white/silver mecha armor)
+  // Dark weathered sci-fi titanium-obsidian hull plating
   const bg = ctx.createLinearGradient(0, 0, size, size);
-  bg.addColorStop(0, '#e5e9ef');
-  bg.addColorStop(0.5, '#d7dde6');
-  bg.addColorStop(1, '#c8d0dc');
+  bg.addColorStop(0, '#465160');
+  bg.addColorStop(0.45, '#343d49');
+  bg.addColorStop(1, '#262d37');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, size, size);
 
-  // Subtle brushed micro-grain
-  for (let i = 0; i < 1800; i++) {
+  // Brushed directional alloy grain & battle micro-scratches
+  for (let i = 0; i < 2400; i++) {
     const x = (i * 197) % size;
     const y = (i * 353) % size;
-    const w = 12 + (i % 34);
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.06)' : 'rgba(60,72,90,0.045)';
+    const w = 10 + (i % 42);
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(205,220,240,0.065)' : 'rgba(10,14,18,0.12)';
     ctx.fillRect(x, y, w, 1.5);
   }
 
-  // Armor panel seams
-  ctx.strokeStyle = 'rgba(42, 52, 68, 0.55)';
-  ctx.lineWidth = 3;
+  // Deep armored panel seams with chamfered bevel highlights
   const grid = [0, 128, 256, 384, 512];
+  ctx.strokeStyle = 'rgba(10, 14, 20, 0.85)';
+  ctx.lineWidth = 4;
   for (const g of grid) {
     ctx.beginPath();
     ctx.moveTo(g, 0);
@@ -53,11 +53,9 @@ function createArmorPlateTextures(): {
     ctx.lineTo(size, g);
     ctx.stroke();
   }
-
-  // Highlight bevels beside seams
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+  ctx.strokeStyle = 'rgba(180, 200, 224, 0.34)';
   ctx.lineWidth = 1.5;
-  for (const g of [130, 258, 386]) {
+  for (const g of [131, 259, 387]) {
     ctx.beginPath();
     ctx.moveTo(g, 0);
     ctx.lineTo(g, size);
@@ -68,46 +66,82 @@ function createArmorPlateTextures(): {
     ctx.stroke();
   }
 
-  // Subtle divine gold & crimson accent stripes on select panels
-  ctx.fillStyle = 'rgba(217, 155, 42, 0.32)';
-  ctx.fillRect(16, 110, 96, 8);
-  ctx.fillRect(272, 366, 96, 8);
-  ctx.fillStyle = 'rgba(185, 38, 38, 0.28)';
-  ctx.fillRect(144, 238, 96, 6);
-
-  // Panel rivets
+  // Recessed angular maintenance hatches & vent louver grates
   for (let gx = 0; gx < 4; gx++) {
     for (let gy = 0; gy < 4; gy++) {
       const bx = gx * 128;
       const by = gy * 128;
-      const offsets = [
+      if ((gx + gy) % 2 === 0) {
+        // Louvered exhaust vent
+        ctx.fillStyle = '#151a21';
+        ctx.fillRect(bx + 22, by + 26, 84, 34);
+        for (let lv = 0; lv < 5; lv++) {
+          ctx.fillStyle = '#4e5b6c';
+          ctx.fillRect(bx + 25, by + 29 + lv * 6, 78, 3);
+        }
+      } else {
+        // Diagonal conquest hazard stripe band (crimson & dark obsidian)
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(bx + 14, by + 92, 100, 18);
+        ctx.clip();
+        ctx.fillStyle = '#191d24';
+        ctx.fillRect(bx + 14, by + 92, 100, 18);
+        ctx.fillStyle = '#a8221e';
+        for (let s = -20; s < 120; s += 20) {
+          ctx.beginPath();
+          ctx.moveTo(bx + 14 + s, by + 110);
+          ctx.lineTo(bx + 24 + s, by + 110);
+          ctx.lineTo(bx + 36 + s, by + 92);
+          ctx.lineTo(bx + 26 + s, by + 92);
+          ctx.closePath();
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      // Heavy corner armor bolts
+      for (const [ox, oy] of [
         [12, 12],
         [116, 12],
         [12, 116],
         [116, 116],
-      ];
-      for (const [ox, oy] of offsets) {
-        ctx.fillStyle = 'rgba(48, 58, 72, 0.5)';
+        [64, 12],
+        [64, 116],
+      ]) {
+        ctx.fillStyle = '#11161d';
         ctx.beginPath();
-        ctx.arc(bx + ox, by + oy, 3, 0, Math.PI * 2);
+        ctx.arc(bx + ox, by + oy, 3.4, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.65)';
+        ctx.fillStyle = '#8b99ac';
         ctx.beginPath();
-        ctx.arc(bx + ox - 1, by + oy - 1, 1.3, 0, Math.PI * 2);
+        ctx.arc(bx + ox - 0.8, by + oy - 0.8, 1.5, 0, Math.PI * 2);
         ctx.fill();
       }
     }
   }
 
-  // Bump canvas
+  // Metallic edge wear & scorch grime
+  ctx.strokeStyle = 'rgba(210, 224, 240, 0.22)';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 18; i++) {
+    const sx = (i * 89) % size;
+    const sy = (i * 137) % size;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + 18, sy + 7);
+    ctx.stroke();
+  }
+
+  // High-contrast bump map
   const bumpCanvas = document.createElement('canvas');
   bumpCanvas.width = size;
   bumpCanvas.height = size;
   const bctx = bumpCanvas.getContext('2d')!;
-  bctx.fillStyle = '#b0b0b0';
+  bctx.fillStyle = '#a4a4a4';
   bctx.fillRect(0, 0, size, size);
-  bctx.strokeStyle = '#303030';
-  bctx.lineWidth = 4;
+  bctx.strokeStyle = '#181818';
+  bctx.lineWidth = 5;
   for (const g of grid) {
     bctx.beginPath();
     bctx.moveTo(g, 0);
@@ -122,15 +156,25 @@ function createArmorPlateTextures(): {
     for (let gy = 0; gy < 4; gy++) {
       const bx = gx * 128;
       const by = gy * 128;
+      if ((gx + gy) % 2 === 0) {
+        bctx.fillStyle = '#202020';
+        bctx.fillRect(bx + 22, by + 26, 84, 34);
+        for (let lv = 0; lv < 5; lv++) {
+          bctx.fillStyle = '#e5e5e5';
+          bctx.fillRect(bx + 25, by + 29 + lv * 6, 78, 3);
+        }
+      }
       for (const [ox, oy] of [
         [12, 12],
         [116, 12],
         [12, 116],
         [116, 116],
+        [64, 12],
+        [64, 116],
       ]) {
         bctx.fillStyle = '#ffffff';
         bctx.beginPath();
-        bctx.arc(bx + ox, by + oy, 3.2, 0, Math.PI * 2);
+        bctx.arc(bx + ox, by + oy, 3.6, 0, Math.PI * 2);
         bctx.fill();
       }
     }
@@ -160,32 +204,40 @@ function createMechFrameTextures(): {
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = '#343c47';
+  ctx.fillStyle = '#1b2028';
   ctx.fillRect(0, 0, size, size);
 
-  // Ribbed mechanical grooves & vent slats
-  for (let y = 0; y < size; y += 16) {
-    ctx.fillStyle = 'rgba(18, 22, 28, 0.55)';
+  // Heavy industrial hydraulic ribs & cross-braced steel mesh
+  for (let y = 0; y < size; y += 12) {
+    ctx.fillStyle = 'rgba(6, 9, 13, 0.78)';
     ctx.fillRect(0, y, size, 4);
-    ctx.fillStyle = 'rgba(160, 178, 200, 0.14)';
+    ctx.fillStyle = 'rgba(120, 140, 165, 0.18)';
     ctx.fillRect(0, y + 4, size, 2);
   }
-  for (let x = 0; x < size; x += 64) {
-    ctx.fillStyle = 'rgba(15, 19, 24, 0.45)';
-    ctx.fillRect(x, 0, 3, size);
+  ctx.strokeStyle = 'rgba(95, 110, 130, 0.22)';
+  ctx.lineWidth = 2;
+  for (let i = -size; i < size * 2; i += 32) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i + size, size);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(i + size, 0);
+    ctx.lineTo(i, size);
+    ctx.stroke();
   }
 
   const bump = document.createElement('canvas');
   bump.width = size;
   bump.height = size;
   const bctx = bump.getContext('2d')!;
-  bctx.fillStyle = '#909090';
+  bctx.fillStyle = '#808080';
   bctx.fillRect(0, 0, size, size);
-  for (let y = 0; y < size; y += 16) {
-    bctx.fillStyle = '#252525';
+  for (let y = 0; y < size; y += 12) {
+    bctx.fillStyle = '#181818';
     bctx.fillRect(0, y, size, 5);
-    bctx.fillStyle = '#e0e0e0';
-    bctx.fillRect(0, y + 5, size, 3);
+    bctx.fillStyle = '#f0f0f0';
+    bctx.fillRect(0, y + 5, size, 2.5);
   }
 
   const map = new THREE.CanvasTexture(canvas);
@@ -321,8 +373,11 @@ function createRedTargetIconTexture(): THREE.CanvasTexture {
 }
 
 // ---------------------------------------------------------------------------
-// High-Detail Giant 4-Legged Twin-Cannon Robot Rig
+// Hyper-Detailed Terrifying Sci-Fi Conqueror 4-Legged War-Walker Rig
 // ---------------------------------------------------------------------------
+
+const TITAN_BASE_SCALE = 1.26;
+const TITAN_CHASSIS_Y = 2.75;
 
 interface TitanLegRig {
   side: -1 | 1; // -1 left, +1 right
@@ -344,7 +399,10 @@ interface TitanModelRig {
   rightCannonGroup: THREE.Group;
   muzzleFlashLeft: THREE.Mesh;
   muzzleFlashRight: THREE.Mesh;
-  thrusterFlame: THREE.Mesh;
+  thrusterFlames: THREE.Mesh[];
+  scannerEye: THREE.Mesh;
+  reactorRing: THREE.Group;
+  radarDish: THREE.Group;
   legs: TitanLegRig[];
   disposables: Array<{ dispose: () => void }>;
 }
@@ -364,61 +422,93 @@ function buildDivineTitanModel(): TitanModelRig {
   track(frameTex.map);
   track(frameTex.bumpMap);
 
-  // High-detail PBR materials
-  const armorMat = track(
+  // Terrifying sci-fi conqueror materials: dark weathered titanium, obsidian skeleton, burnished bronze, crimson plasma
+  const armorDarkMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xeaf0f7,
+      color: 0x4b5563,
       map: armorTex.map,
       bumpMap: armorTex.bumpMap,
-      bumpScale: 0.045,
-      metalness: 0.32,
+      bumpScale: 0.065,
+      metalness: 0.62,
       roughness: 0.34,
     }),
   );
 
-  const armorSecondaryMat = track(
+  const armorHighlightMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xbcc6d4,
+      color: 0x768394,
       map: armorTex.map,
       bumpMap: armorTex.bumpMap,
-      bumpScale: 0.035,
-      metalness: 0.45,
-      roughness: 0.38,
+      bumpScale: 0.055,
+      metalness: 0.68,
+      roughness: 0.28,
     }),
   );
 
-  const frameMat = track(
+  const armorObsidianMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0x3b4452,
-      map: frameTex.map,
-      bumpMap: frameTex.bumpMap,
-      bumpScale: 0.04,
+      color: 0x20262f,
+      map: armorTex.map,
+      bumpMap: armorTex.bumpMap,
+      bumpScale: 0.05,
       metalness: 0.72,
       roughness: 0.36,
     }),
   );
 
+  const frameMat = track(
+    new THREE.MeshStandardMaterial({
+      color: 0x252c36,
+      map: frameTex.map,
+      bumpMap: frameTex.bumpMap,
+      bumpScale: 0.06,
+      metalness: 0.82,
+      roughness: 0.32,
+    }),
+  );
+
   const chromeMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xdbe3ee,
-      metalness: 0.9,
-      roughness: 0.18,
+      color: 0xd0dbe8,
+      metalness: 0.94,
+      roughness: 0.14,
     }),
   );
 
-  const goldTrimMat = track(
+  const bronzeTrimMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xf5b742,
-      metalness: 0.78,
-      roughness: 0.25,
+      color: 0xc88d3a,
+      metalness: 0.84,
+      roughness: 0.26,
     }),
   );
 
-  const glowCoreMat = track(
+  const crimsonArmorMat = track(
     new THREE.MeshStandardMaterial({
-      color: 0xff4422,
-      emissive: 0xff3b1f,
-      emissiveIntensity: 2.2,
+      color: 0x8f1d1d,
+      map: armorTex.map,
+      bumpMap: armorTex.bumpMap,
+      bumpScale: 0.045,
+      metalness: 0.55,
+      roughness: 0.35,
+    }),
+  );
+
+  const glowCrimsonMat = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xff241a,
+      emissive: 0xff1e14,
+      emissiveIntensity: 3.0,
+      roughness: 0.15,
+      metalness: 0.1,
+    }),
+  );
+
+  const glowFurnaceMat = track(
+    new THREE.MeshStandardMaterial({
+      color: 0xff6a1a,
+      emissive: 0xff4500,
+      emissiveIntensity: 2.6,
       roughness: 0.2,
       metalness: 0.1,
     }),
@@ -426,7 +516,7 @@ function buildDivineTitanModel(): TitanModelRig {
 
   const muzzleFlashMat = track(
     new THREE.MeshBasicMaterial({
-      color: 0xffe099,
+      color: 0xffb366,
       transparent: true,
       opacity: 0,
       blending: THREE.AdditiveBlending,
@@ -436,9 +526,9 @@ function buildDivineTitanModel(): TitanModelRig {
 
   const thrusterFlameMat = track(
     new THREE.MeshBasicMaterial({
-      color: 0x38bdf8,
+      color: 0xff4d1a,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.82,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }),
@@ -448,223 +538,376 @@ function buildDivineTitanModel(): TitanModelRig {
   const bodyGroup = new THREE.Group();
   root.add(bodyGroup);
 
-  // Chassis rests at y = 2.65 above ground (colossal ~6 units total height with twin cannons!)
-  const CHASSIS_Y = 2.65;
+  const CHASSIS_Y = TITAN_CHASSIS_Y;
 
-  // 1. CENTRAL ARMORED CORE HULL
-  const coreGeo = track(new THREE.BoxGeometry(2.1, 1.35, 2.55));
-  const coreMesh = new THREE.Mesh(coreGeo, frameMat);
-  coreMesh.position.set(0, CHASSIS_Y, 0);
-  coreMesh.castShadow = true;
-  coreMesh.receiveShadow = true;
-  bodyGroup.add(coreMesh);
+  // =========================================================================
+  // 1. MULTI-TIERED OCTAGONAL ARMORED CORE & SIDE FURNACE RADIATORS
+  // =========================================================================
+  const coreOctGeo = track(new THREE.CylinderGeometry(1.52, 1.32, 1.38, 8));
+  const coreOct = new THREE.Mesh(coreOctGeo, frameMat);
+  coreOct.rotation.y = Math.PI / 8;
+  coreOct.position.set(0, CHASSIS_Y, -0.05);
+  coreOct.castShadow = true;
+  coreOct.receiveShadow = true;
+  bodyGroup.add(coreOct);
 
-  // Upper beveled carapace deck
-  const deckGeo = track(new THREE.BoxGeometry(2.35, 0.36, 2.75));
-  const deckMesh = new THREE.Mesh(deckGeo, armorMat);
-  deckMesh.position.set(0, CHASSIS_Y + 0.72, -0.05);
-  deckMesh.castShadow = true;
-  deckMesh.receiveShadow = true;
-  bodyGroup.add(deckMesh);
+  // Sloped composite armored upper carapace
+  const upperCarapaceGeo = track(new THREE.CylinderGeometry(1.42, 1.72, 0.48, 8));
+  const upperCarapace = new THREE.Mesh(upperCarapaceGeo, armorDarkMat);
+  upperCarapace.rotation.y = Math.PI / 8;
+  upperCarapace.position.set(0, CHASSIS_Y + 0.72, -0.05);
+  upperCarapace.castShadow = true;
+  upperCarapace.receiveShadow = true;
+  bodyGroup.add(upperCarapace);
 
-  // Sloped angular front cockpit prow (distinctive nose from reference image)
+  // Dorsal spine armor ribs running front-to-back
+  const spineRibGeo = track(new THREE.BoxGeometry(0.18, 0.26, 2.75));
+  for (const sx of [-0.55, 0.55]) {
+    const rib = new THREE.Mesh(spineRibGeo, armorObsidianMat);
+    rib.position.set(sx, CHASSIS_Y + 0.92, -0.05);
+    rib.castShadow = true;
+    bodyGroup.add(rib);
+  }
+
+  // Side heat-sink radiator fin banks with glowing furnace core behind them
+  const finGeo = track(new THREE.BoxGeometry(0.22, 0.56, 0.08));
+  const ventGlowGeo = track(new THREE.BoxGeometry(0.14, 0.42, 1.35));
+  for (const side of [-1, 1] as const) {
+    const ventGlow = new THREE.Mesh(ventGlowGeo, glowFurnaceMat);
+    ventGlow.position.set(side * 1.18, CHASSIS_Y - 0.05, -0.1);
+    bodyGroup.add(ventGlow);
+    for (let f = 0; f < 7; f++) {
+      const fin = new THREE.Mesh(finGeo, armorObsidianMat);
+      fin.position.set(side * 1.28, CHASSIS_Y - 0.05, -0.7 + f * 0.2);
+      fin.rotation.y = side * 0.22;
+      bodyGroup.add(fin);
+    }
+  }
+
+  // =========================================================================
+  // 2. TERRIFYING CONQUEROR WAR-HEAD / PREDATOR SENSOR PROW
+  // =========================================================================
   const prowShape = new THREE.Shape();
-  prowShape.moveTo(0, 0.65);
-  prowShape.lineTo(1.15, 0.32);
-  prowShape.lineTo(1.38, -0.22);
-  prowShape.lineTo(0.88, -0.68);
-  prowShape.lineTo(0, -0.58);
+  prowShape.moveTo(0, 0.78);
+  prowShape.lineTo(1.28, 0.52);
+  prowShape.lineTo(1.62, 0.16);
+  prowShape.lineTo(1.28, -0.08);
+  prowShape.lineTo(1.42, -0.46);
+  prowShape.lineTo(0.85, -0.76);
+  prowShape.lineTo(0, -0.62);
   prowShape.closePath();
+
   const prowGeo = track(
     new THREE.ExtrudeGeometry(prowShape, {
-      depth: 1.48,
+      depth: 1.56,
       bevelEnabled: true,
-      bevelThickness: 0.1,
-      bevelSize: 0.08,
+      bevelThickness: 0.12,
+      bevelSize: 0.09,
       bevelSegments: 4,
     }),
   );
   prowGeo.center();
-  const prowMesh = new THREE.Mesh(prowGeo, armorMat);
-  // Rotate so shape +X points along +Z (forward)
+  const prowMesh = new THREE.Mesh(prowGeo, armorDarkMat);
   prowMesh.rotation.y = -Math.PI / 2;
-  prowMesh.position.set(0, CHASSIS_Y - 0.06, 1.52);
+  prowMesh.position.set(0, CHASSIS_Y - 0.04, 1.58);
   prowMesh.castShadow = true;
   prowMesh.receiveShadow = true;
   bodyGroup.add(prowMesh);
 
-  // Glowing divine optic visor strip recessed on front prow
-  const visorFrameGeo = track(new THREE.BoxGeometry(1.12, 0.24, 0.22));
-  const visorFrame = new THREE.Mesh(visorFrameGeo, frameMat);
-  visorFrame.position.set(0, CHASSIS_Y + 0.12, 2.08);
-  visorFrame.rotation.x = 0.28;
-  bodyGroup.add(visorFrame);
+  // Aggressive crimson-trimmed brow crown overhanging the optic bay
+  const browGeo = track(new THREE.BoxGeometry(1.78, 0.22, 0.72));
+  const brow = new THREE.Mesh(browGeo, crimsonArmorMat);
+  brow.position.set(0, CHASSIS_Y + 0.44, 1.98);
+  brow.rotation.x = 0.28;
+  brow.castShadow = true;
+  bodyGroup.add(brow);
 
-  const visorGlowGeo = track(new THREE.BoxGeometry(0.92, 0.11, 0.14));
-  const visorGlow = new THREE.Mesh(visorGlowGeo, glowCoreMat);
-  visorGlow.position.set(0, CHASSIS_Y + 0.12, 2.16);
-  visorGlow.rotation.x = 0.28;
-  bodyGroup.add(visorGlow);
+  // Recessed obsidian optic bay
+  const opticBayGeo = track(new THREE.BoxGeometry(1.36, 0.34, 0.28));
+  const opticBay = new THREE.Mesh(opticBayGeo, armorObsidianMat);
+  opticBay.position.set(0, CHASSIS_Y + 0.12, 2.22);
+  opticBay.rotation.x = 0.22;
+  bodyGroup.add(opticBay);
 
-  // Underbelly divine reactor core ring
-  const bellyRingGeo = track(new THREE.TorusGeometry(0.62, 0.1, 16, 32));
-  const bellyRing = new THREE.Mesh(bellyRingGeo, goldTrimMat);
-  bellyRing.rotation.x = Math.PI / 2;
-  bellyRing.position.set(0, CHASSIS_Y - 0.7, 0);
-  bodyGroup.add(bellyRing);
+  // Glowing crimson optic track + sweeping cyclops scanner eye + dual menacing side eyes
+  const visorTrackGeo = track(new THREE.BoxGeometry(1.18, 0.06, 0.08));
+  const visorTrack = new THREE.Mesh(visorTrackGeo, glowFurnaceMat);
+  visorTrack.position.set(0, CHASSIS_Y + 0.12, 2.34);
+  bodyGroup.add(visorTrack);
 
-  const bellyCoreGeo = track(new THREE.CylinderGeometry(0.45, 0.35, 0.22, 24));
-  const bellyCore = new THREE.Mesh(bellyCoreGeo, glowCoreMat);
-  bellyCore.position.set(0, CHASSIS_Y - 0.72, 0);
-  bodyGroup.add(bellyCore);
+  const scannerEyeGeo = track(new THREE.SphereGeometry(0.14, 16, 12));
+  const scannerEye = new THREE.Mesh(scannerEyeGeo, glowCrimsonMat);
+  scannerEye.position.set(0, CHASSIS_Y + 0.12, 2.36);
+  scannerEye.scale.set(1.3, 0.85, 0.8);
+  bodyGroup.add(scannerEye);
 
-  // 2. SWEEPING CURVED SHOULDER COWLINGS / FENDERS (Left & Right, matching reference image!)
+  const sideEyeGeo = track(new THREE.BoxGeometry(0.28, 0.09, 0.1));
+  for (const side of [-1, 1] as const) {
+    const sideEye = new THREE.Mesh(sideEyeGeo, glowCrimsonMat);
+    sideEye.position.set(side * 0.46, CHASSIS_Y + 0.18, 2.32);
+    sideEye.rotation.z = side * -0.26;
+    bodyGroup.add(sideEye);
+  }
+
+  // Twin armored forward mandible fangs / chin sensor blades
+  const tuskGeo = track(new THREE.ConeGeometry(0.16, 0.95, 6));
+  for (const side of [-1, 1] as const) {
+    const tusk = new THREE.Mesh(tuskGeo, armorHighlightMat);
+    tusk.rotation.x = Math.PI / 2 + 0.22;
+    tusk.rotation.z = side * -0.14;
+    tusk.position.set(side * 0.56, CHASSIS_Y - 0.42, 2.36);
+    tusk.castShadow = true;
+    bodyGroup.add(tusk);
+  }
+
+  // =========================================================================
+  // 3. EXPOSED SPINNING UNDERBELLY GYRO-REACTOR CORE
+  // =========================================================================
+  const reactorRing = new THREE.Group();
+  reactorRing.position.set(0, CHASSIS_Y - 0.72, -0.05);
+  bodyGroup.add(reactorRing);
+
+  const reactorTorusGeo = track(new THREE.TorusGeometry(0.74, 0.11, 12, 28));
+  const reactorTorus = new THREE.Mesh(reactorTorusGeo, bronzeTrimMat);
+  reactorTorus.rotation.x = Math.PI / 2;
+  reactorRing.add(reactorTorus);
+
+  const reactorBladeGeo = track(new THREE.BoxGeometry(0.14, 0.18, 0.34));
+  for (let b = 0; b < 8; b++) {
+    const a = (b / 8) * Math.PI * 2;
+    const blade = new THREE.Mesh(reactorBladeGeo, armorObsidianMat);
+    blade.position.set(Math.sin(a) * 0.74, 0, Math.cos(a) * 0.74);
+    blade.rotation.y = a;
+    reactorRing.add(blade);
+  }
+
+  const reactorCoreGeo = track(new THREE.SphereGeometry(0.52, 20, 16));
+  const reactorCore = new THREE.Mesh(reactorCoreGeo, glowCrimsonMat);
+  reactorCore.scale.set(1, 0.55, 1);
+  reactorCore.position.set(0, CHASSIS_Y - 0.72, -0.05);
+  bodyGroup.add(reactorCore);
+
+  // =========================================================================
+  // 4. MULTI-LAYERED SWEEPING WAR-PAULDRONS, EXHAUST STACKS & BRAIDED CABLES
+  // =========================================================================
   const cowlShape = new THREE.Shape();
-  cowlShape.moveTo(-1.85, 0.15);
-  cowlShape.quadraticCurveTo(-1.25, 0.82, 0.25, 0.72);
-  cowlShape.quadraticCurveTo(1.35, 0.65, 1.88, 0.18);
-  cowlShape.lineTo(1.65, -0.58);
-  cowlShape.quadraticCurveTo(0.95, -0.15, 0.15, -0.28);
-  cowlShape.quadraticCurveTo(-0.85, -0.45, -1.62, -0.68);
+  cowlShape.moveTo(-2.05, 0.12);
+  cowlShape.quadraticCurveTo(-1.35, 0.96, 0.2, 0.84);
+  cowlShape.quadraticCurveTo(1.45, 0.75, 2.08, 0.22);
+  cowlShape.lineTo(1.85, -0.68);
+  cowlShape.quadraticCurveTo(1.02, -0.16, 0.16, -0.3);
+  cowlShape.quadraticCurveTo(-0.92, -0.5, -1.82, -0.82);
   cowlShape.closePath();
 
   const cowlGeo = track(
     new THREE.ExtrudeGeometry(cowlShape, {
-      depth: 0.56,
+      depth: 0.64,
       bevelEnabled: true,
-      bevelThickness: 0.12,
-      bevelSize: 0.09,
-      bevelSegments: 5,
+      bevelThickness: 0.14,
+      bevelSize: 0.1,
+      bevelSegments: 4,
     }),
   );
   cowlGeo.center();
 
+  const reactiveTileGeo = track(new THREE.BoxGeometry(0.18, 0.42, 0.62));
+  const stackPipeGeo = track(new THREE.CylinderGeometry(0.14, 0.18, 0.92, 16));
+  const stackCapGeo = track(new THREE.CylinderGeometry(0.19, 0.16, 0.14, 16));
+
   for (const side of [-1, 1] as const) {
-    const cowl = new THREE.Mesh(cowlGeo, armorMat);
+    const cowl = new THREE.Mesh(cowlGeo, armorHighlightMat);
     cowl.rotation.y = -Math.PI / 2;
-    cowl.position.set(side * 1.48, CHASSIS_Y + 0.32, -0.1);
-    cowl.rotation.z = side * -0.12;
+    cowl.position.set(side * 1.62, CHASSIS_Y + 0.34, -0.08);
+    cowl.rotation.z = side * -0.15;
     cowl.castShadow = true;
     cowl.receiveShadow = true;
     bodyGroup.add(cowl);
 
-    // Gold divine trim rail along outer cowling
-    const trimGeo = track(new THREE.BoxGeometry(0.12, 0.12, 2.4));
-    const trim = new THREE.Mesh(trimGeo, goldTrimMat);
-    trim.position.set(side * 1.82, CHASSIS_Y + 0.62, -0.1);
-    bodyGroup.add(trim);
+    // Overlapping reactive armor plates bolted onto outer pauldron
+    for (let t = 0; t < 4; t++) {
+      const tile = new THREE.Mesh(reactiveTileGeo, t === 1 ? crimsonArmorMat : armorDarkMat);
+      tile.position.set(side * 1.98, CHASSIS_Y + 0.45 - Math.abs(t - 1.5) * 0.08, -1.05 + t * 0.7);
+      tile.rotation.z = side * -0.18;
+      tile.castShadow = true;
+      bodyGroup.add(tile);
+    }
 
-    // Curved hydraulic power cable looping from rear cowling down to rear leg mount
-    const cableCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(side * 1.38, CHASSIS_Y + 0.05, -1.55),
-      new THREE.Vector3(side * 1.65, CHASSIS_Y - 0.58, -1.95),
-      new THREE.Vector3(side * 1.52, CHASSIS_Y - 1.32, -1.65),
-      new THREE.Vector3(side * 1.25, CHASSIS_Y - 1.55, -1.15),
+    // Twin vertical armored exhaust stacks with glowing crimson tips
+    for (let st = 0; st < 2; st++) {
+      const pipe = new THREE.Mesh(stackPipeGeo, frameMat);
+      pipe.position.set(side * 1.48, CHASSIS_Y + 1.05, -0.85 - st * 0.42);
+      pipe.rotation.x = -0.24;
+      pipe.rotation.z = side * -0.14;
+      pipe.castShadow = true;
+      bodyGroup.add(pipe);
+
+      const cap = new THREE.Mesh(stackCapGeo, glowFurnaceMat);
+      cap.position.set(side * 1.54, CHASSIS_Y + 1.48, -0.96 - st * 0.42);
+      cap.rotation.x = -0.24;
+      bodyGroup.add(cap);
+    }
+
+    // Dual braided curved hydraulic hoses looping from rear cowling down to rear leg joints
+    const cableCurveA = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 1.48, CHASSIS_Y + 0.08, -1.72),
+      new THREE.Vector3(side * 1.88, CHASSIS_Y - 0.56, -2.18),
+      new THREE.Vector3(side * 1.72, CHASSIS_Y - 1.38, -1.82),
+      new THREE.Vector3(side * 1.35, CHASSIS_Y - 1.65, -1.25),
     ]);
-    const cableGeo = track(new THREE.TubeGeometry(cableCurve, 22, 0.085, 12, false));
-    const cableMesh = new THREE.Mesh(cableGeo, frameMat);
-    cableMesh.castShadow = true;
-    bodyGroup.add(cableMesh);
+    const cableMeshA = new THREE.Mesh(
+      track(new THREE.TubeGeometry(cableCurveA, 24, 0.1, 12, false)),
+      frameMat,
+    );
+    cableMeshA.castShadow = true;
+    bodyGroup.add(cableMeshA);
+
+    const cableCurveB = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 1.28, CHASSIS_Y - 0.1, -1.68),
+      new THREE.Vector3(side * 1.62, CHASSIS_Y - 0.78, -2.02),
+      new THREE.Vector3(side * 1.48, CHASSIS_Y - 1.48, -1.58),
+      new THREE.Vector3(side * 1.22, CHASSIS_Y - 1.58, -1.1),
+    ]);
+    const cableMeshB = new THREE.Mesh(
+      track(new THREE.TubeGeometry(cableCurveB, 20, 0.065, 10, false)),
+      bronzeTrimMat,
+    );
+    bodyGroup.add(cableMeshB);
   }
 
-  // 3. REAR THRUSTER / BOOSTER NOZZLE (matching reference image)
-  const thrusterHousingGeo = track(new THREE.CylinderGeometry(0.46, 0.56, 0.72, 24));
-  const thrusterHousing = new THREE.Mesh(thrusterHousingGeo, armorSecondaryMat);
-  thrusterHousing.rotation.x = Math.PI / 2;
-  thrusterHousing.position.set(0, CHASSIS_Y + 0.25, -1.68);
-  thrusterHousing.castShadow = true;
-  bodyGroup.add(thrusterHousing);
+  // =========================================================================
+  // 5. DUAL HEAVY REAR GIMBALED BOOSTER THRUSTERS
+  // =========================================================================
+  const thrusterHousingGeo = track(new THREE.CylinderGeometry(0.42, 0.54, 0.8, 20));
+  const nozzleBellGeo = track(new THREE.CylinderGeometry(0.28, 0.46, 0.55, 20));
+  const thrusterFlameGeo = track(new THREE.ConeGeometry(0.36, 2.4, 20, 1, true));
+  thrusterFlameGeo.translate(0, -1.2, 0);
+  const thrusterFlames: THREE.Mesh[] = [];
 
-  const nozzleGeo = track(new THREE.CylinderGeometry(0.32, 0.48, 0.52, 24));
-  const nozzle = new THREE.Mesh(nozzleGeo, frameMat);
-  nozzle.rotation.x = Math.PI / 2;
-  nozzle.position.set(0, CHASSIS_Y + 0.25, -2.18);
-  bodyGroup.add(nozzle);
+  for (const side of [-1, 1] as const) {
+    const housing = new THREE.Mesh(thrusterHousingGeo, armorDarkMat);
+    housing.rotation.x = Math.PI / 2;
+    housing.position.set(side * 0.68, CHASSIS_Y + 0.18, -1.78);
+    housing.castShadow = true;
+    bodyGroup.add(housing);
 
-  const thrusterFlameGeo = track(new THREE.ConeGeometry(0.38, 2.2, 20, 1, true));
-  thrusterFlameGeo.translate(0, -1.1, 0);
-  const thrusterFlame = new THREE.Mesh(thrusterFlameGeo, thrusterFlameMat);
-  thrusterFlame.rotation.x = Math.PI / 2;
-  thrusterFlame.position.set(0, CHASSIS_Y + 0.25, -2.35);
-  bodyGroup.add(thrusterFlame);
+    const bell = new THREE.Mesh(nozzleBellGeo, frameMat);
+    bell.rotation.x = Math.PI / 2;
+    bell.position.set(side * 0.68, CHASSIS_Y + 0.18, -2.28);
+    bodyGroup.add(bell);
 
-  // 4. FOUR ARTICULATED REVERSE-JOINT MECHANICAL LEGS (high-detail, non-lowpoly!)
+    const flame = new THREE.Mesh(thrusterFlameGeo, thrusterFlameMat);
+    flame.rotation.x = Math.PI / 2;
+    flame.position.set(side * 0.68, CHASSIS_Y + 0.18, -2.42);
+    bodyGroup.add(flame);
+    thrusterFlames.push(flame);
+  }
+
+  // =========================================================================
+  // 6. FOUR ULTRA-DETAILED MECHANICAL REVERSE-JOINT CONQUEROR LEGS
+  // =========================================================================
   const legs: TitanLegRig[] = [];
-  const hipDrumGeo = track(new THREE.CylinderGeometry(0.42, 0.42, 0.54, 24));
-  const thighArmorGeo = track(new THREE.CapsuleGeometry(0.42, 1.05, 10, 20));
-  const pistonOuterGeo = track(new THREE.CylinderGeometry(0.11, 0.11, 1.1, 16));
-  const pistonInnerGeo = track(new THREE.CylinderGeometry(0.065, 0.065, 1.25, 16));
-  const kneeDrumGeo = track(new THREE.CylinderGeometry(0.34, 0.34, 0.52, 24));
-  const kneeCapGeo = track(new THREE.CylinderGeometry(0.22, 0.22, 0.58, 20));
-  const shinBeamGeo = track(new THREE.BoxGeometry(0.32, 1.75, 0.38));
-  const shinArmorGeo = track(new THREE.BoxGeometry(0.44, 1.25, 0.26));
-  const ankleDrumGeo = track(new THREE.CylinderGeometry(0.24, 0.24, 0.46, 20));
+  const hipDrumGeo = track(new THREE.CylinderGeometry(0.48, 0.48, 0.64, 24));
+  const hipGearGeo = track(new THREE.TorusGeometry(0.48, 0.075, 10, 24));
+  const hipSkirtGeo = track(new THREE.BoxGeometry(0.68, 0.52, 0.78));
+  const thighTrussGeo = track(new THREE.BoxGeometry(0.38, 1.5, 0.46));
+  const thighArmorGeo = track(new THREE.CapsuleGeometry(0.44, 0.98, 10, 20));
+  const thighVeinGeo = track(new THREE.BoxGeometry(0.1, 0.92, 0.08));
+  const pistonOuterGeo = track(new THREE.CylinderGeometry(0.12, 0.12, 1.15, 16));
+  const pistonInnerGeo = track(new THREE.CylinderGeometry(0.07, 0.07, 1.38, 16));
+  const kneeDrumGeo = track(new THREE.CylinderGeometry(0.4, 0.4, 0.6, 24));
+  const kneeCapGeo = track(new THREE.CylinderGeometry(0.24, 0.24, 0.68, 20));
+  const kneeRamGeo = track(new THREE.ConeGeometry(0.28, 0.68, 6));
+  const shinRailGeo = track(new THREE.BoxGeometry(0.14, 1.85, 0.24));
+  const shinGreaveGeo = track(new THREE.BoxGeometry(0.52, 1.32, 0.34));
+  const ankleDrumGeo = track(new THREE.CylinderGeometry(0.28, 0.28, 0.56, 20));
 
-  // Elongated sleek mecha toe blade (matching reference image's long pointed feet!)
+  // Heavy central siege-toe blade + flanking mechanical talons
   const footToeShape = new THREE.Shape();
-  footToeShape.moveTo(-0.25, 0);
-  footToeShape.lineTo(1.28, 0.02);
-  footToeShape.lineTo(1.05, 0.24);
-  footToeShape.lineTo(0.25, 0.42);
-  footToeShape.lineTo(-0.28, 0.36);
+  footToeShape.moveTo(-0.28, 0);
+  footToeShape.lineTo(1.45, 0.02);
+  footToeShape.lineTo(1.22, 0.28);
+  footToeShape.lineTo(0.32, 0.48);
+  footToeShape.lineTo(-0.32, 0.42);
   footToeShape.closePath();
   const footToeGeo = track(
     new THREE.ExtrudeGeometry(footToeShape, {
-      depth: 0.48,
+      depth: 0.46,
       bevelEnabled: true,
-      bevelThickness: 0.05,
-      bevelSize: 0.04,
+      bevelThickness: 0.06,
+      bevelSize: 0.05,
       bevelSegments: 3,
     }),
   );
   footToeGeo.center();
 
-  const heelClawGeo = track(new THREE.BoxGeometry(0.36, 0.24, 0.68));
+  const sideTalonGeo = track(new THREE.BoxGeometry(0.2, 0.22, 0.95));
+  const heelClawGeo = track(new THREE.BoxGeometry(0.42, 0.28, 0.82));
+  const footPadGlowGeo = track(new THREE.BoxGeometry(0.32, 0.08, 0.42));
 
   const legSpecs: Array<{ side: -1 | 1; front: -1 | 1; x: number; z: number }> = [
-    { side: -1, front: 1, x: -1.42, z: 1.05 },
-    { side: 1, front: 1, x: 1.42, z: 1.05 },
-    { side: -1, front: -1, x: -1.42, z: -1.05 },
-    { side: 1, front: -1, x: 1.42, z: -1.05 },
+    { side: -1, front: 1, x: -1.52, z: 1.12 },
+    { side: 1, front: 1, x: 1.52, z: 1.12 },
+    { side: -1, front: -1, x: -1.52, z: -1.12 },
+    { side: 1, front: -1, x: 1.52, z: -1.12 },
   ];
 
   for (const spec of legSpecs) {
     const hipPivot = new THREE.Group();
-    hipPivot.position.set(spec.x, CHASSIS_Y - 0.15, spec.z);
+    hipPivot.position.set(spec.x, CHASSIS_Y - 0.14, spec.z);
     bodyGroup.add(hipPivot);
 
-    // Hip drum
+    // Rotary hip servo drum + outer brass bearing gear + armored hip skirt
     const hipDrum = new THREE.Mesh(hipDrumGeo, frameMat);
     hipDrum.rotation.z = Math.PI / 2;
     hipDrum.castShadow = true;
     hipPivot.add(hipDrum);
 
-    // Splay legs slightly outward for massive intimidating quadruped stance
+    const hipGear = new THREE.Mesh(hipGearGeo, bronzeTrimMat);
+    hipGear.rotation.y = Math.PI / 2;
+    hipGear.position.x = spec.side * 0.28;
+    hipPivot.add(hipGear);
+
+    const hipSkirt = new THREE.Mesh(hipSkirtGeo, armorObsidianMat);
+    hipSkirt.position.set(spec.side * 0.22, 0.18, 0);
+    hipSkirt.rotation.z = spec.side * -0.25;
+    hipPivot.add(hipSkirt);
+
+    // Wide, intimidating splayed quadruped thigh
     const thighGroup = new THREE.Group();
-    thighGroup.rotation.z = spec.side * 0.22;
-    thighGroup.rotation.x = spec.front > 0 ? -0.45 : 0.42;
+    thighGroup.rotation.z = spec.side * 0.26;
+    thighGroup.rotation.x = spec.front > 0 ? -0.46 : 0.44;
     hipPivot.add(thighGroup);
 
-    // Sculpted bulbous armored thigh guard
-    const thighArmor = new THREE.Mesh(thighArmorGeo, armorMat);
-    thighArmor.position.set(spec.side * 0.14, -0.78, 0);
-    thighArmor.scale.set(0.95, 1.0, 1.15);
+    const thighTruss = new THREE.Mesh(thighTrussGeo, frameMat);
+    thighTruss.position.set(0, -0.78, 0);
+    thighGroup.add(thighTruss);
+
+    const thighArmor = new THREE.Mesh(thighArmorGeo, armorDarkMat);
+    thighArmor.position.set(spec.side * 0.18, -0.78, 0.04);
+    thighArmor.scale.set(1.0, 1.0, 1.18);
     thighArmor.castShadow = true;
     thighArmor.receiveShadow = true;
     thighGroup.add(thighArmor);
 
-    // Chrome hydraulic piston beside thigh
-    const pistonOuter = new THREE.Mesh(pistonOuterGeo, frameMat);
-    pistonOuter.position.set(spec.side * -0.14, -0.68, -0.22);
-    thighGroup.add(pistonOuter);
+    // Glowing crimson hydraulic power vein along outer thigh
+    const thighVein = new THREE.Mesh(thighVeinGeo, glowCrimsonMat);
+    thighVein.position.set(spec.side * 0.62, -0.75, 0.08);
+    thighGroup.add(thighVein);
 
-    const pistonInner = new THREE.Mesh(pistonInnerGeo, chromeMat);
-    pistonInner.position.set(spec.side * -0.14, -0.95, -0.22);
-    thighGroup.add(pistonInner);
+    // Dual parallel chrome hydraulic rams
+    for (const pz of [-0.24, 0.24]) {
+      const pOuter = new THREE.Mesh(pistonOuterGeo, armorObsidianMat);
+      pOuter.position.set(spec.side * -0.18, -0.66, pz);
+      thighGroup.add(pOuter);
 
-    // Knee pivot at end of thigh
+      const pInner = new THREE.Mesh(pistonInnerGeo, chromeMat);
+      pInner.position.set(spec.side * -0.18, -0.96, pz);
+      thighGroup.add(pInner);
+    }
+
+    // Mechanical knee assembly with toothed servo & spiked knee-ram shield
     const kneePivot = new THREE.Group();
-    kneePivot.position.set(spec.side * 0.12, -1.48, 0);
+    kneePivot.position.set(spec.side * 0.14, -1.56, 0);
     thighGroup.add(kneePivot);
 
     const kneeDrum = new THREE.Mesh(kneeDrumGeo, frameMat);
@@ -672,54 +915,80 @@ function buildDivineTitanModel(): TitanModelRig {
     kneeDrum.castShadow = true;
     kneePivot.add(kneeDrum);
 
-    const kneeCap = new THREE.Mesh(kneeCapGeo, goldTrimMat);
+    const kneeCap = new THREE.Mesh(kneeCapGeo, bronzeTrimMat);
     kneeCap.rotation.z = Math.PI / 2;
     kneePivot.add(kneeCap);
 
-    // Reverse-angled lower shin
-    const shinAngle = spec.front > 0 ? 0.72 : -0.68;
+    const kneeRam = new THREE.Mesh(kneeRamGeo, armorHighlightMat);
+    kneeRam.rotation.x = spec.front > 0 ? Math.PI / 2 - 0.35 : -Math.PI / 2 + 0.35;
+    kneeRam.position.set(0, 0.08, spec.front * 0.44);
+    kneeRam.castShadow = true;
+    kneePivot.add(kneeRam);
+
+    // Reverse-joint exposed dual-rail mechanical shin
+    const shinAngle = spec.front > 0 ? 0.74 : -0.7;
     const shinGroup = new THREE.Group();
     shinGroup.rotation.x = shinAngle;
-    shinGroup.rotation.z = spec.side * -0.16;
+    shinGroup.rotation.z = spec.side * -0.18;
     kneePivot.add(shinGroup);
 
-    const shinBeam = new THREE.Mesh(shinBeamGeo, frameMat);
-    shinBeam.position.set(0, -0.88, 0);
-    shinBeam.castShadow = true;
-    shinGroup.add(shinBeam);
+    for (const rx of [-0.16, 0.16]) {
+      const rail = new THREE.Mesh(shinRailGeo, frameMat);
+      rail.position.set(rx, -0.92, 0);
+      rail.castShadow = true;
+      shinGroup.add(rail);
+    }
 
-    const shinArmor = new THREE.Mesh(shinArmorGeo, armorSecondaryMat);
-    shinArmor.position.set(0, -0.76, spec.front > 0 ? 0.18 : -0.18);
-    shinArmor.castShadow = true;
-    shinGroup.add(shinArmor);
+    const shinGreave = new THREE.Mesh(shinGreaveGeo, armorHighlightMat);
+    shinGreave.position.set(0, -0.82, spec.front * 0.22);
+    shinGreave.castShadow = true;
+    shinGroup.add(shinGreave);
 
-    const shinPiston = new THREE.Mesh(pistonInnerGeo, chromeMat);
-    shinPiston.position.set(spec.side * 0.18, -0.86, -0.16);
-    shinGroup.add(shinPiston);
+    // Twin chrome shin shock-absorbers
+    for (const sx of [-0.22, 0.22]) {
+      const shock = new THREE.Mesh(pistonInnerGeo, chromeMat);
+      shock.position.set(sx, -0.88, spec.front * -0.2);
+      shinGroup.add(shock);
+    }
 
-    // Ankle & elongated mecha foot
+    // Articulated ankle & terrifying 3-clawed mechanical war-foot
     const anklePivot = new THREE.Group();
-    anklePivot.position.set(0, -1.72, 0);
-    // Counter-rotate so foot rests flat on ground
-    anklePivot.rotation.x = -(spec.front > 0 ? -0.45 : 0.42) - shinAngle;
-    anklePivot.rotation.z = spec.side * -0.06;
+    anklePivot.position.set(0, -1.82, 0);
+    anklePivot.rotation.x = -(spec.front > 0 ? -0.46 : 0.44) - shinAngle;
+    anklePivot.rotation.z = spec.side * -0.08;
     shinGroup.add(anklePivot);
 
     const ankleDrum = new THREE.Mesh(ankleDrumGeo, frameMat);
     ankleDrum.rotation.z = Math.PI / 2;
     anklePivot.add(ankleDrum);
 
-    const footToe = new THREE.Mesh(footToeGeo, armorMat);
+    // Central armored siege-toe blade
+    const footToe = new THREE.Mesh(footToeGeo, armorDarkMat);
     footToe.rotation.y = -Math.PI / 2;
-    footToe.position.set(0, -0.14, 0.46);
+    footToe.position.set(0, -0.14, 0.52);
     footToe.castShadow = true;
     footToe.receiveShadow = true;
     anklePivot.add(footToe);
 
-    const heelClaw = new THREE.Mesh(heelClawGeo, armorSecondaryMat);
-    heelClaw.position.set(0, -0.16, -0.34);
+    // Flanking splayed mechanical talons (left & right)
+    for (const ts of [-1, 1] as const) {
+      const talon = new THREE.Mesh(sideTalonGeo, armorHighlightMat);
+      talon.position.set(ts * 0.42, -0.18, 0.34);
+      talon.rotation.y = ts * 0.34;
+      talon.castShadow = true;
+      anklePivot.add(talon);
+    }
+
+    // Heavy rear hydraulic heel spur
+    const heelClaw = new THREE.Mesh(heelClawGeo, armorObsidianMat);
+    heelClaw.position.set(0, -0.16, -0.42);
     heelClaw.castShadow = true;
     anklePivot.add(heelClaw);
+
+    // Glowing impact vent on foot bridge
+    const footGlow = new THREE.Mesh(footPadGlowGeo, glowCrimsonMat);
+    footGlow.position.set(0, 0.04, 0.26);
+    anklePivot.add(footGlow);
 
     legs.push({
       side: spec.side,
@@ -728,115 +997,171 @@ function buildDivineTitanModel(): TitanModelRig {
       kneePivot,
       anklePivot,
       baseHipX: spec.x,
-      baseHipY: CHASSIS_Y - 0.15,
+      baseHipY: CHASSIS_Y - 0.14,
       baseHipZ: spec.z,
     });
   }
 
-  // 5. DORSAL TURRET & TWO MASSIVE RAIL-CANNONS (follows mouse cursor independently!)
+  // =========================================================================
+  // 7. DORSAL CONQUEROR SIEGE TURRET & TWO COLOSSAL SPLIT-RAIL CANNONS
+  // =========================================================================
   const turretGroup = new THREE.Group();
-  turretGroup.position.set(0, CHASSIS_Y + 0.96, -0.08);
+  turretGroup.position.set(0, CHASSIS_Y + 0.98, -0.08);
   root.add(turretGroup);
 
-  // Heavy rotary turret ring
-  const turretRingGeo = track(new THREE.CylinderGeometry(1.08, 1.18, 0.34, 32));
+  // Heavy toothed turret rotation collar
+  const turretRingGeo = track(new THREE.CylinderGeometry(1.18, 1.32, 0.36, 32));
   const turretRing = new THREE.Mesh(turretRingGeo, frameMat);
   turretRing.castShadow = true;
   turretGroup.add(turretRing);
 
-  const turretRingTrimGeo = track(new THREE.TorusGeometry(1.12, 0.06, 12, 32));
-  const turretRingTrim = new THREE.Mesh(turretRingTrimGeo, goldTrimMat);
-  turretRingTrim.rotation.x = Math.PI / 2;
-  turretRingTrim.position.y = 0.12;
-  turretGroup.add(turretRingTrim);
+  const gearToothGeo = track(new THREE.BoxGeometry(0.12, 0.16, 0.2));
+  for (let g = 0; g < 24; g++) {
+    const a = (g / 24) * Math.PI * 2;
+    const tooth = new THREE.Mesh(gearToothGeo, bronzeTrimMat);
+    tooth.position.set(Math.sin(a) * 1.28, -0.04, Math.cos(a) * 1.28);
+    tooth.rotation.y = a;
+    turretGroup.add(tooth);
+  }
 
   // Pitch cradle
   const turretPitchGroup = new THREE.Group();
-  turretPitchGroup.position.set(0, 0.56, 0);
+  turretPitchGroup.position.set(0, 0.62, 0);
   turretGroup.add(turretPitchGroup);
 
-  // Dorsal armored turret bridge & stabilizer shroud
-  const bridgeGeo = track(new THREE.BoxGeometry(1.92, 0.52, 1.85));
-  const bridgeMesh = new THREE.Mesh(bridgeGeo, armorSecondaryMat);
-  bridgeMesh.position.set(0, 0, -0.2);
-  bridgeMesh.castShadow = true;
-  turretPitchGroup.add(bridgeMesh);
+  // Sloped octagonal armored turret bunker
+  const bunkerGeo = track(new THREE.CylinderGeometry(1.12, 1.34, 0.66, 8));
+  const bunkerMesh = new THREE.Mesh(bunkerGeo, armorDarkMat);
+  bunkerMesh.rotation.y = Math.PI / 8;
+  bunkerMesh.position.set(0, 0.04, -0.22);
+  bunkerMesh.castShadow = true;
+  turretPitchGroup.add(bunkerMesh);
 
-  // Sleek upper dorsal spine crest (like the top sensor/shroud fin in reference image)
-  const crestGeo = track(new THREE.BoxGeometry(0.76, 0.28, 2.25));
-  const crestMesh = new THREE.Mesh(crestGeo, armorMat);
-  crestMesh.position.set(0, 0.36, -0.15);
+  // Dorsal armored crest with crimson conqueror stripe
+  const crestGeo = track(new THREE.BoxGeometry(0.84, 0.32, 2.35));
+  const crestMesh = new THREE.Mesh(crestGeo, crimsonArmorMat);
+  crestMesh.position.set(0, 0.44, -0.18);
   crestMesh.castShadow = true;
   turretPitchGroup.add(crestMesh);
 
-  // Rear counterweight & ammunition/energy feed block
-  const rearBlockGeo = track(new THREE.BoxGeometry(1.56, 0.44, 0.85));
-  const rearBlock = new THREE.Mesh(rearBlockGeo, frameMat);
-  rearBlock.position.set(0, 0.06, -1.52);
+  // Rotating sci-fi radar / orbital-link targeting array on top of turret
+  const radarDish = new THREE.Group();
+  radarDish.position.set(0, 0.72, -0.88);
+  turretPitchGroup.add(radarDish);
+
+  const radarMast = new THREE.Mesh(track(new THREE.CylinderGeometry(0.1, 0.14, 0.45, 12)), frameMat);
+  radarDish.add(radarMast);
+  const radarBar = new THREE.Mesh(track(new THREE.BoxGeometry(1.15, 0.16, 0.18)), armorHighlightMat);
+  radarBar.position.y = 0.28;
+  radarDish.add(radarBar);
+  const radarEmitter = new THREE.Mesh(track(new THREE.SphereGeometry(0.11, 12, 10)), glowCrimsonMat);
+  radarEmitter.position.set(0, 0.28, 0.12);
+  radarDish.add(radarEmitter);
+
+  // Rear counterweight + cooling radiator block
+  const rearBlockGeo = track(new THREE.BoxGeometry(1.88, 0.52, 0.96));
+  const rearBlock = new THREE.Mesh(rearBlockGeo, armorObsidianMat);
+  rearBlock.position.set(0, 0.08, -1.62);
   rearBlock.castShadow = true;
   turretPitchGroup.add(rearBlock);
 
-  // Builder for each of the TWO MASSIVE CANNONS on top
-  const breechShroudGeo = track(new THREE.BoxGeometry(0.62, 0.54, 2.15));
-  const recoilCoilGeo = track(new THREE.CylinderGeometry(0.26, 0.26, 0.1, 20));
-  const mainBarrelGeo = track(new THREE.CylinderGeometry(0.18, 0.24, 3.85, 24));
-  const outerJacketGeo = track(new THREE.BoxGeometry(0.46, 0.38, 2.05));
-  const barrelTipGeo = track(new THREE.CylinderGeometry(0.22, 0.19, 0.55, 24));
-  const sightFinGeo = track(new THREE.BoxGeometry(0.08, 0.32, 0.24));
-  const plasmaRailGeo = track(new THREE.BoxGeometry(0.07, 0.09, 2.8));
-  const muzzleFlashGeo = track(new THREE.SphereGeometry(0.65, 16, 12));
+  // Side armored ammo drums feeding each cannon
+  const ammoDrumGeo = track(new THREE.CylinderGeometry(0.38, 0.38, 0.46, 20));
+  for (const side of [-1, 1] as const) {
+    const drum = new THREE.Mesh(ammoDrumGeo, armorHighlightMat);
+    drum.rotation.z = Math.PI / 2;
+    drum.position.set(side * 1.28, 0.06, -0.78);
+    drum.castShadow = true;
+    turretPitchGroup.add(drum);
+  }
+
+  // TWO COLOSSAL PARALLEL ELECTROMAGNETIC SPLIT-RAIL SIEGE CANNONS
+  const breechShroudGeo = track(new THREE.BoxGeometry(0.72, 0.64, 2.35));
+  const recoilCoilGeo = track(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 20));
+  const recoilPistonGeo = track(new THREE.CylinderGeometry(0.065, 0.065, 1.95, 14));
+  const splitRailGeo = track(new THREE.BoxGeometry(0.26, 0.16, 4.15));
+  const plasmaChannelGeo = track(new THREE.BoxGeometry(0.14, 0.14, 3.85));
+  const accelCoilGeo = track(new THREE.BoxGeometry(0.52, 0.5, 0.14));
+  const outerJacketGeo = track(new THREE.BoxGeometry(0.56, 0.48, 2.15));
+  const muzzleBrakeGeo = track(new THREE.BoxGeometry(0.54, 0.56, 0.68));
+  const bayonetFinGeo = track(new THREE.BoxGeometry(0.1, 0.36, 1.15));
+  const sightFinGeo = track(new THREE.BoxGeometry(0.08, 0.34, 0.28));
+  const muzzleFlashGeo = track(new THREE.SphereGeometry(0.85, 16, 12));
 
   const buildCannon = (side: -1 | 1): { group: THREE.Group; flash: THREE.Mesh } => {
     const cGroup = new THREE.Group();
-    cGroup.position.set(side * 0.72, 0.16, 0.25);
+    cGroup.position.set(side * 0.82, 0.2, 0.25);
 
-    // Rear ribbed accordion recoil sleeve (matching reference image!)
-    for (let r = 0; r < 6; r++) {
-      const coil = new THREE.Mesh(recoilCoilGeo, frameMat);
+    // 7-ring ribbed recoil-coil sleeve behind breech
+    for (let r = 0; r < 7; r++) {
+      const coil = new THREE.Mesh(recoilCoilGeo, r % 2 === 0 ? frameMat : bronzeTrimMat);
       coil.rotation.x = Math.PI / 2;
-      coil.position.set(0, 0, -1.15 - r * 0.14);
+      coil.position.set(0, 0, -1.18 - r * 0.14);
       cGroup.add(coil);
     }
 
-    // Armored breech shroud
-    const breech = new THREE.Mesh(breechShroudGeo, armorMat);
-    breech.position.set(0, 0.05, 0.15);
+    // Flanking exposed chrome recoil-dampening hydraulic pistons
+    for (const px of [-0.36, 0.36]) {
+      const rp = new THREE.Mesh(recoilPistonGeo, chromeMat);
+      rp.rotation.x = Math.PI / 2;
+      rp.position.set(px, -0.14, 0.45);
+      cGroup.add(rp);
+    }
+
+    // Heavy armored breech casing
+    const breech = new THREE.Mesh(breechShroudGeo, armorDarkMat);
+    breech.position.set(0, 0.06, 0.15);
     breech.castShadow = true;
     breech.receiveShadow = true;
     cGroup.add(breech);
 
-    // Mid-barrel armored jacket
-    const jacket = new THREE.Mesh(outerJacketGeo, armorSecondaryMat);
-    jacket.position.set(0, -0.02, 1.85);
+    // Mid-barrel heavy jacket
+    const jacket = new THREE.Mesh(outerJacketGeo, armorHighlightMat);
+    jacket.position.set(0, 0, 1.9);
     jacket.castShadow = true;
     cGroup.add(jacket);
 
-    // Massive long primary cannon barrel
-    const barrel = new THREE.Mesh(mainBarrelGeo, chromeMat);
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, 0, 3.05);
-    barrel.castShadow = true;
-    cGroup.add(barrel);
+    // SPLIT UPPER & LOWER HEAVY RAIL-GUN BARRELS
+    const upperRail = new THREE.Mesh(splitRailGeo, armorObsidianMat);
+    upperRail.position.set(0, 0.18, 3.25);
+    upperRail.castShadow = true;
+    cGroup.add(upperRail);
 
-    // Glowing divine energy accelerator rails along sides of barrel
-    const rail = new THREE.Mesh(plasmaRailGeo, glowCoreMat);
-    rail.position.set(side * 0.24, 0.04, 2.55);
-    cGroup.add(rail);
+    const lowerRail = new THREE.Mesh(splitRailGeo, armorObsidianMat);
+    lowerRail.position.set(0, -0.18, 3.25);
+    lowerRail.castShadow = true;
+    cGroup.add(lowerRail);
 
-    // Muzzle brake & raised front iron sight fin (distinctive detail from reference image!)
-    const tip = new THREE.Mesh(barrelTipGeo, frameMat);
-    tip.rotation.x = Math.PI / 2;
-    tip.position.set(0, 0, 4.95);
-    tip.castShadow = true;
-    cGroup.add(tip);
+    // Glowing crimson electromagnetic plasma accelerator channel between the split rails
+    const plasmaChannel = new THREE.Mesh(plasmaChannelGeo, glowCrimsonMat);
+    plasmaChannel.position.set(0, 0, 3.15);
+    cGroup.add(plasmaChannel);
 
-    const sight = new THREE.Mesh(sightFinGeo, armorMat);
-    sight.position.set(0, 0.26, 4.78);
+    // 5 heavy electromagnetic accelerator ribs spaced along the barrel
+    for (let c = 0; c < 5; c++) {
+      const ac = new THREE.Mesh(accelCoilGeo, c % 2 === 0 ? frameMat : armorHighlightMat);
+      ac.position.set(0, 0, 2.25 + c * 0.65);
+      ac.castShadow = true;
+      cGroup.add(ac);
+    }
+
+    // Heavy slotted siege muzzle brake + lower bayonet stabilizer fin + upper laser sight
+    const brake = new THREE.Mesh(muzzleBrakeGeo, frameMat);
+    brake.position.set(0, 0, 5.25);
+    brake.castShadow = true;
+    cGroup.add(brake);
+
+    const bayonet = new THREE.Mesh(bayonetFinGeo, armorHighlightMat);
+    bayonet.position.set(0, -0.34, 4.95);
+    cGroup.add(bayonet);
+
+    const sight = new THREE.Mesh(sightFinGeo, crimsonArmorMat);
+    sight.position.set(0, 0.36, 5.05);
     cGroup.add(sight);
 
     const flash = new THREE.Mesh(muzzleFlashGeo, muzzleFlashMat);
-    flash.position.set(0, 0, 5.45);
-    flash.scale.set(0.8, 0.8, 2.0);
+    flash.position.set(0, 0, 5.85);
+    flash.scale.set(0.95, 0.95, 2.4);
     cGroup.add(flash);
 
     turretPitchGroup.add(cGroup);
@@ -855,7 +1180,10 @@ function buildDivineTitanModel(): TitanModelRig {
     rightCannonGroup: rightBuilt.group,
     muzzleFlashLeft: leftBuilt.flash,
     muzzleFlashRight: rightBuilt.flash,
-    thrusterFlame,
+    thrusterFlames,
+    scannerEye,
+    reactorRing,
+    radarDish,
     legs,
     disposables,
   };
@@ -1275,69 +1603,83 @@ export class DivineTitanRenderer {
   }
 
   private animateRig(titan: DivineTitanState, elapsedTotal: number): void {
-    const isMoving = titan.phase === 'active' && titan.moveSpeed > 0.35;
+    const isMoving = titan.phase === 'active' && titan.moveSpeed > 0.25;
     let bodyBobY = 0;
     let bodyPitch = 0;
-    let scaleFactor = 1.0;
+    let bodyRoll = 0;
+    let scaleFactor = TITAN_BASE_SCALE;
 
     if (titan.phase === 'summoning') {
       const t = Math.min(1, titan.phaseTimer / TITAN_SUMMON_DURATION);
-      scaleFactor = 0.2 + 0.8 * (1 - (1 - t) * (1 - t));
-      bodyBobY = (1 - t) * 2.2;
+      scaleFactor = TITAN_BASE_SCALE * (0.2 + 0.8 * (1 - (1 - t) * (1 - t)));
+      bodyBobY = (1 - t) * 2.4;
     } else if (titan.phase === 'exiting') {
       const t = Math.min(1, titan.phaseTimer / TITAN_EXIT_DURATION);
       // First 0.35s laser strikes down onto Titan; then Titan dissolves & shrinks into light
       const dissolveT = Math.max(0, (t - 0.35) / 0.65);
-      scaleFactor = Math.max(0.01, 1 - dissolveT * dissolveT);
-      bodyBobY = dissolveT * 1.4;
+      scaleFactor = Math.max(0.01, TITAN_BASE_SCALE * (1 - dissolveT * dissolveT));
+      bodyBobY = dissolveT * 1.6;
     } else if (titan.phase === 'jumping') {
       if (titan.jumpElapsed < titan.jumpWindup) {
         const w = titan.jumpElapsed / Math.max(0.01, titan.jumpWindup);
-        bodyBobY = -0.75 * Math.sin(w * Math.PI * 0.5);
-        bodyPitch = 0.14 * w;
+        bodyBobY = -0.88 * Math.sin(w * Math.PI * 0.5);
+        bodyPitch = 0.16 * w;
       } else {
         const flightT = Math.min(1, (titan.jumpElapsed - titan.jumpWindup) / titan.jumpDuration);
-        bodyPitch = (0.5 - flightT) * 0.42;
+        bodyPitch = (0.5 - flightT) * 0.45;
       }
     } else if (isMoving) {
-      bodyBobY = Math.abs(Math.sin(titan.walkCycle)) * 0.26;
-      bodyPitch = Math.sin(titan.walkCycle * 2) * 0.04;
+      // Heavy stomp-weighted war-walker lurch: slow rise, sharp heavy compression dip on stomp
+      const stepWave = Math.abs(Math.sin(titan.walkCycle));
+      bodyBobY = Math.pow(stepWave, 0.72) * 0.34 - 0.12;
+      bodyPitch = Math.sin(titan.walkCycle * 2) * 0.055;
+      bodyRoll = Math.cos(titan.walkCycle) * 0.065;
     } else {
-      // Subtle hydraulic idle breathing
-      bodyBobY = Math.sin(elapsedTotal * 2.2) * 0.06;
+      // Slow ominous mechanical idle thrum
+      bodyBobY = Math.sin(elapsedTotal * 1.8) * 0.05;
     }
 
     this.rig.root.scale.setScalar(scaleFactor);
     this.rig.bodyGroup.position.y = bodyBobY;
     this.rig.bodyGroup.rotation.x = bodyPitch;
-    this.rig.turretGroup.position.y = 2.65 + 0.96 + bodyBobY;
+    this.rig.bodyGroup.rotation.z = bodyRoll;
+    this.rig.turretGroup.position.y = TITAN_CHASSIS_Y + 0.98 + bodyBobY;
 
-    // Thruster flame flare during jump or movement
+    // Sweeping crimson cyclops scanner eye, spinning reactor core, rotating radar array
+    this.rig.scannerEye.position.x = Math.sin(elapsedTotal * 2.6) * 0.46;
+    this.rig.reactorRing.rotation.y = elapsedTotal * 2.2;
+    this.rig.radarDish.rotation.y = elapsedTotal * 1.45;
+
+    // Dual rear thruster afterburner flare
     const flameScale =
       titan.phase === 'jumping'
-        ? 1.7 + Math.sin(elapsedTotal * 40) * 0.35
+        ? 1.9 + Math.sin(elapsedTotal * 42) * 0.38
         : isMoving
-          ? 0.55 + Math.sin(elapsedTotal * 24) * 0.12
-          : 0.25;
-    this.rig.thrusterFlame.scale.set(flameScale * 0.65, flameScale, flameScale * 0.65);
+          ? 0.65 + Math.sin(elapsedTotal * 20) * 0.16
+          : 0.32 + Math.sin(elapsedTotal * 10) * 0.06;
+    for (const flame of this.rig.thrusterFlames) {
+      flame.scale.set(flameScale * 0.68, flameScale, flameScale * 0.68);
+    }
 
-    // 4-leg articulated diagonal gait (FL+RR together, FR+RL opposite phase)
+    // 4-leg articulated heavy diagonal war-walker gait (FL+RR together, FR+RL opposite phase)
     for (const leg of this.rig.legs) {
       const diagPhase = leg.side * leg.front > 0 ? 0 : Math.PI;
       if (titan.phase === 'jumping') {
         if (titan.jumpElapsed < titan.jumpWindup) {
-          // Deep coil crouch
-          leg.hipPivot.rotation.x = leg.front * -0.45;
-          leg.kneePivot.rotation.x = leg.front * 0.42;
+          // Deep hydraulic coil crouch
+          leg.hipPivot.rotation.x = leg.front * -0.48;
+          leg.kneePivot.rotation.x = leg.front * 0.45;
         } else {
           // Dynamic airborne tuck
-          leg.hipPivot.rotation.x = leg.front * 0.35;
-          leg.kneePivot.rotation.x = leg.front * -0.25;
+          leg.hipPivot.rotation.x = leg.front * 0.36;
+          leg.kneePivot.rotation.x = leg.front * -0.26;
         }
       } else if (isMoving) {
         const cyc = titan.walkCycle + diagPhase;
-        const swing = Math.sin(cyc) * 0.44;
-        const lift = Math.max(0, Math.cos(cyc)) * 0.38;
+        const swing = Math.sin(cyc) * 0.46;
+        // Heavy deliberate lift & hard stomp snap
+        const rawLift = Math.max(0, Math.cos(cyc));
+        const lift = Math.pow(rawLift, 0.78) * 0.44;
         leg.hipPivot.rotation.x = swing;
         leg.kneePivot.rotation.x = -lift * leg.front;
       } else {

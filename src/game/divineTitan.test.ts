@@ -71,7 +71,7 @@ describe('Divine Titan controllable god power', () => {
     sim.divineTitan!.shockwaves = [];
 
     let sawStepShockwave = false;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 45; i++) {
       stepDivineTitan(sim, 0.05, {
         moveForward: 1,
         moveRight: 0,

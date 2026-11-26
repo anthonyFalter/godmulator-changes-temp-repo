@@ -9,8 +9,8 @@ import {
 import { syncTileToWorldGrid, WorldGridBuffers } from './worldGrid';
 
 export const TITAN_HEIGHT_STEP = 0.45;
-export const TITAN_WALK_SPEED = 7.8;
-export const TITAN_SLASH_COOLDOWN = 0.34;
+export const TITAN_WALK_SPEED = 3.5;
+export const TITAN_SLASH_COOLDOWN = 0.38;
 export const TITAN_SKILL1_COOLDOWN = 5.0;
 export const TITAN_SKILL2_COOLDOWN = 5.5;
 export const TITAN_LEAP_MAX_RANGE = 24.0;
@@ -271,29 +271,29 @@ export function executeTitanWalkShockwave(state: SimulationState, x: number, z: 
     x,
     y,
     z,
-    maxRadius: 4.8,
+    maxRadius: 6.8,
     elapsed: 0,
-    duration: 0.52,
+    duration: 0.68,
     kind: 'step',
-    color: '#f59e0b',
+    color: '#ef4444',
   });
-  titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.16);
+  titan.pendingTrauma = Math.max(titan.pendingTrauma, 0.34);
 
-  // Stomp shockwave knocks back & damages units and tramples foliage underfoot
-  damageUnitsAndStructuresInRadius(state, x, z, 4.2, 55, 38, 1.15);
+  // Heavy conqueror stomp shockwave knocks back & crushes units/structures underfoot
+  damageUnitsAndStructuresInRadius(state, x, z, 5.4, 95, 65, 1.85);
 
-  const minX = Math.max(0, Math.floor(x - 2));
-  const maxX = Math.min(state.gridSize - 1, Math.ceil(x + 2));
-  const minZ = Math.max(0, Math.floor(z - 2));
-  const maxZ = Math.min(state.gridSize - 1, Math.ceil(z + 2));
+  const minX = Math.max(0, Math.floor(x - 3));
+  const maxX = Math.min(state.gridSize - 1, Math.ceil(x + 3));
+  const minZ = Math.max(0, Math.floor(z - 3));
+  const maxZ = Math.min(state.gridSize - 1, Math.ceil(z + 3));
   for (let tz = minZ; tz <= maxZ; tz++) {
     for (let tx = minX; tx <= maxX; tx++) {
       const dx = tx - x;
       const dz = tz - z;
-      if (dx * dx + dz * dz <= 4.5) {
+      if (dx * dx + dz * dz <= 7.5) {
         const t = state.tiles[tz * state.gridSize + tx];
         if (t && t.height > 0) {
-          t.crushedTimer = Math.max(t.crushedTimer ?? 0, 8);
+          t.crushedTimer = Math.max(t.crushedTimer ?? 0, 10);
         }
       }
     }
@@ -764,9 +764,9 @@ export function stepDivineTitan(
     if (aimDist > 0.25) {
       const desiredTurretYaw = Math.atan2(adx, adz);
       const diff = wrapAngleDiff(desiredTurretYaw, titan.turretYaw);
-      titan.turretYaw += diff * Math.min(1, clampedDt * 14.0);
+      titan.turretYaw += diff * Math.min(1, clampedDt * 8.5);
       const targetY = getTitanGroundY(state, titan.aimX, titan.aimZ);
-      const dy = targetY - (titan.y + 3.4);
+      const dy = targetY - (titan.y + 4.4);
       titan.turretPitch = clamp(Math.atan2(dy, Math.max(2.5, aimDist)), -0.35, 0.35);
     }
   }
@@ -780,7 +780,7 @@ export function stepDivineTitan(
       titan.phaseTimer = 0;
     }
   } else if (titan.phase === 'active') {
-    // Camera-relative WASD movement
+    // Camera-relative WASD movement with heavy mechanical inertia
     const fwdX = -Math.sin(input.camYaw);
     const fwdZ = -Math.cos(input.camYaw);
     const rightX = Math.cos(input.camYaw);
@@ -793,29 +793,31 @@ export function stepDivineTitan(
     if (mag > 0.01) {
       mx /= mag;
       mz /= mag;
-      const moveAmt = TITAN_WALK_SPEED * clampedDt;
+      // Weighted acceleration up to inexorable conqueror march speed
+      titan.moveSpeed = Math.min(TITAN_WALK_SPEED, titan.moveSpeed + clampedDt * 7.5);
+      const moveAmt = titan.moveSpeed * clampedDt;
       titan.x = clamp(titan.x + mx * moveAmt, 2, state.gridSize - 3);
       titan.z = clamp(titan.z + mz * moveAmt, 2, state.gridSize - 3);
-      titan.moveSpeed = TITAN_WALK_SPEED;
 
-      // Smoothly rotate body chassis to face movement direction
+      // Ponderous hull rotation toward movement direction
       const desiredBodyYaw = Math.atan2(mx, mz);
       const bodyDiff = wrapAngleDiff(desiredBodyYaw, titan.bodyYaw);
-      titan.bodyYaw += bodyDiff * Math.min(1, clampedDt * 8.5);
+      titan.bodyYaw += bodyDiff * Math.min(1, clampedDt * 3.4);
 
-      // Advance heavy walker gait & emit shockwaves on each footstep stomp
-      titan.walkCycle += clampedDt * 4.2;
+      // Slow, deliberate heavy walker stomp cadence
+      const speedRatio = titan.moveSpeed / TITAN_WALK_SPEED;
+      titan.walkCycle += clampedDt * (2.25 * Math.max(0.45, speedRatio));
       const stepIndex = Math.floor(titan.walkCycle / Math.PI);
       if (stepIndex > titan.lastStepIndex) {
         titan.lastStepIndex = stepIndex;
         executeTitanWalkShockwave(state, titan.x, titan.z);
       }
     } else {
-      titan.moveSpeed = Math.max(0, titan.moveSpeed - clampedDt * 26);
+      titan.moveSpeed = Math.max(0, titan.moveSpeed - clampedDt * 9.5);
     }
 
     const groundY = getTitanGroundY(state, titan.x, titan.z);
-    titan.y += (groundY - titan.y) * Math.min(1, clampedDt * 14.0);
+    titan.y += (groundY - titan.y) * Math.min(1, clampedDt * 9.5);
   } else if (titan.phase === 'jumping') {
     titan.jumpElapsed += clampedDt;
     if (titan.jumpElapsed < titan.jumpWindup) {
