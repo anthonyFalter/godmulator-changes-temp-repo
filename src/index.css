@@ -931,23 +931,112 @@
   overflow: visible;
 }
 
-.lore-stage .stf__parent {
-  margin: 0 auto;
-  overflow: visible !important;
-}
-
-.lore-stage .stf__wrapper,
-.lore-stage .stf__block {
-  overflow: visible !important;
-}
-
-/* GPU-composited turning leaves for smooth 60fps folding */
-.lore-stage .stf__item {
-  background-color: #f4e2b8;
+.lore-flip-leaf {
+  transform-style: preserve-3d;
   will-change: transform;
-  transform: translateZ(0);
+  contain: layout style;
+}
+
+.lore-flip-face {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  transform: translateZ(0.5px);
+}
+
+.lore-flip-back {
+  transform: rotateY(180deg) translateZ(0.5px);
+}
+
+@keyframes lore-flip-next-desktop {
+  0% {
+    transform: perspective(1600px) translateZ(4px) rotateY(0deg);
+  }
+  100% {
+    transform: perspective(1600px) translateZ(4px) rotateY(-180deg);
+  }
+}
+
+@keyframes lore-flip-prev-desktop {
+  0% {
+    transform: perspective(1600px) translateZ(4px) rotateY(0deg);
+  }
+  100% {
+    transform: perspective(1600px) translateZ(4px) rotateY(180deg);
+  }
+}
+
+@keyframes lore-flip-next-mobile {
+  0% {
+    transform: perspective(1400px) translateZ(4px) rotateY(0deg);
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(1400px) translateZ(4px) rotateY(-108deg);
+    opacity: 0;
+  }
+}
+
+@keyframes lore-flip-prev-mobile {
+  0% {
+    transform: perspective(1400px) translateZ(4px) rotateY(-108deg);
+    opacity: 0.2;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(1400px) translateZ(4px) rotateY(0deg);
+    opacity: 1;
+  }
+}
+
+@keyframes lore-flip-shade-anim {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 0.28;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.lore-flip-next {
+  transform-origin: 0% 50%;
+  animation: lore-flip-next-desktop 380ms cubic-bezier(0.32, 0.08, 0.22, 1) forwards;
+}
+
+.lore-flip-prev {
+  transform-origin: 100% 50%;
+  animation: lore-flip-prev-desktop 380ms cubic-bezier(0.32, 0.08, 0.22, 1) forwards;
+}
+
+.lore-flip-mobile-next {
+  transform-origin: 0% 50%;
+  animation: lore-flip-next-mobile 340ms cubic-bezier(0.32, 0.08, 0.22, 1) forwards;
+}
+
+.lore-flip-mobile-prev {
+  transform-origin: 0% 50%;
+  animation: lore-flip-prev-mobile 340ms cubic-bezier(0.32, 0.08, 0.22, 1) forwards;
+}
+
+.lore-flip-shade {
+  animation: lore-flip-shade-anim 380ms ease-in-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lore-flip-next,
+  .lore-flip-prev,
+  .lore-flip-mobile-next,
+  .lore-flip-mobile-prev,
+  .lore-flip-shade {
+    animation-duration: 90ms;
+  }
 }
 
 

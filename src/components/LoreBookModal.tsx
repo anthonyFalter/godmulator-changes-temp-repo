@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { PageFlip } from 'page-flip/dist/js/page-flip.module.js';
 import {
   buildLoreBookSpreads,
   LoreBookPage,
+  LoreBookSpread,
   LoreChapterSummary,
 } from '../game/loreBook';
 import { soundEngine } from '../game/sound';
@@ -301,202 +300,179 @@ const PageSurface: React.FC<{
   );
 };
 
+interface DesktopFlipState {
+  direction: 'next' | 'prev';
+  fromSpread: LoreBookSpread;
+  toSpread: LoreBookSpread;
+  toIndex: number;
+  key: number;
+}
+
+interface MobileFlipState {
+  direction: 'next' | 'prev';
+  fromPage: LoreBookPage;
+  toPage: LoreBookPage;
+  toIndex: number;
+  key: number;
+}
+
+const FLIP_MS = 380;
+
 const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
   sim,
   worldName,
   onClose,
   onJumpToLocation,
 }) => {
-  // Snapshot spreads when opened so background HUD ticks never re-render portaled StPageFlip pages mid-fold
+  // Snapshot spreads when opened so background HUD ticks never re-render the book mid-fold
   const { spreads, pages } = useMemo(
     () => buildLoreBookSpreads(sim, worldName),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [worldName],
   );
 
-  // Flattened full page list (even count on desktop spreads so left+right pair cleanly)
-  const bookPages = useMemo<LoreBookPage[]>(() => {
-    const out: LoreBookPage[] = [];
-    for (const sp of spreads) {
-      out.push(sp.left, sp.right);
-    }
-    return out;
-  }, [spreads]);
-
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : false,
   );
-  const [currentPage, setCurrentPage] = useState<number>(0);
-  const [portalNodes, setPortalNodes] = useState<HTMLDivElement[]>([]);
+  const [spreadIndex, setSpreadIndex] = useState<number>(0);
+  const [mobilePageIndex, setMobilePageIndex] = useState<number>(0);
+  const [desktopFlip, setDesktopFlip] = useState<DesktopFlipState | null>(null);
+  const [mobileFlip, setMobileFlip] = useState<MobileFlipState | null>(null);
 
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const pageFlipRef = useRef<PageFlip | null>(null);
-  const currentPageRef = useRef<number>(0);
+  const flipTimerRef = useRef<number | null>(null);
+  const flipKeyRef = useRef<number>(1);
+  const touchStartXRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia('(max-width: 639px)');
-    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    const onChange = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      setDesktopFlip(null);
+      setMobileFlip(null);
+    };
     setIsMobile(mq.matches);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  const activePages = isMobile ? pages : bookPages;
-  const pageCount = activePages.length;
-
-  // Mount StPageFlip into a dedicated DOM host & portal React page surfaces into its page nodes.
-  // This gives real physical curved corner-peeling physics with zero React DOM-reconciliation conflicts.
   useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || pageCount === 0) return;
-
-    const innerHost = document.createElement('div');
-    innerHost.style.width = '100%';
-    innerHost.style.height = '100%';
-    stage.appendChild(innerHost);
-
-    const nodes: HTMLDivElement[] = [];
-    for (let i = 0; i < pageCount; i++) {
-      const div = document.createElement('div');
-      div.className = 'lore-pf-page w-full h-full overflow-hidden';
-      div.style.contain = 'layout style';
-      innerHost.appendChild(div);
-      nodes.push(div);
-    }
-    setPortalNodes(nodes);
-
-    const startIdx = Math.min(currentPageRef.current, pageCount - 1);
-    const pf = new PageFlip(innerHost, {
-      startPage: startIdx,
-      width: isMobile ? 340 : 380,
-      height: isMobile ? 460 : 460,
-      size: 'stretch',
-      minWidth: 240,
-      maxWidth: isMobile ? 420 : 440,
-      minHeight: 340,
-      maxHeight: 520,
-      drawShadow: true,
-      maxShadowOpacity: 0.22,
-      flippingTime: 360,
-      usePortrait: isMobile,
-      startZIndex: 50,
-      autoSize: true,
-      showCover: false,
-      mobileScrollSupport: true,
-      clickEventForward: true,
-      useMouseEvents: true,
-      swipeDistance: 26,
-      showPageCorners: true,
-      disableFlipByClick: false,
-    });
-
-    pf.loadFromHTML(nodes);
-    pf.on('flip', (e) => {
-      const idx = typeof e.data === 'number' ? e.data : pf.getCurrentPageIndex();
-      currentPageRef.current = idx;
-      setCurrentPage(idx);
-      soundEngine.playPageFlip();
-    });
-
-    pageFlipRef.current = pf;
-    setCurrentPage(startIdx);
-
     return () => {
-      pageFlipRef.current = null;
-      setPortalNodes([]);
-      try {
-        pf.destroy();
-      } catch {
-        // Ignore teardown race if already removed
-      }
-      if (innerHost.parentNode === stage) {
-        stage.removeChild(innerHost);
+      if (flipTimerRef.current !== null) {
+        window.clearTimeout(flipTimerRef.current);
       }
     };
-  }, [isMobile, pageCount]);
-
-  // Trigger StPageFlip backward fold using actual rect.left + 12 (fixes StPageFlip's hardcoded x: 10 bug)
-  const triggerAnimatedPrev = useCallback((pf: PageFlip) => {
-    const internal = pf as unknown as {
-      getBoundsRect?: () => { left: number; height: number };
-      getFlipController?: () => { flip?: (pos: { x: number; y: number }) => void };
-    };
-    try {
-      const rect = internal.getBoundsRect?.();
-      const ctrl = internal.getFlipController?.();
-      if (rect && ctrl && typeof ctrl.flip === 'function') {
-        ctrl.flip({
-          x: Math.max(8, rect.left + 12),
-          y: Math.max(8, rect.height - 8),
-        });
-        return;
-      }
-    } catch {
-      // Fallback to built-in flipPrev
-    }
-    pf.flipPrev('bottom');
   }, []);
 
-  const triggerAnimatedToPage = useCallback(
-    (pf: PageFlip, target: number) => {
-      const cur = pf.getCurrentPageIndex();
-      if (target < cur) {
-        const internal = pf as unknown as {
-          getPageCollection?: () => {
-            getSpreadIndexByPage: (p: number) => number;
-            setCurrentSpreadIndex: (s: number) => void;
-          };
-        };
-        try {
-          const pc = internal.getPageCollection?.();
-          if (pc) {
-            const targetSpread = pc.getSpreadIndexByPage(target);
-            pc.setCurrentSpreadIndex(targetSpread + 1);
-            triggerAnimatedPrev(pf);
-            return;
-          }
-        } catch {
-          // Fallback below
-        }
-        pf.flip(target, 'top');
-      } else if (target > cur) {
-        pf.flip(target, 'top');
+  const clampedSpreadIdx = Math.min(spreadIndex, Math.max(0, spreads.length - 1));
+  const clampedMobileIdx = Math.min(mobilePageIndex, Math.max(0, pages.length - 1));
+
+  const finishDesktopFlip = useCallback((targetIdx: number) => {
+    if (flipTimerRef.current !== null) {
+      window.clearTimeout(flipTimerRef.current);
+      flipTimerRef.current = null;
+    }
+    setSpreadIndex(targetIdx);
+    setDesktopFlip(null);
+  }, []);
+
+  const finishMobileFlip = useCallback((targetIdx: number) => {
+    if (flipTimerRef.current !== null) {
+      window.clearTimeout(flipTimerRef.current);
+      flipTimerRef.current = null;
+    }
+    setMobilePageIndex(targetIdx);
+    setMobileFlip(null);
+  }, []);
+
+  const flipToDesktopSpread = useCallback(
+    (targetIdx: number) => {
+      const baseIdx = desktopFlip ? desktopFlip.toIndex : clampedSpreadIdx;
+      const clampedTarget = Math.max(0, Math.min(spreads.length - 1, targetIdx));
+      if (clampedTarget === baseIdx) return;
+
+      if (flipTimerRef.current !== null) {
+        window.clearTimeout(flipTimerRef.current);
+        flipTimerRef.current = null;
       }
+      if (desktopFlip) {
+        setSpreadIndex(baseIdx);
+      }
+
+      const direction: 'next' | 'prev' = clampedTarget > baseIdx ? 'next' : 'prev';
+      soundEngine.playPageFlip();
+      soundEngine.playClick();
+      flipKeyRef.current += 1;
+      setDesktopFlip({
+        direction,
+        fromSpread: spreads[baseIdx],
+        toSpread: spreads[clampedTarget],
+        toIndex: clampedTarget,
+        key: flipKeyRef.current,
+      });
+      flipTimerRef.current = window.setTimeout(() => {
+        finishDesktopFlip(clampedTarget);
+      }, FLIP_MS + 40);
     },
-    [triggerAnimatedPrev],
+    [clampedSpreadIdx, desktopFlip, finishDesktopFlip, spreads],
   );
 
+  const flipToMobilePage = useCallback(
+    (targetIdx: number) => {
+      const baseIdx = mobileFlip ? mobileFlip.toIndex : clampedMobileIdx;
+      const clampedTarget = Math.max(0, Math.min(pages.length - 1, targetIdx));
+      if (clampedTarget === baseIdx) return;
+
+      if (flipTimerRef.current !== null) {
+        window.clearTimeout(flipTimerRef.current);
+        flipTimerRef.current = null;
+      }
+      if (mobileFlip) {
+        setMobilePageIndex(baseIdx);
+      }
+
+      const direction: 'next' | 'prev' = clampedTarget > baseIdx ? 'next' : 'prev';
+      soundEngine.playPageFlip();
+      soundEngine.playClick();
+      flipKeyRef.current += 1;
+      setMobileFlip({
+        direction,
+        fromPage: pages[baseIdx],
+        toPage: pages[clampedTarget],
+        toIndex: clampedTarget,
+        key: flipKeyRef.current,
+      });
+      flipTimerRef.current = window.setTimeout(() => {
+        finishMobileFlip(clampedTarget);
+      }, FLIP_MS + 40);
+    },
+    [clampedMobileIdx, finishMobileFlip, mobileFlip, pages],
+  );
+
+  const activeDesktopIdx = desktopFlip ? desktopFlip.toIndex : clampedSpreadIdx;
+  const activeMobileIdx = mobileFlip ? mobileFlip.toIndex : clampedMobileIdx;
+
   const handleNext = useCallback(() => {
-    const pf = pageFlipRef.current;
-    if (!pf) return;
-    soundEngine.playClick();
-    pf.flipNext('bottom');
-  }, []);
+    if (isMobile) flipToMobilePage(activeMobileIdx + 1);
+    else flipToDesktopSpread(activeDesktopIdx + 1);
+  }, [activeDesktopIdx, activeMobileIdx, flipToDesktopSpread, flipToMobilePage, isMobile]);
 
   const handlePrev = useCallback(() => {
-    const pf = pageFlipRef.current;
-    if (!pf) return;
-    soundEngine.playClick();
-    triggerAnimatedPrev(pf);
-  }, [triggerAnimatedPrev]);
+    if (isMobile) flipToMobilePage(activeMobileIdx - 1);
+    else flipToDesktopSpread(activeDesktopIdx - 1);
+  }, [activeDesktopIdx, activeMobileIdx, flipToDesktopSpread, flipToMobilePage, isMobile]);
 
   const handleGoContents = useCallback(() => {
-    const pf = pageFlipRef.current;
-    if (!pf) return;
-    soundEngine.playClick();
-    triggerAnimatedToPage(pf, isMobile ? 1 : 0);
-  }, [isMobile, triggerAnimatedToPage]);
+    if (isMobile) flipToMobilePage(1);
+    else flipToDesktopSpread(0);
+  }, [flipToDesktopSpread, flipToMobilePage, isMobile]);
 
   const handleSelectChapter = useCallback(
     (ch: LoreChapterSummary) => {
-      const pf = pageFlipRef.current;
-      if (!pf) return;
-      soundEngine.playClick();
-      const target = Math.min(isMobile ? ch.pageIndex : ch.spreadIndex * 2, pageCount - 1);
-      triggerAnimatedToPage(pf, target);
+      if (isMobile) flipToMobilePage(ch.pageIndex);
+      else flipToDesktopSpread(ch.spreadIndex);
     },
-    [isMobile, pageCount, triggerAnimatedToPage],
+    [flipToDesktopSpread, flipToMobilePage, isMobile],
   );
 
   useEffect(() => {
@@ -526,12 +502,37 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
     [onClose, onJumpToLocation],
   );
 
-  const canPrev = currentPage > 0;
-  const canNext = isMobile ? currentPage < pageCount - 1 : currentPage < pageCount - 2;
-  const atContents = isMobile ? currentPage === 1 : currentPage === 0;
+  const canPrev = isMobile ? activeMobileIdx > 0 : activeDesktopIdx > 0;
+  const canNext = isMobile
+    ? activeMobileIdx < pages.length - 1
+    : activeDesktopIdx < spreads.length - 1;
+  const atContents = isMobile ? activeMobileIdx === 1 : activeDesktopIdx === 0;
   const pageCounterText = isMobile
-    ? `Page ${Math.min(currentPage + 1, pageCount)} / ${pageCount}`
-    : `${Math.floor(currentPage / 2) + 1} / ${spreads.length}`;
+    ? `Page ${activeMobileIdx + 1} / ${pages.length}`
+    : `${activeDesktopIdx + 1} / ${spreads.length}`;
+
+  const currentSpread = spreads[clampedSpreadIdx] ?? spreads[0];
+  const displayedLeft = desktopFlip
+    ? desktopFlip.direction === 'prev'
+      ? desktopFlip.toSpread.left
+      : desktopFlip.fromSpread.left
+    : currentSpread.left;
+  const displayedRight = desktopFlip
+    ? desktopFlip.direction === 'next'
+      ? desktopFlip.toSpread.right
+      : desktopFlip.fromSpread.right
+    : currentSpread.right;
+
+  const mobileUnderPage = mobileFlip
+    ? mobileFlip.direction === 'next'
+      ? mobileFlip.toPage
+      : mobileFlip.fromPage
+    : pages[clampedMobileIdx] ?? pages[0];
+  const mobileLeafPage = mobileFlip
+    ? mobileFlip.direction === 'next'
+      ? mobileFlip.fromPage
+      : mobileFlip.toPage
+    : null;
 
   return (
     <div
@@ -542,6 +543,17 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
           soundEngine.playClick();
           onClose();
         }
+      }}
+      onTouchStart={(e) => {
+        touchStartXRef.current = e.touches[0]?.clientX ?? null;
+      }}
+      onTouchEnd={(e) => {
+        if (touchStartXRef.current === null) return;
+        const endX = e.changedTouches[0]?.clientX ?? touchStartXRef.current;
+        const dx = endX - touchStartXRef.current;
+        touchStartXRef.current = null;
+        if (dx <= -44) handleNext();
+        else if (dx >= 44) handlePrev();
       }}
     >
       <div className="relative w-full max-w-[400px] sm:max-w-[820px] flex flex-col items-center gap-2.5 sm:gap-3">
@@ -573,15 +585,13 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
           </button>
         </div>
 
-        {/* Pixel-Art Burgundy Leather Tome (overflow-visible + lower z-index so turning leaves float cleanly above) */}
+        {/* Pixel-Art Burgundy Leather Tome */}
         <div className="lore-book-cover relative w-full p-2.5 pb-4 sm:p-3.5 sm:pb-5">
-          {/* 4 Hammered Brass Pixel Corner Clasps (z-10, below turning pages) */}
           <BrassCornerClasp position="tl" />
           <BrassCornerClasp position="tr" />
           <BrassCornerClasp position="bl" />
           <BrassCornerClasp position="br" />
 
-          {/* Pixel-Art Crimson Silk Bookmark Ribbon (z-20, below turning pages) */}
           <PixelRibbonBookmark
             className={`absolute -top-1.5 z-20 w-4 h-8 sm:w-5 sm:h-10 ${
               isMobile ? 'left-5' : 'left-1/2 -translate-x-1/2'
@@ -599,43 +609,144 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
                 />
               )}
 
-              {/* StPageFlip Mount Host (z-40, startZIndex: 50 — always above cover & clasps) */}
-              <div
-                ref={stageRef}
-                className="lore-stage flex-1 min-w-0 h-[min(62dvh,460px)] sm:h-[460px]"
-              />
+              {/* GPU 3D Book Stage */}
+              <div className="lore-stage flex-1 min-w-0 h-[min(62dvh,460px)] sm:h-[460px]">
+                {isMobile ? (
+                  <div className="relative w-full h-full">
+                    <div className="w-full h-full overflow-hidden">
+                      <PageSurface
+                        page={mobileUnderPage}
+                        side="single"
+                        onSelectChapter={handleSelectChapter}
+                        onJump={handleJump}
+                      />
+                    </div>
+                    {mobileFlip && mobileLeafPage && (
+                      <div
+                        key={mobileFlip.key}
+                        aria-hidden="true"
+                        onAnimationEnd={(e) => {
+                          if (e.target === e.currentTarget) {
+                            finishMobileFlip(mobileFlip.toIndex);
+                          }
+                        }}
+                        className={`pointer-events-none absolute inset-0 z-40 lore-flip-leaf ${
+                          mobileFlip.direction === 'next'
+                            ? 'lore-flip-mobile-next'
+                            : 'lore-flip-mobile-prev'
+                        }`}
+                      >
+                        <div className="absolute inset-0 overflow-hidden shadow-lg">
+                          <PageSurface
+                            page={mobileLeafPage}
+                            side="single"
+                            onSelectChapter={() => {}}
+                          />
+                          <div className="lore-flip-shade absolute inset-0 bg-[#2b150b] pointer-events-none" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="relative grid grid-cols-2 w-full h-full">
+                    {/* Static Left Page */}
+                    <div className="relative h-full border-r-2 border-[#6e4624] overflow-hidden">
+                      <PageSurface
+                        page={displayedLeft}
+                        side="left"
+                        onSelectChapter={handleSelectChapter}
+                        onJump={handleJump}
+                      />
+                      {canPrev && (
+                        <button
+                          type="button"
+                          aria-label="Previous page"
+                          onClick={handlePrev}
+                          className="absolute bottom-0 left-0 w-12 h-12 cursor-pointer group"
+                          title="Previous page (←)"
+                        >
+                          <span className="block absolute bottom-0 left-0 w-4 h-4 bg-[#d9c190] border-t-2 border-r-2 border-[#8c693c] opacity-65 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                      )}
+                    </div>
 
-              {/* Desktop center leather spine seam (z-10, behind turning pages) */}
-              {!isMobile && (
-                <div
-                  aria-hidden="true"
-                  className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2 z-10 opacity-75"
-                />
-              )}
+                    {/* Static Right Page */}
+                    <div className="relative h-full overflow-hidden">
+                      <PageSurface
+                        page={displayedRight}
+                        side="right"
+                        onSelectChapter={handleSelectChapter}
+                        onJump={handleJump}
+                      />
+                      {canNext && (
+                        <button
+                          type="button"
+                          aria-label="Next page"
+                          onClick={handleNext}
+                          className="absolute bottom-0 right-0 w-12 h-12 cursor-pointer group"
+                          title="Next page (→)"
+                        >
+                          <span className="block absolute bottom-0 right-0 w-4 h-4 bg-[#d9c190] border-t-2 border-l-2 border-[#8c693c] opacity-65 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Center Leather Spine Seam */}
+                    <div
+                      aria-hidden="true"
+                      className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2 z-20 opacity-75"
+                    />
+
+                    {/* GPU-Accelerated 3D Turning Leaf (Forward & Backward Symmetric Fold) */}
+                    {desktopFlip && (
+                      <div
+                        key={desktopFlip.key}
+                        aria-hidden="true"
+                        onAnimationEnd={(e) => {
+                          if (e.target === e.currentTarget) {
+                            finishDesktopFlip(desktopFlip.toIndex);
+                          }
+                        }}
+                        className={`pointer-events-none absolute top-0 bottom-0 w-1/2 z-50 lore-flip-leaf ${
+                          desktopFlip.direction === 'next'
+                            ? 'left-1/2 lore-flip-next'
+                            : 'left-0 lore-flip-prev'
+                        }`}
+                      >
+                        {/* Front face of the turning leaf */}
+                        <div className="lore-flip-face absolute inset-0 border-x border-[#6e4624] overflow-hidden shadow-xl">
+                          <PageSurface
+                            page={
+                              desktopFlip.direction === 'next'
+                                ? desktopFlip.fromSpread.right
+                                : desktopFlip.fromSpread.left
+                            }
+                            side={desktopFlip.direction === 'next' ? 'right' : 'left'}
+                            onSelectChapter={() => {}}
+                          />
+                          <div className="lore-flip-shade absolute inset-0 bg-[#2b150b] pointer-events-none" />
+                        </div>
+                        {/* Back face of the turning leaf */}
+                        <div className="lore-flip-face lore-flip-back absolute inset-0 border-x border-[#6e4624] overflow-hidden shadow-xl">
+                          <PageSurface
+                            page={
+                              desktopFlip.direction === 'next'
+                                ? desktopFlip.toSpread.left
+                                : desktopFlip.toSpread.right
+                            }
+                            side={desktopFlip.direction === 'next' ? 'left' : 'right'}
+                            onSelectChapter={() => {}}
+                          />
+                          <div className="lore-flip-shade absolute inset-0 bg-[#2b150b] pointer-events-none" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
-
-        {/* Portal React PageSurfaces directly into StPageFlip's page DOM nodes */}
-        {portalNodes.map((node, idx) => {
-          const page = activePages[idx];
-          if (!page) return null;
-          const side: 'left' | 'right' | 'single' = isMobile
-            ? 'single'
-            : idx % 2 === 0
-              ? 'left'
-              : 'right';
-          return createPortal(
-            <PageSurface
-              key={`${page.kind}_${idx}`}
-              page={page}
-              side={side}
-              onSelectChapter={handleSelectChapter}
-              onJump={handleJump}
-            />,
-            node,
-          );
-        })}
 
         {/* Bottom Page-Turn Controls (44px+ touch targets) */}
         <div className="w-full flex items-center justify-between gap-2">
@@ -648,7 +759,6 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
           >
             ← Previous
           </button>
-          <span className="text-[11px] text-[#cbb286]">Drag corner or swipe to turn</span>
           <button
             type="button"
             data-testid="lore-book-next-btn"
