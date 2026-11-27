@@ -180,3 +180,56 @@ test('Phase 9 [M18, M19]: blighted_mire curses tiles/units, boulder_rain deals i
   assert.equal(executeTerrainDropTileImpact(state, 'boulder_rain', 30, 30), true);
   assert.ok(u2.hp < hpStart, 'boulder_rain landing should deal impact damage to unshielded units');
 });
+
+test('Organic biomes (grass, jungle, etc.) naturally spread onto cooled burnt (scorched) land', () => {
+  const state = makeFlatState('ORGANIC-SPREAD', 24);
+  ensureWorldGrid(state);
+
+  // Set entire map to non-organic rock first so we control neighbors strictly
+  for (const t of state.tiles) {
+    t.height = 2;
+    t.terrain = 'rock';
+    t.onFireTimer = 0;
+    t.cursedTimer = 0;
+    t.devastatedTimer = undefined;
+  }
+
+  // Case 1: Scorched tile surrounded by jungle should be reclaimed by jungle and clear burntTree
+  const jungleCenter = getTile(state, 6, 6)!;
+  jungleCenter.terrain = 'scorched';
+  jungleCenter.burntTree = true;
+  jungleCenter.burntTreeBiome = 'jungle';
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    getTile(state, 6 + dx, 6 + dz)!.terrain = 'jungle';
+  }
+
+  // Case 2: Scorched tile surrounded by grass should be reclaimed by grass
+  const grassCenter = getTile(state, 12, 6)!;
+  grassCenter.terrain = 'scorched';
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    getTile(state, 12 + dx, 6 + dz)!.terrain = 'grass';
+  }
+
+  // Case 3: Scorched tile surrounded only by non-organic rock must stay scorched
+  const rockCenter = getTile(state, 18, 6)!;
+  rockCenter.terrain = 'scorched';
+
+  // Case 4: Still-devastated scorched tile surrounded by jungle must NOT be reclaimed while devastatedTimer > 0
+  const devastatedCenter = getTile(state, 6, 14)!;
+  devastatedCenter.terrain = 'scorched';
+  devastatedCenter.devastatedTimer = 999;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    getTile(state, 6 + dx, 14 + dz)!.terrain = 'jungle';
+  }
+
+  // Advance simulation ~35 seconds in 0.25s steps
+  for (let i = 0; i < 140; i++) {
+    stepSimulation(state, 0.25);
+  }
+
+  assert.equal(jungleCenter.terrain, 'jungle', 'Jungle must spread onto adjacent cooled scorched land');
+  assert.equal(jungleCenter.burntTree, undefined, 'Reclaimed scorched tile must clear burntTree');
+  assert.equal(grassCenter.terrain, 'grass', 'Grass must spread onto adjacent cooled scorched land');
+  assert.equal(rockCenter.terrain, 'scorched', 'Non-organic rock must not spread onto scorched land');
+  assert.equal(devastatedCenter.terrain, 'scorched', 'Devastated scorched land must wait until devastation clears');
+});

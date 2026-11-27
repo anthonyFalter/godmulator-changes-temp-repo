@@ -5335,6 +5335,19 @@ const POISON_CORRUPTIBLE_SOILS = new Set<TerrainType>([
   'swamp',
 ]);
 
+/** Organic vegetation biomes that naturally spread inward to reclaim burnt (scorched) lands */
+export const ORGANIC_SPREAD_TERRAINS: ReadonlySet<TerrainType> = new Set<TerrainType>([
+  'grass',
+  'fertile',
+  'forest',
+  'jungle',
+  'savanna',
+  'swamp',
+  'taiga',
+  'blossom',
+  'floral_plains',
+]);
+
 /**
  * Resolves emergent elemental liquid & terrain reactions in a bounded radius:
  * - Lava + Water -> quenches lava directly into steaming water (+ steam VFX)
@@ -16427,11 +16440,13 @@ function stepSimulationSingle(
   let pendingLavaQuench: TileData[] | null = null;
   let pendingLavaPoison: Array<[TileData, TileData]> | null = null;
   let pendingPoisonDilute: TileData[] | null = null;
+  let pendingOrganicSpread: Array<{ tile: TileData; terrain: TerrainType }> | null = null;
   const tiles = state.tiles;
   const nTiles = runTileTimerSweep ? tiles.length : 0;
   const wildfireSpreadEnabled = state.worldRules?.wildfireSpread !== false;
   const fireSpreadOffsets = FIRE_SPREAD_OFFSETS;
   const sweepSeasonOffsetC = runTileTimerSweep ? getSeasonalBaseTempOffsetC(state) : 0;
+  const organicSpreadMult = sweepSeasonOffsetC <= -5 ? 0.55 : sweepSeasonOffsetC >= 2 ? 1.25 : 1.0;
   for (let i = 0; i < nTiles; i++) {
     const t = tiles[i];
     if (
@@ -16520,6 +16535,45 @@ function stepSimulationSingle(
             if (!pendingPoisonDilute) pendingPoisonDilute = [];
             pendingPoisonDilute.push(t);
           }
+        }
+      }
+    }
+    // Organic biomes (grass, jungle, forest, savanna, swamp, blossom, taiga, floral_plains, fertile)
+    // naturally spread inward to reclaim cooled burnt (scorched) land tiles.
+    if (
+      runLiquidEdgePulse &&
+      t.terrain === 'scorched' &&
+      t.height > 0 &&
+      t.onFireTimer <= 0 &&
+      t.cursedTimer <= 0 &&
+      (t.devastatedTimer ?? 0) <= 0
+    ) {
+      let totalWeight = 0;
+      let chosenTerrain: TerrainType | null = null;
+      for (let oz = -1; oz <= 1; oz++) {
+        const nz = t.z + oz;
+        if (nz < 0 || nz >= gsSweep) continue;
+        const rowOff = nz * gsSweep;
+        for (let ox = -1; ox <= 1; ox++) {
+          if (ox === 0 && oz === 0) continue;
+          const nx = t.x + ox;
+          if (nx < 0 || nx >= gsSweep) continue;
+          const nb = tiles[rowOff + nx];
+          if (!nb || nb.height <= 0 || nb.onFireTimer > 0) continue;
+          if (!ORGANIC_SPREAD_TERRAINS.has(nb.terrain)) continue;
+          const w = ox === 0 || oz === 0 ? 2 : 1;
+          totalWeight += w;
+          // Reservoir sampling by weight so choice is proportional to neighbor coverage
+          if (Math.random() * totalWeight < w) {
+            chosenTerrain = nb.terrain;
+          }
+        }
+      }
+      if (totalWeight > 0 && chosenTerrain) {
+        const spreadProb = 1 - Math.exp(-totalWeight * 0.045 * organicSpreadMult);
+        if (Math.random() < spreadProb) {
+          if (!pendingOrganicSpread) pendingOrganicSpread = [];
+          pendingOrganicSpread.push({ tile: t, terrain: chosenTerrain });
         }
       }
     }
@@ -16752,6 +16806,17 @@ function stepSimulationSingle(
           createdAt: Date.now(),
         });
       }
+    }
+  }
+  if (pendingOrganicSpread) {
+    const wg = state.worldGrid as WorldGridBuffers | undefined;
+    for (let i = 0; i < pendingOrganicSpread.length; i++) {
+      const { tile: st, terrain } = pendingOrganicSpread[i];
+      if (st.terrain !== 'scorched' || st.height <= 0 || st.onFireTimer > 0) continue;
+      st.terrain = terrain;
+      st.burntTree = undefined;
+      st.burntTreeBiome = undefined;
+      if (wg) syncTileToWorldGrid(wg, st);
     }
   }
 
