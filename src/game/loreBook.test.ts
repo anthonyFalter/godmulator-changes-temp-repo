@@ -88,9 +88,34 @@ test('Lore Book weaves live addChronicle events, coalesces same-year bursts, and
   addChronicle(sim, 'The God Titan Death Beam detonated in a nuclear mushroom cloud!', 'warning', { x: 18, z: 18 });
   syncLoreBookFromChronicle(sim, true);
 
-  const { spreads, chapters } = buildLoreBookSpreads(sim, 'Aethelgard');
+  const { spreads, pages, chapters } = buildLoreBookSpreads(sim, 'Aethelgard');
   assert.ok(spreads.length >= 2, 'Should have Title/TOC spread plus at least one story spread');
+  assert.ok(pages.length >= 3, 'Should provide flat mobile pages');
   assert.equal(spreads[0].left.kind, 'title');
   assert.equal(spreads[0].right.kind, 'toc');
   assert.ok(chapters.length >= 2, 'Advancing epochs should create separate chapters');
+  assert.equal(chapters[0].pageIndex, 2, 'First chapter starts on flat page index 2 (after Title & TOC)');
+});
+
+test('Lore Book replaces generic "My World", omits seed from title page, and poeticizes mechanical text', () => {
+  const sim = createInitialSimulationState(24, 'SECRET-SEED-999');
+  sim.worldName = 'My World';
+  sim.settlementNames = {};
+  sim.year = 3;
+  ensureLoreBook(sim);
+  addChronicle(sim, 'A Zombie Virus flask shattered, mutating 4 creatures into zombies!', 'warning', { x: 10, z: 10 });
+  addChronicle(sim, 'Another Zombie Virus flask shattered, mutating 2 creatures into zombies!', 'warning', { x: 11, z: 11 });
+
+  const { spreads, pages } = buildLoreBookSpreads(sim, 'My World');
+  const titlePage = spreads[0].left;
+  assert.equal(titlePage.kind, 'title');
+  assert.notEqual(titlePage.worldName.toLowerCase(), 'my world');
+  assert.equal('seed' in titlePage, false, 'Title page must not expose world seed');
+  assert.ok(!titlePage.colophon.includes('SECRET-SEED-999'));
+
+  const zombieEntry = sim.loreBook!.entries.find((e) => e.category === 'zombie');
+  assert.ok(zombieEntry);
+  assert.ok(!zombieEntry.body.includes('times recorded'), 'Coalescing should use poetic prose, not raw counts');
+  assert.ok(!zombieEntry.body.includes('mutating 4 creatures'), 'Raw mechanical game text should be poeticized');
+  assert.ok(pages.length >= 3);
 });

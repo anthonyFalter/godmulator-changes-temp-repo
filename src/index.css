@@ -836,92 +836,283 @@
 }
 
 /* =========================================================================
- * Pixelated Lore Book Tome & 3D Page-Flipping Animation
+ * Pixelated Lore Book Tome & Multi-Segment 3D Curved Page-Flip Animation
  * ========================================================================= */
 .lore-book-cover {
-  background-color: #3d1e12;
-  border: 3px solid #140804;
+  background-color: #422012;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      rgba(20, 8, 4, 0.14) 0px,
+      rgba(20, 8, 4, 0.14) 2px,
+      transparent 2px,
+      transparent 6px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      rgba(128, 70, 38, 0.12) 0px,
+      rgba(128, 70, 38, 0.12) 2px,
+      transparent 2px,
+      transparent 8px
+    );
+  border: 3px solid #120703;
   box-shadow:
-    inset 3px 3px 0 0 #6b3822,
-    inset -3px -3px 0 0 #210f08,
-    0 14px 36px rgba(0, 0, 0, 0.65);
+    inset 3px 3px 0 0 #754024,
+    inset -3px -3px 0 0 #1f0d06,
+    inset 6px 6px 0 0 #552b17,
+    inset -6px -6px 0 0 #2d140a,
+    0 6px 0 0 #1c0c06,
+    0 18px 42px rgba(0, 0, 0, 0.72);
+  image-rendering: pixelated;
+}
+
+/* Thick physical pixel-art page block edges on left, right, and bottom */
+.lore-paper-stack {
+  background-color: #cbb07c;
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      #e6d2a4 0px,
+      #e6d2a4 2px,
+      #bfa16c 2px,
+      #bfa16c 4px
+    );
+  border: 2px solid #241007;
+  box-shadow:
+    0 4px 0 0 #a88954,
+    0 6px 0 0 #7c5f34,
+    0 8px 0 0 #241007;
   image-rendering: pixelated;
 }
 
 .lore-parchment {
-  background-color: #f2e2be;
+  background-color: #f4e4c1;
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(255, 248, 226, 0.45) 0%, rgba(224, 198, 146, 0.22) 100%);
   color: #2b1a10;
   image-rendering: pixelated;
 }
 
 .lore-parchment-left {
   box-shadow:
-    inset -6px 0 0 0 #e3cf9f,
-    inset -10px 0 0 0 #d5bc87;
+    inset 3px 0 0 0 #e6d1a3,
+    inset -4px 0 0 0 #e3cc9b,
+    inset -10px 0 0 0 #d4b780,
+    inset -16px 0 12px -8px rgba(48, 24, 8, 0.42);
 }
 
 .lore-parchment-right {
   box-shadow:
-    inset 6px 0 0 0 #e3cf9f,
-    inset 10px 0 0 0 #d5bc87;
+    inset -3px 0 0 0 #e6d1a3,
+    inset 4px 0 0 0 #e3cc9b,
+    inset 10px 0 0 0 #d4b780,
+    inset 16px 0 12px -8px rgba(48, 24, 8, 0.42);
+}
+
+.lore-parchment-single {
+  box-shadow:
+    inset -3px 0 0 0 #e6d1a3,
+    inset 4px 0 0 0 #e2ca98,
+    inset 10px 0 0 0 #d2b47c,
+    inset 16px 0 12px -8px rgba(48, 24, 8, 0.42);
+}
+
+/* Pixel-art leather spine with gold-tooled horizontal bands */
+.lore-spine-strip {
+  background-color: #2d1409;
+  background-image: repeating-linear-gradient(
+    180deg,
+    #2d1409 0px,
+    #2d1409 36px,
+    #c89b3c 36px,
+    #c89b3c 38px,
+    #5d311b 38px,
+    #5d311b 42px,
+    #190a04 42px,
+    #190a04 44px
+  );
+  box-shadow:
+    inset 2px 0 0 0 #532a16,
+    inset -2px 0 0 0 #160803;
 }
 
 .lore-stage {
-  perspective: 1500px;
+  perspective: 1600px;
+  perspective-origin: 50% 48%;
 }
 
-.lore-flip-leaf {
+/* --- Multi-Segment 3D Curved Page Curl --- */
+.lore-curl-root,
+.lore-curl-seg {
   transform-style: preserve-3d;
   will-change: transform;
 }
 
-.lore-flip-face {
+.lore-curl-face {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
 }
 
-.lore-flip-back {
+.lore-curl-back {
   transform: rotateY(180deg);
 }
 
-@keyframes lore-flip-next-anim {
-  0% {
-    transform: rotateY(0deg);
-  }
-  50% {
-    transform: rotateY(-90deg);
-  }
-  100% {
-    transform: rotateY(-180deg);
-  }
+/* Desktop NEXT: right page lifts, curves into a smooth 3D arch, and lands on left */
+@keyframes lore-next-seg0 {
+  0%   { transform: rotateY(0deg); }
+  25%  { transform: rotateY(-38deg); }
+  50%  { transform: rotateY(-92deg); }
+  75%  { transform: rotateY(-146deg); }
+  100% { transform: rotateY(-180deg); }
+}
+@keyframes lore-next-seg1 {
+  0%   { transform: rotateY(0deg); }
+  30%  { transform: rotateY(16deg); }
+  55%  { transform: rotateY(22deg); }
+  80%  { transform: rotateY(9deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes lore-next-seg2 {
+  0%   { transform: rotateY(0deg); }
+  30%  { transform: rotateY(22deg); }
+  55%  { transform: rotateY(28deg); }
+  80%  { transform: rotateY(12deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes lore-next-seg3 {
+  0%   { transform: rotateY(0deg); }
+  30%  { transform: rotateY(20deg); }
+  55%  { transform: rotateY(26deg); }
+  80%  { transform: rotateY(10deg); }
+  100% { transform: rotateY(0deg); }
 }
 
-@keyframes lore-flip-prev-anim {
-  0% {
-    transform: rotateY(0deg);
-  }
-  50% {
-    transform: rotateY(90deg);
-  }
-  100% {
-    transform: rotateY(180deg);
-  }
+/* Desktop PREV: left page lifts, curves into a smooth 3D arch, and lands on right */
+@keyframes lore-prev-seg0 {
+  0%   { transform: rotateY(0deg); }
+  25%  { transform: rotateY(38deg); }
+  50%  { transform: rotateY(92deg); }
+  75%  { transform: rotateY(146deg); }
+  100% { transform: rotateY(180deg); }
+}
+@keyframes lore-prev-seg1 {
+  0%   { transform: rotateY(0deg); }
+  30%  { transform: rotateY(-16deg); }
+  55%  { transform: rotateY(-22deg); }
+  80%  { transform: rotateY(-9deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes lore-prev-seg2 {
+  0%   { transform: rotateY(0deg); }
+  30%  { transform: rotateY(-22deg); }
+  55%  { transform: rotateY(-28deg); }
+  80%  { transform: rotateY(-12deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes lore-prev-seg3 {
+  0%   { transform: rotateY(0deg); }
+  30%  { transform: rotateY(-20deg); }
+  55%  { transform: rotateY(-26deg); }
+  80%  { transform: rotateY(-10deg); }
+  100% { transform: rotateY(0deg); }
 }
 
-.lore-flip-next {
-  transform-origin: left center;
-  animation: lore-flip-next-anim 380ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+/* Mobile NEXT: single page curls up and peels off to the left spine */
+@keyframes lore-mob-next-seg0 {
+  0%   { transform: rotateY(0deg); opacity: 1; }
+  35%  { transform: rotateY(-42deg); opacity: 1; }
+  72%  { transform: rotateY(-94deg); opacity: 1; }
+  100% { transform: rotateY(-122deg); opacity: 0; }
+}
+@keyframes lore-mob-next-seg1 {
+  0%   { transform: rotateY(0deg); }
+  40%  { transform: rotateY(16deg); }
+  75%  { transform: rotateY(22deg); }
+  100% { transform: rotateY(14deg); }
+}
+@keyframes lore-mob-next-seg2 {
+  0%   { transform: rotateY(0deg); }
+  40%  { transform: rotateY(22deg); }
+  75%  { transform: rotateY(28deg); }
+  100% { transform: rotateY(18deg); }
+}
+@keyframes lore-mob-next-seg3 {
+  0%   { transform: rotateY(0deg); }
+  40%  { transform: rotateY(20deg); }
+  75%  { transform: rotateY(24deg); }
+  100% { transform: rotateY(14deg); }
 }
 
-.lore-flip-prev {
-  transform-origin: right center;
-  animation: lore-flip-prev-anim 380ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards;
+/* Mobile PREV: previous page unfurls from left spine with a smooth paper curve */
+@keyframes lore-mob-prev-seg0 {
+  0%   { transform: rotateY(-122deg); opacity: 0; }
+  18%  { transform: rotateY(-96deg); opacity: 1; }
+  60%  { transform: rotateY(-36deg); opacity: 1; }
+  100% { transform: rotateY(0deg); opacity: 1; }
+}
+@keyframes lore-mob-prev-seg1 {
+  0%   { transform: rotateY(16deg); }
+  45%  { transform: rotateY(20deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes lore-mob-prev-seg2 {
+  0%   { transform: rotateY(22deg); }
+  45%  { transform: rotateY(26deg); }
+  100% { transform: rotateY(0deg); }
+}
+@keyframes lore-mob-prev-seg3 {
+  0%   { transform: rotateY(18deg); }
+  45%  { transform: rotateY(22deg); }
+  100% { transform: rotateY(0deg); }
+}
+
+/* Dynamic bend shading + cast shadow sweep across turning leaf */
+@keyframes lore-curl-shade {
+  0%   { opacity: 0; }
+  45%  { opacity: 0.42; }
+  100% { opacity: 0; }
+}
+@keyframes lore-under-shadow {
+  0%   { opacity: 0.36; }
+  65%  { opacity: 0.16; }
+  100% { opacity: 0; }
+}
+
+.lore-anim-next-0 { transform-origin: left center; animation: lore-next-seg0 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-next-1 { transform-origin: left center; animation: lore-next-seg1 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-next-2 { transform-origin: left center; animation: lore-next-seg2 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-next-3 { transform-origin: left center; animation: lore-next-seg3 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+
+.lore-anim-prev-0 { transform-origin: right center; animation: lore-prev-seg0 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-prev-1 { transform-origin: right center; animation: lore-prev-seg1 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-prev-2 { transform-origin: right center; animation: lore-prev-seg2 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-prev-3 { transform-origin: right center; animation: lore-prev-seg3 580ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+
+.lore-anim-mob-next-0 { transform-origin: left center; animation: lore-mob-next-seg0 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-mob-next-1 { transform-origin: left center; animation: lore-mob-next-seg1 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-mob-next-2 { transform-origin: left center; animation: lore-mob-next-seg2 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-mob-next-3 { transform-origin: left center; animation: lore-mob-next-seg3 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+
+.lore-anim-mob-prev-0 { transform-origin: left center; animation: lore-mob-prev-seg0 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-mob-prev-1 { transform-origin: left center; animation: lore-mob-prev-seg1 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-mob-prev-2 { transform-origin: left center; animation: lore-mob-prev-seg2 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+.lore-anim-mob-prev-3 { transform-origin: left center; animation: lore-mob-prev-seg3 520ms cubic-bezier(0.32, 0.08, 0.24, 1) forwards; }
+
+.lore-curl-shade-overlay {
+  animation: lore-curl-shade 580ms ease-in-out forwards;
+}
+
+.lore-under-shadow-overlay {
+  animation: lore-under-shadow 580ms ease-out forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lore-flip-next,
-  .lore-flip-prev {
-    animation-duration: 100ms;
+  .lore-anim-next-0, .lore-anim-next-1, .lore-anim-next-2, .lore-anim-next-3,
+  .lore-anim-prev-0, .lore-anim-prev-1, .lore-anim-prev-2, .lore-anim-prev-3,
+  .lore-anim-mob-next-0, .lore-anim-mob-next-1, .lore-anim-mob-next-2, .lore-anim-mob-next-3,
+  .lore-anim-mob-prev-0, .lore-anim-mob-prev-1, .lore-anim-mob-prev-2, .lore-anim-mob-prev-3,
+  .lore-curl-shade-overlay, .lore-under-shadow-overlay {
+    animation-duration: 120ms;
   }
 }
 
