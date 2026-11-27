@@ -36,8 +36,8 @@ interface MobileFlipState {
 
 type FlipTransitionState = DesktopFlipState | MobileFlipState;
 
-const DESKTOP_FLIP_MS = 580;
-const MOBILE_FLIP_MS = 520;
+const DESKTOP_FLIP_MS = 520;
+const MOBILE_FLIP_MS = 460;
 
 /* --- Pixel-Art Book Ornaments (crisp integer pixel grids) --- */
 
@@ -181,7 +181,7 @@ const LoreEntryVerse: React.FC<{
         </div>
       </div>
 
-      <p className="text-[12.5px] sm:text-[13px] leading-[1.68] text-[#2f1d11] font-serif">
+      <p className="text-[12.5px] sm:text-[13px] leading-[1.68] text-[#2f1d11]">
         <span className="float-left mr-2 mt-0.5 px-1.5 py-0.5 bg-[#e6cf9c] border-2 border-[#8b5d2b] text-[22px] font-black leading-none text-[#8b2222] shadow-[inset_1px_1px_0_#f9eccb]">
           {firstChar}
         </span>
@@ -216,11 +216,11 @@ const PageSurface: React.FC<{
 
           <div className="flex-1 flex flex-col items-center justify-center py-2">
             <PixelWaxSeal className="w-11 h-11 sm:w-12 sm:h-12 mb-3" />
-            <h2 className="text-xl sm:text-2xl font-black font-serif text-[#261209] leading-tight max-w-[260px]">
+            <h2 className="text-xl sm:text-2xl font-black text-[#261209] leading-tight max-w-[260px]">
               {page.worldName}
             </h2>
             <PixelDivider className="w-32 my-2.5" />
-            <p className="text-[11.5px] sm:text-xs italic font-serif text-[#5e3b1c] leading-relaxed max-w-[240px]">
+            <p className="text-[11.5px] sm:text-xs italic text-[#5e3b1c] leading-relaxed max-w-[240px]">
               {page.epigraph}
             </p>
             <p className="mt-3 text-xs font-bold text-[#8b2222] tabular-nums">
@@ -228,7 +228,7 @@ const PageSurface: React.FC<{
             </p>
           </div>
 
-          <p className="text-[11px] font-serif italic text-[#6d4826] leading-snug max-w-[250px]">
+          <p className="text-[11px] italic text-[#6d4826] leading-snug max-w-[250px]">
             {page.colophon}
           </p>
         </div>
@@ -238,7 +238,7 @@ const PageSurface: React.FC<{
         <div className="h-full flex flex-col justify-between">
           <div className="min-h-0 flex-1 flex flex-col">
             <div className="text-center mb-1">
-              <h3 className="text-base sm:text-lg font-black font-serif text-[#261209] tracking-wide">
+              <h3 className="text-base sm:text-lg font-black text-[#261209] tracking-wide">
                 Table of Chapters
               </h3>
             </div>
@@ -252,7 +252,7 @@ const PageSurface: React.FC<{
                   onClick={() => onSelectChapter(ch)}
                   className="w-full min-h-[40px] text-left px-2.5 py-2 hover:bg-[#e5d0a1] border-b border-dashed border-[#cfb480] flex items-baseline justify-between gap-2 cursor-pointer transition-colors"
                 >
-                  <span className="text-xs sm:text-[13px] font-bold font-serif text-[#2b150b] truncate">
+                  <span className="text-xs sm:text-[13px] font-bold text-[#2b150b] truncate">
                     Chapter {ch.roman} — {ch.title}
                   </span>
                   <span className="text-[11px] font-semibold text-[#734d2c] tabular-nums shrink-0">
@@ -263,7 +263,7 @@ const PageSurface: React.FC<{
             </nav>
           </div>
 
-          <p className="text-[11px] font-serif italic text-[#7a5230] tabular-nums pt-2 text-center">
+          <p className="text-[11px] italic text-[#7a5230] tabular-nums pt-2 text-center">
             {page.totalEntries} {page.totalEntries === 1 ? 'tale' : 'tales'} preserved in ink
           </p>
         </div>
@@ -277,10 +277,10 @@ const PageSurface: React.FC<{
                 <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#7d552c]">
                   Chapter {page.chapterRoman}
                 </p>
-                <h3 className="text-sm sm:text-base font-black font-serif text-[#8b2222] leading-snug">
+                <h3 className="text-sm sm:text-base font-black text-[#8b2222] leading-snug">
                   {page.chapterTitle}
                 </h3>
-                <p className="text-[11px] italic font-serif text-[#6b4624] mt-0.5 leading-snug">
+                <p className="text-[11px] italic text-[#6b4624] mt-0.5 leading-snug">
                   “{page.chapterEpigraph}”
                 </p>
                 <PixelDivider className="mt-2 mb-1" />
@@ -292,7 +292,7 @@ const PageSurface: React.FC<{
           </div>
 
           <div
-            className={`flex items-center text-[11px] font-bold font-serif text-[#7a5230] tabular-nums pt-2 border-t border-[#d8be89] ${
+            className={`flex items-center text-[11px] font-bold text-[#7a5230] tabular-nums pt-2 border-t border-[#d8be89] ${
               side === 'left'
                 ? 'justify-start'
                 : side === 'right'
@@ -309,11 +309,11 @@ const PageSurface: React.FC<{
         <>
           <div className="flex-1 flex flex-col items-center justify-center text-center px-5">
             <HudPixelIcon kind="loreBook" className="w-8 h-8 pixelated-canvas opacity-60 mb-3" />
-            <p className="text-xs sm:text-[13px] italic font-serif text-[#6e4826] leading-relaxed max-w-[230px]">
+            <p className="text-xs sm:text-[13px] italic text-[#6e4826] leading-relaxed max-w-[230px]">
               {page.epilogueQuote}
             </p>
           </div>
-          <div className="flex items-center justify-end text-[11px] font-bold font-serif text-[#7a5230] tabular-nums pt-2 border-t border-[#d8be89]">
+          <div className="flex items-center justify-end text-[11px] font-bold text-[#7a5230] tabular-nums pt-2 border-t border-[#d8be89]">
             <span>— {page.pageNumber} —</span>
           </div>
         </>
@@ -323,82 +323,42 @@ const PageSurface: React.FC<{
 };
 
 /**
- * 4-segment articulated 3D curved turning leaf.
- * Each vertical 25% strip is nested inside the previous strip with its own Y-rotation
- * bend keyframe, producing a smooth physical paper arch as the page turns.
+ * Seamless single-sheet curved 3D turning leaf.
+ * Uses smooth rotateY + arch skewY/translateZ + sweeping cylindrical highlight/shadow
+ * so the page bows naturally like real parchment without vertical curtain seams.
  */
 const CurvedTurningLeaf: React.FC<{
   frontPage: LoreBookPage;
   frontSide: 'left' | 'right' | 'single';
   backPage: LoreBookPage | null;
   backSide: 'left' | 'right' | 'single';
-  animPrefix: 'lore-anim-next' | 'lore-anim-prev' | 'lore-anim-mob-next' | 'lore-anim-mob-prev';
-  hinge: 'left' | 'right';
-}> = ({ frontPage, frontSide, backPage, backSide, animPrefix, hinge }) => {
-  const renderSegment = (segIndex: number): React.ReactNode => {
-    const isHingeLeft = hinge === 'left';
-    const frontSliceIdx = isHingeLeft ? segIndex : 3 - segIndex;
-    const backSliceIdx = isHingeLeft ? 3 - segIndex : segIndex;
+  flipClass: 'lore-flip-next' | 'lore-flip-prev' | 'lore-flip-mob-next' | 'lore-flip-mob-prev';
+  sheenDirection: 'next' | 'prev';
+}> = ({ frontPage, frontSide, backPage, backSide, flipClass, sheenDirection }) => {
+  const sheenClass =
+    sheenDirection === 'next' ? 'lore-curl-sheen-next' : 'lore-curl-sheen-prev';
 
-    const posStyle: React.CSSProperties =
-      segIndex === 0
-        ? isHingeLeft
-          ? { left: 0, width: '25%' }
-          : { right: 0, width: '25%' }
-        : isHingeLeft
-          ? { left: '100%', width: '100%' }
-          : { right: '100%', width: '100%' };
-
-    // Subtle curved-crest lighting gradient across each strip
-    const shadeBg =
-      segIndex === 1 || segIndex === 2
-        ? 'linear-gradient(90deg, rgba(46,24,8,0.12) 0%, rgba(255,248,224,0.22) 50%, rgba(46,24,8,0.22) 100%)'
-        : 'linear-gradient(90deg, rgba(46,24,8,0.22) 0%, rgba(255,248,224,0.10) 100%)';
-
-    return (
-      <div
-        className={`lore-curl-seg absolute top-0 bottom-0 ${animPrefix}-${segIndex}`}
-        style={posStyle}
-      >
-        {/* Front Face Slice */}
-        <div className="lore-curl-face absolute inset-0 overflow-hidden">
-          <div
-            className="absolute top-0 bottom-0"
-            style={{ width: '400%', left: `${-frontSliceIdx * 100}%` }}
-          >
-            <PageSurface page={frontPage} side={frontSide} onSelectChapter={() => {}} />
-          </div>
-          <div
-            aria-hidden="true"
-            className="lore-curl-shade-overlay pointer-events-none absolute inset-0"
-            style={{ background: shadeBg }}
-          />
-        </div>
-
-        {/* Back Face Slice */}
-        <div className="lore-curl-face lore-curl-back absolute inset-0 overflow-hidden bg-[#ecd8ae]">
-          {backPage && (
-            <div
-              className="absolute top-0 bottom-0"
-              style={{ width: '400%', left: `${-backSliceIdx * 100}%` }}
-            >
-              <PageSurface page={backPage} side={backSide} onSelectChapter={() => {}} />
-            </div>
-          )}
-          <div
-            aria-hidden="true"
-            className="lore-curl-shade-overlay pointer-events-none absolute inset-0"
-            style={{ background: shadeBg }}
-          />
-        </div>
-
-        {/* Next articulated child strip */}
-        {segIndex < 3 && renderSegment(segIndex + 1)}
+  return (
+    <div className={`lore-flip-leaf absolute inset-0 ${flipClass}`}>
+      {/* Front Face */}
+      <div className="lore-flip-face absolute inset-0 overflow-hidden shadow-[0_8px_20px_rgba(24,10,4,0.38)]">
+        <PageSurface page={frontPage} side={frontSide} onSelectChapter={() => {}} />
+        <div
+          aria-hidden="true"
+          className={`lore-curl-sheen ${sheenClass} pointer-events-none absolute inset-0`}
+        />
       </div>
-    );
-  };
 
-  return <>{renderSegment(0)}</>;
+      {/* Back Face */}
+      <div className="lore-flip-face lore-flip-back absolute inset-0 overflow-hidden bg-[#ecd8ae] shadow-[0_8px_20px_rgba(24,10,4,0.38)]">
+        {backPage && <PageSurface page={backPage} side={backSide} onSelectChapter={() => {}} />}
+        <div
+          aria-hidden="true"
+          className={`lore-curl-sheen ${sheenClass} pointer-events-none absolute inset-0`}
+        />
+      </div>
+    </div>
+  );
 };
 
 export const LoreBookModal: React.FC<LoreBookModalProps> = ({
@@ -719,34 +679,34 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
                       <span className="block absolute bottom-0 right-0 w-3.5 h-3.5 bg-[#d9c190] border-t-2 border-l-2 border-[#8c693c] opacity-70" />
                     </button>
                   )}
-
-                  {/* 4-Segment Curved 3D Mobile Turning Leaf */}
-                  {mobileFlip && (
-                    <div
-                      key={mobileFlip.key}
-                      aria-hidden="true"
-                      className="lore-curl-root pointer-events-none absolute inset-0 z-30"
-                    >
-                      <CurvedTurningLeaf
-                        frontPage={
-                          mobileFlip.direction === 'next' ? mobileFlip.fromPage : mobileFlip.toPage
-                        }
-                        frontSide="single"
-                        backPage={null}
-                        backSide="single"
-                        animPrefix={
-                          mobileFlip.direction === 'next'
-                            ? 'lore-anim-mob-next'
-                            : 'lore-anim-mob-prev'
-                        }
-                        hinge="left"
-                      />
-                    </div>
-                  )}
                 </div>
+
+                {/* Mobile Seamless Curved 3D Turning Leaf (outside overflow-hidden so 3D arch never clips) */}
+                {mobileFlip && (
+                  <div
+                    key={mobileFlip.key}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-0 bottom-0 left-3 right-0 z-30"
+                  >
+                    <CurvedTurningLeaf
+                      frontPage={
+                        mobileFlip.direction === 'next' ? mobileFlip.fromPage : mobileFlip.toPage
+                      }
+                      frontSide="single"
+                      backPage={null}
+                      backSide="single"
+                      flipClass={
+                        mobileFlip.direction === 'next'
+                          ? 'lore-flip-mob-next'
+                          : 'lore-flip-mob-prev'
+                      }
+                      sheenDirection={mobileFlip.direction}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
-              /* DESKTOP: Open 2-Page Spread with Center Gold-Banded Spine + Curved 3D Page Curl */
+              /* DESKTOP: Open 2-Page Spread with Center Gold-Banded Spine + Seamless Curved 3D Page Turn */
               <div className="lore-stage relative grid grid-cols-2 h-[460px] max-h-[70vh] border-2 border-[#5c3b1e] bg-[#f4e4c1]">
                 {/* Left Page */}
                 <div className="relative h-full border-r border-[#6e4624] overflow-hidden">
@@ -810,12 +770,12 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
                   className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2.5 z-20 opacity-90"
                 />
 
-                {/* 4-Segment Articulated Curved 3D Turning Leaf */}
+                {/* Desktop Seamless Curved 3D Turning Leaf */}
                 {desktopFlip && (
                   <div
                     key={desktopFlip.key}
                     aria-hidden="true"
-                    className={`lore-curl-root pointer-events-none absolute top-0 bottom-0 w-1/2 z-30 ${
+                    className={`pointer-events-none absolute top-0 bottom-0 w-1/2 z-30 ${
                       desktopFlip.direction === 'next' ? 'left-1/2' : 'left-0'
                     }`}
                   >
@@ -832,10 +792,10 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
                           : desktopFlip.toSpread.right
                       }
                       backSide={desktopFlip.direction === 'next' ? 'left' : 'right'}
-                      animPrefix={
-                        desktopFlip.direction === 'next' ? 'lore-anim-next' : 'lore-anim-prev'
+                      flipClass={
+                        desktopFlip.direction === 'next' ? 'lore-flip-next' : 'lore-flip-prev'
                       }
-                      hinge={desktopFlip.direction === 'next' ? 'left' : 'right'}
+                      sheenDirection={desktopFlip.direction}
                     />
                   </div>
                 )}
