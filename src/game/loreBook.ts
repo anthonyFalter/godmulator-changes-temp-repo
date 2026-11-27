@@ -118,179 +118,77 @@ function weaveEpicVerse(
   seed: number,
 ): { title: string; body: string } {
   const cleanFact = ev.text.trim().replace(/\.$/, '');
-  const yearPhrase = `In the ${year === 1 ? 'First Year' : `Year ${year}`} of the ${epochName}`;
+  const yearPrefix = year === 1 ? 'In the First Year' : `In Year ${year}`;
 
   switch (category) {
     case 'titan': {
-      const titles = [
-        'Descent of the Iron God',
-        'Wrath of the Divine Titan',
-        'When the Heavens Shattered',
-        'Footsteps of the Colossus',
-      ];
-      const intros = [
-        `${yearPhrase}, the clouds parted before an engine of celestial judgment.`,
-        `${yearPhrase}, mortals fell to their knees as thunder walked the earth.`,
-        `${yearPhrase}, a towering titan of divine steel descended upon the realm.`,
-      ];
-      const outros = [
-        'Songs of that blinding radiance were whispered for generations.',
-        'The scarred horizon bore witness to the sovereign might from above.',
-        'No fortress or banner could stand unshaken beneath its gaze.',
-      ];
+      const titles = ['Iron From Above', 'The Divine Titan', 'Footsteps of Thunder'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. ${pick(outros, seed + 2)}`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}. The horizon burned where it walked.`,
       };
     }
     case 'zombie': {
-      const titles = [
-        'The Green Contagion',
-        'Shards of the Undying',
-        'Night of the Risen Flesh',
-        'The Necrotic Flask',
-      ];
-      const intros = [
-        `${yearPhrase}, a wicked vial plummeted from the firmament and shattered upon the soil.`,
-        `${yearPhrase}, an unnatural green mist crept across field and den alike.`,
-        `${yearPhrase}, the boundary between the living and the dead was violently undone.`,
-      ];
-      const outros = [
-        'Beast, myth, and mortal alike stumbled forth with hollow, hungering eyes.',
-        'Watchfires were lit across every border to hold back the shambling tide.',
-        'The corrupted earth remembers the hour the plague took root.',
-      ];
+      const titles = ['The Green Contagion', 'Shards of Blight', 'The Risen'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. ${pick(outros, seed + 2)}`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}. Beast and mortal alike turned with hollow eyes.`,
       };
     }
     case 'wonder': {
-      const titles = [
-        'A Monument for the Ages',
-        'Stone Raised to Eternity',
-        'Triumph of Mortal Hands',
-        'The Great Wonder',
-      ];
-      const intros = [
-        `${yearPhrase}, master builders crowned the skyline with a marvel of ambition.`,
-        `${yearPhrase}, pilgrims traveled from distant shores to behold a newfound wonder.`,
-      ];
+      const titles = ['A Monument Raised', 'Stone and Ambition', 'The Great Wonder'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. Its silhouette became a beacon of pride and legend.`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}. Travelers came from distant coasts to see it.`,
       };
     }
     case 'epoch': {
-      const titles = [
-        `Dawn of the ${epochName}`,
-        'The Turning of the Age',
-        'A New Chapter of Civilization',
-        'The Great Awakening',
-      ];
-      const intros = [
-        `${yearPhrase}, the old world shed its skin as wisdom and craft surged forward.`,
-        `${yearPhrase}, bells rang across the realm to herald a bold new era.`,
-      ];
+      const titles = [`The ${epochName}`, 'Turning of the Age', 'A New Craft'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. Scholars marked the date in gold ink upon the royal scrolls.`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
     case 'war': {
-      const titles = [
-        'Drums of War',
-        'Blood Upon the Banner',
-        'The Clash of Realms',
-        'Iron and Ash',
-      ];
-      const intros = [
-        `${yearPhrase}, horns of battle echoed across valley and ridge.`,
-        `${yearPhrase}, steel was drawn and the peace of the realm fractured.`,
-        `${yearPhrase}, banners marched beneath darkening skies.`,
-      ];
-      const outros = [
-        'Chroniclers recorded the valor and sorrow of all who stood the line.',
-        'The fate of borders hung upon the edge of every blade.',
-      ];
+      const titles = ['Drums of War', 'Banners Drawn', 'Iron and Ash'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. ${pick(outros, seed + 2)}`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
     case 'peace': {
-      const titles = [
-        'The Olive Accord',
-        'Truce Beneath Quiet Skies',
-        'Swords Sheathed in Harmony',
-      ];
+      const titles = ['The Accord', 'Swords Sheathed', 'Quiet Skies'];
       return {
         title: pick(titles, seed),
-        body: `${yearPhrase}, envoys laid down their arms and swore an oath of renewal. ${cleanFact}. Markets reopened and hearthfires burned bright once more.`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
     case 'kingdom': {
-      const titles = [
-        'Crown and Hearth',
-        'Rise of a Realm',
-        'Founding of the Banner',
-        'A Kingdom Takes Root',
-      ];
-      const intros = [
-        `${yearPhrase}, pioneers drove their stakes into the wild earth and raised a proud banner.`,
-        `${yearPhrase}, a new seat of power rose to claim its place in history.`,
-      ];
+      const titles = ['Crown and Hearth', 'A Banner Raised', 'Founding'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. From humble timber and stone, a lasting legacy began.`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
     case 'disaster': {
-      const titles = [
-        'Fury of the Elements',
-        'The Day the Sky Wept Fire',
-        'Calamity Unbound',
-        'Trial of Ash and Ruin',
-      ];
-      const intros = [
-        `${yearPhrase}, terror swept the land as nature and wrath collided.`,
-        `${yearPhrase}, the heavens offered no mercy to the settlements below.`,
-        `${yearPhrase}, a dark omen became sudden cataclysm.`,
-      ];
-      const outros = [
-        'Survivors clung to hope amidst the smoke, vowing to rebuild.',
-        'Yet even where ash settles, life stubbornly waits to return.',
-      ];
+      const titles = ['Fury of the Sky', 'Calamity', 'Ash and Ruin'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. ${pick(outros, seed + 2)}`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
     case 'divine': {
-      const titles = [
-        'Hand of the Creator',
-        'A Miracle Bestowed',
-        'Grace from Beyond the Clouds',
-        'The Whisper of Providence',
-      ];
-      const intros = [
-        `${yearPhrase}, golden light spilled through the clouds in answer to mortal prayers.`,
-        `${yearPhrase}, an unseen architect reshaped destiny with a single gesture.`,
-      ];
+      const titles = ['Hand of the Creator', 'A Miracle', 'Providence'];
       return {
         title: pick(titles, seed),
-        body: `${pick(intros, seed + 1)} ${cleanFact}. Priests inscribed the omen as proof of a watchful deity.`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
     default: {
-      const titles = [
-        'Echoes of the Realm',
-        'A Tale Worth Keeping',
-        'Annals of the World',
-      ];
+      const titles = ['Annals of the Realm', 'A Passing Tale', 'Chronicle'];
       return {
         title: pick(titles, seed),
-        body: `${yearPhrase}, a memorable turn unfolded across the lands. ${cleanFact}.`,
+        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
       };
     }
   }
