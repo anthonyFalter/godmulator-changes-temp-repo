@@ -619,6 +619,8 @@ export type LoreEntryCategory =
   | 'creation'
   | 'epoch'
   | 'kingdom'
+  | 'culture'
+  | 'rebellion'
   | 'war'
   | 'peace'
   | 'wonder'

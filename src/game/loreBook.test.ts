@@ -125,3 +125,63 @@ test('Lore Book replaces generic "My World", omits seed from title page, and poe
   assert.ok(!crownEntry.title.includes('<') && !crownEntry.title.includes('>'));
   assert.ok(pages.length >= 3);
 });
+
+test('Lore Book weaves race cultures, rebellions, and living monarchs into mythic tales', () => {
+  const sim = createInitialSimulationState(24, 'LORE-CULTURE');
+  sim.year = 18;
+  sim.epochIndex = 1;
+  sim.settlementNames = { s1: 'Ironhold' };
+  sim.units.push(
+    {
+      id: 'u_king_1',
+      name: 'Thrain',
+      role: 'warrior',
+      species: 'dwarf',
+      faction: 'civilization',
+      x: 10,
+      z: 10,
+      targetX: 10,
+      targetZ: 10,
+      hp: 100,
+      maxHp: 100,
+      state: 'idle',
+      koTimer: 0,
+      statusEffects: {},
+      carryingType: null,
+      carryingAmount: 0,
+      actionCooldown: 0,
+      windupTimer: 0,
+      targetEntityId: null,
+      settlementId: 's1',
+      isKing: true,
+      kills: 4,
+    },
+    {
+      id: 'u_rebel_1',
+      name: 'Kael the Defiant',
+      role: 'warrior',
+      species: 'elf',
+      faction: 'civilization',
+      x: 14,
+      z: 14,
+      targetX: 14,
+      targetZ: 14,
+      hp: 100,
+      maxHp: 100,
+      state: 'idle',
+      koTimer: 0,
+      statusEffects: {},
+      carryingType: null,
+      carryingAmount: 0,
+      actionCooldown: 0,
+      windupTimer: 0,
+      targetEntityId: null,
+      isRebel: true,
+    },
+  );
+
+  const book = ensureLoreBook(sim);
+  assert.ok(book.entries.some((e) => e.category === 'culture'), 'Should weave living race culture entry');
+  assert.ok(book.entries.some((e) => e.category === 'rebellion'), 'Should weave active rebellion entry');
+  assert.ok(book.entries.some((e) => e.category === 'legend' && e.title.includes('Thrain')), 'Should weave living monarch legend');
+});

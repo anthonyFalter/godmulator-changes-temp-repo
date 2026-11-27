@@ -183,6 +183,7 @@ interface IsometricWorldCanvasProps {
   simRef: React.MutableRefObject<SimulationState>;
   gameState: GameLifecycleState;
   hasBlockingModal?: boolean;
+  pauseRender?: boolean;
   timeScale: number;
   activeTool: ActiveTool;
   brushRadius: number;
@@ -273,6 +274,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   simRef,
   gameState,
   hasBlockingModal = false,
+  pauseRender = false,
   timeScale,
   activeTool,
   brushRadius,
@@ -310,6 +312,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
   const latestProps = {
     gameState,
     hasBlockingModal,
+    pauseRender,
     timeScale,
     activeTool,
     brushRadius,
@@ -14474,6 +14477,11 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
     worldUnderglow.mesh.visible = appliedCloudsQuality !== 'off';
 
     function tick() {
+      if (propsRef.current.pauseRender) {
+        lastTime = performance.now();
+        frameId = requestAnimationFrame(tick);
+        return;
+      }
       const now = performance.now();
       const rawMs = now - lastTime;
       const rawDt = rawMs / 1000;

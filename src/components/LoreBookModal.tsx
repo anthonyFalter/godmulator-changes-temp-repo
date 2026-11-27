@@ -97,6 +97,10 @@ const LoreEmblemIcon: React.FC<{ emblem: string }> = ({ emblem }) => {
       return <PowerPixelIcon power="meteor_strike" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'war':
       return <PowerPixelIcon power="start_war" className="w-4 h-4 pixelated-canvas shrink-0" />;
+    case 'rebellion':
+      return <PowerPixelIcon power="bloodlust_frenzy" className="w-4 h-4 pixelated-canvas shrink-0" />;
+    case 'culture':
+      return <PowerPixelIcon power="golden_age" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'peace':
       return <PowerPixelIcon power="harmony_dove" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'divine':
@@ -297,16 +301,17 @@ const PageSurface: React.FC<{
   );
 };
 
-export const LoreBookModal: React.FC<LoreBookModalProps> = ({
+const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
   sim,
   worldName,
   onClose,
   onJumpToLocation,
 }) => {
+  // Snapshot spreads when opened so background HUD ticks never re-render portaled StPageFlip pages mid-fold
   const { spreads, pages } = useMemo(
     () => buildLoreBookSpreads(sim, worldName),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sim, sim.loreBook?.entries.length, sim.chronicle.length, worldName],
+    [worldName],
   );
 
   // Flattened full page list (even count on desktop spreads so left+right pair cleanly)
@@ -355,6 +360,7 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
     for (let i = 0; i < pageCount; i++) {
       const div = document.createElement('div');
       div.className = 'lore-pf-page w-full h-full overflow-hidden';
+      div.style.contain = 'layout style';
       innerHost.appendChild(div);
       nodes.push(div);
     }
@@ -371,8 +377,8 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
       minHeight: 340,
       maxHeight: 520,
       drawShadow: true,
-      maxShadowOpacity: 0.3,
-      flippingTime: 420,
+      maxShadowOpacity: 0.22,
+      flippingTime: 360,
       usePortrait: isMobile,
       startZIndex: 50,
       autoSize: true,
@@ -410,6 +416,57 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
     };
   }, [isMobile, pageCount]);
 
+  // Trigger StPageFlip backward fold using actual rect.left + 12 (fixes StPageFlip's hardcoded x: 10 bug)
+  const triggerAnimatedPrev = useCallback((pf: PageFlip) => {
+    const internal = pf as unknown as {
+      getBoundsRect?: () => { left: number; height: number };
+      getFlipController?: () => { flip?: (pos: { x: number; y: number }) => void };
+    };
+    try {
+      const rect = internal.getBoundsRect?.();
+      const ctrl = internal.getFlipController?.();
+      if (rect && ctrl && typeof ctrl.flip === 'function') {
+        ctrl.flip({
+          x: Math.max(8, rect.left + 12),
+          y: Math.max(8, rect.height - 8),
+        });
+        return;
+      }
+    } catch {
+      // Fallback to built-in flipPrev
+    }
+    pf.flipPrev('bottom');
+  }, []);
+
+  const triggerAnimatedToPage = useCallback(
+    (pf: PageFlip, target: number) => {
+      const cur = pf.getCurrentPageIndex();
+      if (target < cur) {
+        const internal = pf as unknown as {
+          getPageCollection?: () => {
+            getSpreadIndexByPage: (p: number) => number;
+            setCurrentSpreadIndex: (s: number) => void;
+          };
+        };
+        try {
+          const pc = internal.getPageCollection?.();
+          if (pc) {
+            const targetSpread = pc.getSpreadIndexByPage(target);
+            pc.setCurrentSpreadIndex(targetSpread + 1);
+            triggerAnimatedPrev(pf);
+            return;
+          }
+        } catch {
+          // Fallback below
+        }
+        pf.flip(target, 'top');
+      } else if (target > cur) {
+        pf.flip(target, 'top');
+      }
+    },
+    [triggerAnimatedPrev],
+  );
+
   const handleNext = useCallback(() => {
     const pf = pageFlipRef.current;
     if (!pf) return;
@@ -421,25 +478,25 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
     const pf = pageFlipRef.current;
     if (!pf) return;
     soundEngine.playClick();
-    pf.flipPrev('bottom');
-  }, []);
+    triggerAnimatedPrev(pf);
+  }, [triggerAnimatedPrev]);
 
   const handleGoContents = useCallback(() => {
     const pf = pageFlipRef.current;
     if (!pf) return;
     soundEngine.playClick();
-    pf.flip(isMobile ? 1 : 0, 'top');
-  }, [isMobile]);
+    triggerAnimatedToPage(pf, isMobile ? 1 : 0);
+  }, [isMobile, triggerAnimatedToPage]);
 
   const handleSelectChapter = useCallback(
     (ch: LoreChapterSummary) => {
       const pf = pageFlipRef.current;
       if (!pf) return;
       soundEngine.playClick();
-      const target = isMobile ? ch.pageIndex : ch.spreadIndex * 2;
-      pf.flip(Math.min(target, pageCount - 1), 'top');
+      const target = Math.min(isMobile ? ch.pageIndex : ch.spreadIndex * 2, pageCount - 1);
+      triggerAnimatedToPage(pf, target);
     },
-    [isMobile, pageCount],
+    [isMobile, pageCount, triggerAnimatedToPage],
   );
 
   useEffect(() => {
@@ -606,3 +663,8 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
     </div>
   );
 };
+
+export const LoreBookModal = React.memo(
+  LoreBookModalInner,
+  (prev, next) => prev.sim === next.sim && prev.worldName === next.worldName,
+);

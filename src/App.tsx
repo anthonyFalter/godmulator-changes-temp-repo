@@ -1875,6 +1875,7 @@ export default function App() {
         simRef={simRef}
         gameState={gameState}
         hasBlockingModal={hasAnyBlockingModal || isEventCinematic}
+        pauseRender={loreBookOpen}
         timeScale={timeScale}
         activeTool={activeTool}
         brushRadius={brushRadius}

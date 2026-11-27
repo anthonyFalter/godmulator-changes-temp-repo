@@ -64,8 +64,33 @@ export function classifyChronicleEvent(ev: ChronicleEvent): {
     return { category: 'peace', emblem: 'peace' };
   }
   if (
-    lower.includes('war') ||
     lower.includes('rebel') ||
+    lower.includes('uprising') ||
+    lower.includes('revolt') ||
+    lower.includes('seced') ||
+    lower.includes('broke away') ||
+    lower.includes('civil war') ||
+    lower.includes('independence')
+  ) {
+    return { category: 'rebellion', emblem: 'rebellion' };
+  }
+  if (
+    lower.includes('culture') ||
+    lower.includes('festival') ||
+    lower.includes('tradition') ||
+    lower.includes('rite') ||
+    lower.includes('folklore') ||
+    lower.includes('myth') ||
+    lower.includes('song') ||
+    lower.includes('guild') ||
+    lower.includes('scholar') ||
+    lower.includes('temple') ||
+    lower.includes('golden age')
+  ) {
+    return { category: 'culture', emblem: 'culture' };
+  }
+  if (
+    lower.includes('war') ||
     lower.includes('invad') ||
     lower.includes('siege') ||
     lower.includes('conquer') ||
@@ -503,6 +528,29 @@ function weaveEpicVerse(
         body: `${when}, the long tide of history turned toward the ${epochName}, as ${fact}. ${pick(closings, seed + 2)}`,
       };
     }
+    case 'rebellion': {
+      const titles = ['The Broken Crown', 'Oath of the Defiant', 'Fire in the Provinces', 'The Great Uprising'];
+      const closings = [
+        'Old banners were torn from the gatehouse and stitched anew by candlelight before the cock crowed.',
+        'Songs of that defiance traveled faster than royal riders, carried from hearth to hearth in low voices.',
+        'Even those who feared the bloodshed remembered the day a province refused to kneel.',
+      ];
+      return {
+        title: pick(titles, seed),
+        body: `${when}, long-buried grievances spilled into open street and hill—${fact}. ${pick(closings, seed + 2)}`,
+      };
+    }
+    case 'culture': {
+      const titles = ['Songs of the Hearth', 'The Old Custom', 'Rites of the Folk', 'Lanterns and Lore'];
+      const closings = [
+        'Children learned the verses before they could read, keeping the memory of their elders alive.',
+        'So the custom took root, outlasting kings and borders alike.',
+      ];
+      return {
+        title: pick(titles, seed),
+        body: `${when}, a lasting custom took hold among the people—${fact}. ${pick(closings, seed + 2)}`,
+      };
+    }
     case 'war': {
       const titles = ['Iron in the Grass', 'The Broken Border', 'Drums Along the Ridge', 'Ash and Banner'];
       const closings = [
@@ -638,6 +686,147 @@ function buildRetroactivePrologueEntries(state: SimulationState): LoreEntry[] {
   return entries;
 }
 
+function weaveLivingWorldMythsAndCultures(state: SimulationState, book: LoreBookState): void {
+  const existingIds = new Set(book.entries.map((e) => e.id));
+  const year = Math.max(1, Math.floor(state.year || 1));
+  const epochIndex = state.epochIndex ?? 0;
+  const epochName = getEpochName(epochIndex);
+  const seedBase = hashSeed(String(state.seed || 'GODMULATOR'));
+
+  // 1. Living Race Cultures, Folklore & Rites (one mythic cultural chronicle per active race per Age)
+  const speciesGroups = new Map<string, { count: number; sampleX: number; sampleZ: number; settlementId?: string }>();
+  for (const u of state.units) {
+    if (u.faction !== 'civilization' || u.state === 'ko') continue;
+    const prev = speciesGroups.get(u.species);
+    if (!prev) {
+      speciesGroups.set(u.species, { count: 1, sampleX: u.x, sampleZ: u.z, settlementId: u.settlementId });
+    } else {
+      prev.count += 1;
+      if (!prev.settlementId && u.settlementId) prev.settlementId = u.settlementId;
+    }
+  }
+
+  const cultureTemplates: Record<
+    string,
+    { titles: string[]; bodies: (realm: string, count: number, epoch: string) => string[] }
+  > = {
+    human: {
+      titles: ['The Lantern Charter', 'Guilds of the Hearth', 'Songs of the Sea-Road'],
+      bodies: (realm, count, epoch) => [
+        `In ${realm}, the human folk (${count} strong) hung paper lanterns along the eaves each autumn—a quiet custom of the ${epoch} meant to guide lost travelers and remember the founders who first cleared the timber.`,
+        `Across the market squares of ${realm}, human artisans swore the Guild-Oath of salt and iron, singing work-ballads that turned stone-laying and harvest into shared ritual.`,
+      ],
+    },
+    elf: {
+      titles: ['The Silver-Bough Vigil', 'Ballads of the High Canopy', 'Starlight Oaths'],
+      bodies: (realm, count, epoch) => [
+        `Beneath the boughs of ${realm}, ${count} elven singers kept the Silver-Bough Vigil, weaving memories of the ${epoch} into long harmonies sung only when the wind stilled at dusk.`,
+        `The elves of ${realm} raised no boastful statues; instead they planted memory-groves whose leaves were said to whisper the names of every bygone season.`,
+      ],
+    },
+    dwarf: {
+      titles: ['Hymns of the Deep Anvil', 'The Stone-Oath', 'Runes of the Mountain Hall'],
+      bodies: (realm, count, epoch) => [
+        `In the echoing halls of ${realm}, ${count} dwarven smiths struck their hammers in three-beat measure—the Anvil Hymn of the ${epoch}, sworn so every arch and blade carried the honor of its maker.`,
+        `Dwarven chroniclers of ${realm} chiselled their lineage straight into bedrock, holding that ink fades while granite remembers.`,
+      ],
+    },
+    orc: {
+      titles: ['The Bone-Drum Rite', 'Feast of Ash and Iron', 'The Blood-Oath'],
+      bodies: (realm, count, epoch) => [
+        `Around the great bonfires of ${realm}, ${count} orcs beat rawhide drums until the hills answered back—a fierce rite of the ${epoch} where young warriors proved their nerve and named their scars.`,
+        `Among the clans of ${realm}, no vow or grudge was spoken lightly; every oath was sealed over ember-heated steel and remembered by the whole warband.`,
+      ],
+    },
+    lizardfolk: {
+      titles: ['Rites of the Sun-Stone', 'The Tidal Chant', 'Prophecies of the Reed Temple'],
+      bodies: (realm, count, epoch) => [
+        `Upon warm flat stones beside ${realm}, ${count} lizardfolk gathered at noon for the Sun-Stone Rite of the ${epoch}, reading omens in the drift of river reeds and the turn of the tide.`,
+        `The elders of ${realm} kept time not by bells but by the migration of marsh-birds, humming low chants that echoed across the water at dawn.`,
+      ],
+    },
+  };
+
+  for (const [species, info] of speciesGroups.entries()) {
+    const entryId = `lore_culture_${species}_${epochIndex}`;
+    if (existingIds.has(entryId)) continue;
+    const tpl = cultureTemplates[species];
+    if (!tpl) continue;
+    const realm =
+      (info.settlementId && state.settlementNames?.[info.settlementId]) ||
+      Object.values(state.settlementNames ?? {}).find(Boolean) ||
+      'the young frontier';
+    const s = seedBase + hashSeed(species) + epochIndex * 17;
+    const bodies = tpl.bodies(realm, info.count, epochName);
+    book.entries.push({
+      id: entryId,
+      year,
+      yearLabel: `Year ${year}`,
+      epochIndex,
+      epochName,
+      category: 'culture',
+      title: pick(tpl.titles, s),
+      body: pick(bodies, s + 1),
+      emblem: 'culture',
+      x: Math.round(info.sampleX),
+      z: Math.round(info.sampleZ),
+      timestamp: Date.now() - 2_000,
+    });
+    existingIds.add(entryId);
+  }
+
+  // 2. Greatest Rebellions & Uprisings
+  const rebels = state.units.filter((u) => u.isRebel && u.state !== 'ko');
+  if (rebels.length > 0) {
+    const rebId = `lore_rebellion_yr_${Math.floor(year / 5)}`;
+    if (!existingIds.has(rebId)) {
+      const lead = rebels[0];
+      const spName = lead.species.charAt(0).toUpperCase() + lead.species.slice(1);
+      book.entries.push({
+        id: rebId,
+        year,
+        yearLabel: `Year ${year}`,
+        epochIndex,
+        epochName,
+        category: 'rebellion',
+        title: `The ${spName} Uprising`,
+        body: `In Year ${year}, ${rebels.length} defiant ${spName.toLowerCase()} rebels led by ${lead.name} cast off their old allegiance, marching beneath torn cloth to claim a destiny of their own. Songs of that defiance traveled faster than royal riders.`,
+        emblem: 'rebellion',
+        x: Math.round(lead.x),
+        z: Math.round(lead.z),
+        timestamp: Date.now() - 1_500,
+      });
+      existingIds.add(rebId);
+    }
+  }
+
+  // 3. Living Monarchs & Legendary Champions
+  const kings = state.units.filter((u) => u.isKing && u.state !== 'ko').slice(0, 2);
+  for (const king of kings) {
+    const kId = `lore_king_${king.id}`;
+    if (existingIds.has(kId)) continue;
+    const realm = (king.settlementId && state.settlementNames?.[king.settlementId]) || 'the realm';
+    const spName = king.species.charAt(0).toUpperCase() + king.species.slice(1);
+    const deedClause =
+      (king.kills ?? 0) >= 2 ? `, remembered for ${king.kills} victories on the field` : '';
+    book.entries.push({
+      id: kId,
+      year,
+      yearLabel: `Year ${year}`,
+      epochIndex,
+      epochName,
+      category: 'legend',
+      title: `Reign of ${king.name}`,
+      body: `The crown of ${realm} rested upon ${king.name}, sovereign of the ${spName.toLowerCase()} people${deedClause}. Bards sang of their court long after the candles burned low.`,
+      emblem: 'kingdom',
+      x: Math.round(king.x),
+      z: Math.round(king.z),
+      timestamp: Date.now() - 1_000,
+    });
+    existingIds.add(kId);
+  }
+}
+
 export function ensureLoreBook(state: SimulationState): LoreBookState {
   if (!state.loreBook) {
     state.loreBook = {
@@ -656,6 +845,7 @@ export function ensureLoreBook(state: SimulationState): LoreBookState {
       }
     }
   }
+  weaveLivingWorldMythsAndCultures(state, state.loreBook);
   syncLoreBookFromChronicle(state, false);
   return state.loreBook;
 }
