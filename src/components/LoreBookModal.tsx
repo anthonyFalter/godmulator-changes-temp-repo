@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { PageFlip } from 'page-flip/dist/js/page-flip.module.js';
 import {
   buildLoreBookSpreads,
   LoreBookPage,
-  LoreBookSpread,
   LoreChapterSummary,
 } from '../game/loreBook';
 import { soundEngine } from '../game/sound';
@@ -15,29 +16,6 @@ interface LoreBookModalProps {
   onClose: () => void;
   onJumpToLocation?: (x: number, z: number) => void;
 }
-
-interface DesktopFlipState {
-  mode: 'desktop';
-  direction: 'next' | 'prev';
-  fromSpread: LoreBookSpread;
-  toSpread: LoreBookSpread;
-  toIndex: number;
-  key: number;
-}
-
-interface MobileFlipState {
-  mode: 'mobile';
-  direction: 'next' | 'prev';
-  fromPage: LoreBookPage;
-  toPage: LoreBookPage;
-  toIndex: number;
-  key: number;
-}
-
-type FlipTransitionState = DesktopFlipState | MobileFlipState;
-
-const DESKTOP_FLIP_MS = 520;
-const MOBILE_FLIP_MS = 460;
 
 /* --- Pixel-Art Book Ornaments (crisp integer pixel grids) --- */
 
@@ -58,15 +36,10 @@ const BrassCornerClasp: React.FC<{ position: 'tl' | 'tr' | 'bl' | 'br' }> = ({ p
       shapeRendering="crispEdges"
       className={`pointer-events-none absolute ${posClass} w-6 h-6 sm:w-7 sm:h-7 z-30 pixelated-canvas`}
     >
-      {/* Dark pixel outline */}
       <path d="M0 0h12v4h-5v1h-2v2h-1v5h-4z" fill="#140804" />
-      {/* Base hammered brass */}
       <path d="M1 1h10v2h-6v1h-1v1h-1v6h-2z" fill="#c79538" />
-      {/* Specular gold top-left highlight */}
       <path d="M1 1h9v1h-8v8h-1z" fill="#f5d26b" />
-      {/* Inner shadow bevel */}
       <path d="M4 3h7v1h-7zM3 4h1v7h-1z" fill="#7c5218" />
-      {/* 3 tiny brass rivets */}
       <rect x="2" y="2" width="1" height="1" fill="#52310b" />
       <rect x="8" y="2" width="1" height="1" fill="#52310b" />
       <rect x="2" y="8" width="1" height="1" fill="#52310b" />
@@ -81,15 +54,10 @@ const PixelRibbonBookmark: React.FC<{ className?: string }> = ({ className = '' 
     shapeRendering="crispEdges"
     className={`pointer-events-none pixelated-canvas ${className}`}
   >
-    {/* Outline */}
     <path d="M0 0h10v20h-2v-2h-2v-2h-2v2h-2v2h-2z" fill="#210505" />
-    {/* Deep crimson silk */}
     <path d="M1 0h8v18h-1v-2h-2v-2h-2v2h-2v2h-1z" fill="#8f1e1e" />
-    {/* Silk sheen highlight */}
     <rect x="2" y="0" width="2" height="14" fill="#c73a32" />
-    {/* Shadow edge */}
     <rect x="7" y="0" width="2" height="16" fill="#631111" />
-    {/* Gold woven stripe near bottom */}
     <rect x="1" y="11" width="8" height="2" fill="#e5ba52" />
     <rect x="2" y="11" width="2" height="1" fill="#fff0a6" />
   </svg>
@@ -102,15 +70,10 @@ const PixelWaxSeal: React.FC<{ className?: string }> = ({ className = 'w-11 h-11
     shapeRendering="crispEdges"
     className={`pixelated-canvas ${className}`}
   >
-    {/* Outer wax silhouette */}
     <path d="M5 1h6v1h2v1h1v2h1v6h-1v2h-1v1h-2v1h-6v-1h-2v-1h-1v-2h-1v-6h1v-2h1v-1h2z" fill="#2d0909" />
-    {/* Crimson wax body */}
     <path d="M5 2h6v1h2v2h1v6h-1v2h-2v1h-6v-1h-2v-2h-1v-6h1v-2h2z" fill="#9c2222" />
-    {/* Raised wax rim highlight */}
     <path d="M5 2h5v1h-5zM3 4h1v5h-1zM4 3h1v1h-1z" fill="#cf4238" />
-    {/* Inner recessed stamp circle */}
     <path d="M5 4h6v1h1v6h-1v1h-6v-1h-1v-6h1z" fill="#701313" />
-    {/* Golden 4-point star/crown crest */}
     <path d="M7 5h2v2h2v2h-2v2h-2v-2h-2v-2h2z" fill="#e6b84c" />
     <rect x="7" y="7" width="2" height="2" fill="#fff1a8" />
   </svg>
@@ -149,6 +112,10 @@ const LoreEmblemIcon: React.FC<{ emblem: string }> = ({ emblem }) => {
   }
 };
 
+const stopFlipProp = (e: React.SyntheticEvent) => {
+  e.stopPropagation();
+};
+
 const LoreEntryVerse: React.FC<{
   entry: LoreEntry;
   onJump?: (x: number, z: number) => void;
@@ -157,7 +124,7 @@ const LoreEntryVerse: React.FC<{
   const restBody = entry.body.slice(1);
 
   return (
-    <article className="mb-5 last:mb-0">
+    <article className="mb-4 last:mb-0">
       <div className="flex items-baseline justify-between gap-2 mb-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
           <LoreEmblemIcon emblem={entry.emblem} />
@@ -171,7 +138,12 @@ const LoreEntryVerse: React.FC<{
           {entry.x !== undefined && entry.z !== undefined && onJump && (
             <button
               type="button"
-              onClick={() => onJump(entry.x!, entry.z!)}
+              onMouseDown={stopFlipProp}
+              onTouchStart={stopFlipProp}
+              onClick={(e) => {
+                e.stopPropagation();
+                onJump(entry.x!, entry.z!);
+              }}
               title="Behold this place"
               className="text-[#8b2222] hover:text-[#5c1111] font-bold underline underline-offset-2 cursor-pointer"
             >
@@ -181,8 +153,8 @@ const LoreEntryVerse: React.FC<{
         </div>
       </div>
 
-      <p className="text-[12.5px] sm:text-[13px] leading-[1.68] text-[#2f1d11]">
-        <span className="float-left mr-2 mt-0.5 px-1.5 py-0.5 bg-[#e6cf9c] border-2 border-[#8b5d2b] text-[22px] font-black leading-none text-[#8b2222] shadow-[inset_1px_1px_0_#f9eccb]">
+      <p className="text-[12px] sm:text-[13px] leading-[1.62] text-[#2f1d11]">
+        <span className="float-left mr-2 mt-0.5 px-1.5 py-0.5 bg-[#e6cf9c] border-2 border-[#8b5d2b] text-[20px] font-black leading-none text-[#8b2222] shadow-[inset_1px_1px_0_#f9eccb]">
           {firstChar}
         </span>
         {restBody}
@@ -210,7 +182,7 @@ const PageSurface: React.FC<{
     >
       {page.kind === 'title' && (
         <div className="h-full flex flex-col items-center justify-between text-center border-2 border-[#c8ab73] p-4 sm:p-5 bg-[#f7ead0]/45">
-          <div className="text-[10px] tracking-[0.22em] uppercase font-bold text-[#7d552c]">
+          <div className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#7d552c]">
             The Great Chronicle of
           </div>
 
@@ -220,7 +192,7 @@ const PageSurface: React.FC<{
               {page.worldName}
             </h2>
             <PixelDivider className="w-32 my-2.5" />
-            <p className="text-[11.5px] sm:text-xs italic text-[#5e3b1c] leading-relaxed max-w-[240px]">
+            <p className="text-[11.5px] sm:text-xs text-[#5e3b1c] leading-relaxed max-w-[240px]">
               {page.epigraph}
             </p>
             <p className="mt-3 text-xs font-bold text-[#8b2222] tabular-nums">
@@ -228,7 +200,7 @@ const PageSurface: React.FC<{
             </p>
           </div>
 
-          <p className="text-[11px] italic text-[#6d4826] leading-snug max-w-[250px]">
+          <p className="text-[11px] text-[#6d4826] leading-snug max-w-[250px]">
             {page.colophon}
           </p>
         </div>
@@ -249,8 +221,13 @@ const PageSurface: React.FC<{
                 <button
                   key={`${ch.chapterNumber}_${ch.title}`}
                   type="button"
-                  onClick={() => onSelectChapter(ch)}
-                  className="w-full min-h-[40px] text-left px-2.5 py-2 hover:bg-[#e5d0a1] border-b border-dashed border-[#cfb480] flex items-baseline justify-between gap-2 cursor-pointer transition-colors"
+                  onMouseDown={stopFlipProp}
+                  onTouchStart={stopFlipProp}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectChapter(ch);
+                  }}
+                  className="w-full min-h-[38px] text-left px-2.5 py-1.5 hover:bg-[#e5d0a1] border-b border-dashed border-[#cfb480] flex items-baseline justify-between gap-2 cursor-pointer transition-colors"
                 >
                   <span className="text-xs sm:text-[13px] font-bold text-[#2b150b] truncate">
                     Chapter {ch.roman} — {ch.title}
@@ -263,7 +240,7 @@ const PageSurface: React.FC<{
             </nav>
           </div>
 
-          <p className="text-[11px] italic text-[#7a5230] tabular-nums pt-2 text-center">
+          <p className="text-[11px] text-[#7a5230] tabular-nums pt-2 text-center">
             {page.totalEntries} {page.totalEntries === 1 ? 'tale' : 'tales'} preserved in ink
           </p>
         </div>
@@ -273,14 +250,14 @@ const PageSurface: React.FC<{
         <>
           <div className="flex-1 overflow-y-auto pr-1 min-h-0">
             {page.isChapterStart && (
-              <header className="mb-4 text-center">
+              <header className="mb-3.5 text-center">
                 <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#7d552c]">
                   Chapter {page.chapterRoman}
                 </p>
                 <h3 className="text-sm sm:text-base font-black text-[#8b2222] leading-snug">
                   {page.chapterTitle}
                 </h3>
-                <p className="text-[11px] italic text-[#6b4624] mt-0.5 leading-snug">
+                <p className="text-[11px] text-[#6b4624] mt-0.5 leading-snug">
                   “{page.chapterEpigraph}”
                 </p>
                 <PixelDivider className="mt-2 mb-1" />
@@ -309,7 +286,7 @@ const PageSurface: React.FC<{
         <>
           <div className="flex-1 flex flex-col items-center justify-center text-center px-5">
             <HudPixelIcon kind="loreBook" className="w-8 h-8 pixelated-canvas opacity-60 mb-3" />
-            <p className="text-xs sm:text-[13px] italic text-[#6e4826] leading-relaxed max-w-[230px]">
+            <p className="text-xs sm:text-[13px] text-[#6e4826] leading-relaxed max-w-[230px]">
               {page.epilogueQuote}
             </p>
           </div>
@@ -318,45 +295,6 @@ const PageSurface: React.FC<{
           </div>
         </>
       )}
-    </div>
-  );
-};
-
-/**
- * Seamless single-sheet curved 3D turning leaf.
- * Uses smooth rotateY + arch skewY/translateZ + sweeping cylindrical highlight/shadow
- * so the page bows naturally like real parchment without vertical curtain seams.
- */
-const CurvedTurningLeaf: React.FC<{
-  frontPage: LoreBookPage;
-  frontSide: 'left' | 'right' | 'single';
-  backPage: LoreBookPage | null;
-  backSide: 'left' | 'right' | 'single';
-  flipClass: 'lore-flip-next' | 'lore-flip-prev' | 'lore-flip-mob-next' | 'lore-flip-mob-prev';
-  sheenDirection: 'next' | 'prev';
-}> = ({ frontPage, frontSide, backPage, backSide, flipClass, sheenDirection }) => {
-  const sheenClass =
-    sheenDirection === 'next' ? 'lore-curl-sheen-next' : 'lore-curl-sheen-prev';
-
-  return (
-    <div className={`lore-flip-leaf absolute inset-0 ${flipClass}`}>
-      {/* Front Face */}
-      <div className="lore-flip-face absolute inset-0 overflow-hidden shadow-[0_8px_20px_rgba(24,10,4,0.38)]">
-        <PageSurface page={frontPage} side={frontSide} onSelectChapter={() => {}} />
-        <div
-          aria-hidden="true"
-          className={`lore-curl-sheen ${sheenClass} pointer-events-none absolute inset-0`}
-        />
-      </div>
-
-      {/* Back Face */}
-      <div className="lore-flip-face lore-flip-back absolute inset-0 overflow-hidden bg-[#ecd8ae] shadow-[0_8px_20px_rgba(24,10,4,0.38)]">
-        {backPage && <PageSurface page={backPage} side={backSide} onSelectChapter={() => {}} />}
-        <div
-          aria-hidden="true"
-          className={`lore-curl-sheen ${sheenClass} pointer-events-none absolute inset-0`}
-        />
-      </div>
     </div>
   );
 };
@@ -373,139 +311,137 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
     [sim, sim.loreBook?.entries.length, sim.chronicle.length, worldName],
   );
 
+  // Flattened full page list (even count on desktop spreads so left+right pair cleanly)
+  const bookPages = useMemo<LoreBookPage[]>(() => {
+    const out: LoreBookPage[] = [];
+    for (const sp of spreads) {
+      out.push(sp.left, sp.right);
+    }
+    return out;
+  }, [spreads]);
+
   const [isMobile, setIsMobile] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 639px)').matches : false,
   );
-  const [spreadIndex, setSpreadIndex] = useState<number>(0);
-  const [mobilePageIndex, setMobilePageIndex] = useState<number>(0);
-  const [flip, setFlip] = useState<FlipTransitionState | null>(null);
-  const flipTimerRef = useRef<number | null>(null);
-  const flipKeyRef = useRef<number>(1);
-  const touchStartXRef = useRef<number | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(0);
+  const [portalNodes, setPortalNodes] = useState<HTMLDivElement[]>([]);
+
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const pageFlipRef = useRef<PageFlip | null>(null);
+  const currentPageRef = useRef<number>(0);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mq = window.matchMedia('(max-width: 639px)');
-    const onChange = (e: MediaQueryListEvent) => {
-      setIsMobile(e.matches);
-      setFlip(null);
-      if (flipTimerRef.current !== null) {
-        window.clearTimeout(flipTimerRef.current);
-        flipTimerRef.current = null;
-      }
-    };
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     setIsMobile(mq.matches);
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
+  const activePages = isMobile ? pages : bookPages;
+  const pageCount = activePages.length;
+
+  // Mount StPageFlip into a dedicated DOM host & portal React page surfaces into its page nodes.
+  // This gives real physical curved corner-peeling physics with zero React DOM-reconciliation conflicts.
   useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || pageCount === 0) return;
+
+    const innerHost = document.createElement('div');
+    innerHost.style.width = '100%';
+    innerHost.style.height = '100%';
+    stage.appendChild(innerHost);
+
+    const nodes: HTMLDivElement[] = [];
+    for (let i = 0; i < pageCount; i++) {
+      const div = document.createElement('div');
+      div.className = 'lore-pf-page w-full h-full overflow-hidden';
+      innerHost.appendChild(div);
+      nodes.push(div);
+    }
+    setPortalNodes(nodes);
+
+    const startIdx = Math.min(currentPageRef.current, pageCount - 1);
+    const pf = new PageFlip(innerHost, {
+      startPage: startIdx,
+      width: isMobile ? 340 : 380,
+      height: isMobile ? 460 : 460,
+      size: 'stretch',
+      minWidth: 240,
+      maxWidth: isMobile ? 420 : 440,
+      minHeight: 340,
+      maxHeight: 520,
+      drawShadow: true,
+      maxShadowOpacity: 0.48,
+      flippingTime: 650,
+      usePortrait: isMobile,
+      startZIndex: 10,
+      autoSize: true,
+      showCover: false,
+      mobileScrollSupport: true,
+      clickEventForward: true,
+      useMouseEvents: true,
+      swipeDistance: 26,
+      showPageCorners: true,
+      disableFlipByClick: false,
+    });
+
+    pf.loadFromHTML(nodes);
+    pf.on('flip', (e) => {
+      const idx = typeof e.data === 'number' ? e.data : pf.getCurrentPageIndex();
+      currentPageRef.current = idx;
+      setCurrentPage(idx);
+      soundEngine.playPageFlip();
+    });
+
+    pageFlipRef.current = pf;
+    setCurrentPage(startIdx);
+
     return () => {
-      if (flipTimerRef.current !== null) {
-        window.clearTimeout(flipTimerRef.current);
+      pageFlipRef.current = null;
+      setPortalNodes([]);
+      try {
+        pf.destroy();
+      } catch {
+        // Ignore teardown race if already removed
+      }
+      if (innerHost.parentNode === stage) {
+        stage.removeChild(innerHost);
       }
     };
-  }, []);
-
-  const clampedSpreadIdx = Math.min(spreadIndex, Math.max(0, spreads.length - 1));
-  const clampedMobileIdx = Math.min(mobilePageIndex, Math.max(0, pages.length - 1));
-  const currentSpread = spreads[clampedSpreadIdx] ?? spreads[0];
-  const currentMobilePage = pages[clampedMobileIdx] ?? pages[0];
-
-  const triggerDesktopFlipTo = useCallback(
-    (targetIdx: number) => {
-      const baseIndex = flip?.mode === 'desktop' ? flip.toIndex : clampedSpreadIdx;
-      const clampedTarget = Math.max(0, Math.min(spreads.length - 1, targetIdx));
-      if (clampedTarget === baseIndex) return;
-
-      if (flipTimerRef.current !== null) {
-        window.clearTimeout(flipTimerRef.current);
-        flipTimerRef.current = null;
-      }
-      if (flip?.mode === 'desktop') {
-        setSpreadIndex(baseIndex);
-      }
-
-      const direction: 'next' | 'prev' = clampedTarget > baseIndex ? 'next' : 'prev';
-      soundEngine.playPageFlip();
-      soundEngine.playClick();
-      flipKeyRef.current += 1;
-      setFlip({
-        mode: 'desktop',
-        direction,
-        fromSpread: spreads[baseIndex],
-        toSpread: spreads[clampedTarget],
-        toIndex: clampedTarget,
-        key: flipKeyRef.current,
-      });
-      flipTimerRef.current = window.setTimeout(() => {
-        setSpreadIndex(clampedTarget);
-        setFlip(null);
-        flipTimerRef.current = null;
-      }, DESKTOP_FLIP_MS);
-    },
-    [clampedSpreadIdx, flip, spreads],
-  );
-
-  const triggerMobileFlipTo = useCallback(
-    (targetIdx: number) => {
-      const baseIndex = flip?.mode === 'mobile' ? flip.toIndex : clampedMobileIdx;
-      const clampedTarget = Math.max(0, Math.min(pages.length - 1, targetIdx));
-      if (clampedTarget === baseIndex) return;
-
-      if (flipTimerRef.current !== null) {
-        window.clearTimeout(flipTimerRef.current);
-        flipTimerRef.current = null;
-      }
-      if (flip?.mode === 'mobile') {
-        setMobilePageIndex(baseIndex);
-      }
-
-      const direction: 'next' | 'prev' = clampedTarget > baseIndex ? 'next' : 'prev';
-      soundEngine.playPageFlip();
-      soundEngine.playClick();
-      flipKeyRef.current += 1;
-      setFlip({
-        mode: 'mobile',
-        direction,
-        fromPage: pages[baseIndex],
-        toPage: pages[clampedTarget],
-        toIndex: clampedTarget,
-        key: flipKeyRef.current,
-      });
-      flipTimerRef.current = window.setTimeout(() => {
-        setMobilePageIndex(clampedTarget);
-        setFlip(null);
-        flipTimerRef.current = null;
-      }, MOBILE_FLIP_MS);
-    },
-    [clampedMobileIdx, flip, pages],
-  );
-
-  const activeDesktopIdx = flip?.mode === 'desktop' ? flip.toIndex : clampedSpreadIdx;
-  const activeMobileIdx = flip?.mode === 'mobile' ? flip.toIndex : clampedMobileIdx;
+  }, [isMobile, pageCount]);
 
   const handleNext = useCallback(() => {
-    if (isMobile) triggerMobileFlipTo(activeMobileIdx + 1);
-    else triggerDesktopFlipTo(activeDesktopIdx + 1);
-  }, [activeDesktopIdx, activeMobileIdx, isMobile, triggerDesktopFlipTo, triggerMobileFlipTo]);
+    const pf = pageFlipRef.current;
+    if (!pf) return;
+    soundEngine.playClick();
+    pf.flipNext('bottom');
+  }, []);
 
   const handlePrev = useCallback(() => {
-    if (isMobile) triggerMobileFlipTo(activeMobileIdx - 1);
-    else triggerDesktopFlipTo(activeDesktopIdx - 1);
-  }, [activeDesktopIdx, activeMobileIdx, isMobile, triggerDesktopFlipTo, triggerMobileFlipTo]);
+    const pf = pageFlipRef.current;
+    if (!pf) return;
+    soundEngine.playClick();
+    pf.flipPrev('bottom');
+  }, []);
 
   const handleGoContents = useCallback(() => {
-    if (isMobile) triggerMobileFlipTo(1);
-    else triggerDesktopFlipTo(0);
-  }, [isMobile, triggerDesktopFlipTo, triggerMobileFlipTo]);
+    const pf = pageFlipRef.current;
+    if (!pf) return;
+    soundEngine.playClick();
+    pf.flip(isMobile ? 1 : 0, 'top');
+  }, [isMobile]);
 
   const handleSelectChapter = useCallback(
     (ch: LoreChapterSummary) => {
-      if (isMobile) triggerMobileFlipTo(ch.pageIndex);
-      else triggerDesktopFlipTo(ch.spreadIndex);
+      const pf = pageFlipRef.current;
+      if (!pf) return;
+      soundEngine.playClick();
+      const target = isMobile ? ch.pageIndex : ch.spreadIndex * 2;
+      pf.flip(Math.min(target, pageCount - 1), 'top');
     },
-    [isMobile, triggerDesktopFlipTo, triggerMobileFlipTo],
+    [isMobile, pageCount],
   );
 
   useEffect(() => {
@@ -535,36 +471,12 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
     [onClose, onJumpToLocation],
   );
 
-  const desktopFlip = flip?.mode === 'desktop' ? flip : null;
-  const mobileFlip = flip?.mode === 'mobile' ? flip : null;
-
-  const displayedLeft = desktopFlip
-    ? desktopFlip.direction === 'prev'
-      ? desktopFlip.toSpread.left
-      : desktopFlip.fromSpread.left
-    : currentSpread.left;
-  const displayedRight = desktopFlip
-    ? desktopFlip.direction === 'next'
-      ? desktopFlip.toSpread.right
-      : desktopFlip.fromSpread.right
-    : currentSpread.right;
-
-  // On mobile: during NEXT flip, show target page underneath while old page curls off;
-  // during PREV flip, show old page underneath while target page unfurls on top.
-  const displayedMobileUnder = mobileFlip
-    ? mobileFlip.direction === 'next'
-      ? mobileFlip.toPage
-      : mobileFlip.fromPage
-    : currentMobilePage;
-
-  const canPrev = isMobile ? activeMobileIdx > 0 : activeDesktopIdx > 0;
-  const canNext = isMobile
-    ? activeMobileIdx < pages.length - 1
-    : activeDesktopIdx < spreads.length - 1;
-  const atContents = isMobile ? activeMobileIdx === 1 : activeDesktopIdx === 0;
+  const canPrev = currentPage > 0;
+  const canNext = isMobile ? currentPage < pageCount - 1 : currentPage < pageCount - 2;
+  const atContents = isMobile ? currentPage === 1 : currentPage === 0;
   const pageCounterText = isMobile
-    ? `Page ${activeMobileIdx + 1} / ${pages.length}`
-    : `${activeDesktopIdx + 1} / ${spreads.length}`;
+    ? `Page ${Math.min(currentPage + 1, pageCount)} / ${pageCount}`
+    : `${Math.floor(currentPage / 2) + 1} / ${spreads.length}`;
 
   return (
     <div
@@ -576,19 +488,8 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
           onClose();
         }
       }}
-      onTouchStart={(e) => {
-        touchStartXRef.current = e.touches[0]?.clientX ?? null;
-      }}
-      onTouchEnd={(e) => {
-        if (touchStartXRef.current === null) return;
-        const endX = e.changedTouches[0]?.clientX ?? touchStartXRef.current;
-        const dx = endX - touchStartXRef.current;
-        touchStartXRef.current = null;
-        if (dx <= -42) handleNext();
-        else if (dx >= 42) handlePrev();
-      }}
     >
-      <div className="relative w-full max-w-[430px] sm:max-w-[820px] flex flex-col items-center gap-2.5 sm:gap-3">
+      <div className="relative w-full max-w-[400px] sm:max-w-[820px] flex flex-col items-center gap-2.5 sm:gap-3">
         {/* Top bar */}
         <div className="w-full flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -634,175 +535,52 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
 
           {/* Thick Stacked Pixel Paper Block */}
           <div className="lore-paper-stack relative px-1.5 py-1 sm:px-2 sm:py-1">
-            {isMobile ? (
-              /* MOBILE: Single-Page Pixel Tome with Left Leather Spine + Curved 3D Page Curl */
-              <div className="lore-stage relative flex h-[min(64dvh,470px)] border-2 border-[#5c3b1e] bg-[#f4e4c1]">
-                {/* Left Leather Binding Spine */}
-                <div aria-hidden="true" className="lore-spine-strip w-3 shrink-0 border-r-2 border-[#1c0b05]" />
-
-                {/* Active Single Page */}
-                <div className="relative flex-1 h-full overflow-hidden">
-                  <PageSurface
-                    page={displayedMobileUnder}
-                    side="single"
-                    onSelectChapter={handleSelectChapter}
-                    onJump={handleJump}
-                  />
-
-                  {/* Subtle cast shadow on underlying page during mobile curl */}
-                  {mobileFlip && (
-                    <div
-                      key={`mob-sh-${mobileFlip.key}`}
-                      aria-hidden="true"
-                      className="lore-under-shadow-overlay pointer-events-none absolute inset-0 bg-gradient-to-r from-[#261106]/40 via-[#261106]/15 to-transparent"
-                    />
-                  )}
-
-                  {/* Dog-eared corner tap targets on mobile */}
-                  {canPrev && (
-                    <button
-                      type="button"
-                      aria-label="Previous page"
-                      onClick={handlePrev}
-                      className="absolute bottom-0 left-0 w-10 h-10 cursor-pointer"
-                    >
-                      <span className="block absolute bottom-0 left-0 w-3.5 h-3.5 bg-[#d9c190] border-t-2 border-r-2 border-[#8c693c] opacity-70" />
-                    </button>
-                  )}
-                  {canNext && (
-                    <button
-                      type="button"
-                      aria-label="Next page"
-                      onClick={handleNext}
-                      className="absolute bottom-0 right-0 w-10 h-10 cursor-pointer"
-                    >
-                      <span className="block absolute bottom-0 right-0 w-3.5 h-3.5 bg-[#d9c190] border-t-2 border-l-2 border-[#8c693c] opacity-70" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Mobile Seamless Curved 3D Turning Leaf (outside overflow-hidden so 3D arch never clips) */}
-                {mobileFlip && (
-                  <div
-                    key={mobileFlip.key}
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-0 bottom-0 left-3 right-0 z-30"
-                  >
-                    <CurvedTurningLeaf
-                      frontPage={
-                        mobileFlip.direction === 'next' ? mobileFlip.fromPage : mobileFlip.toPage
-                      }
-                      frontSide="single"
-                      backPage={null}
-                      backSide="single"
-                      flipClass={
-                        mobileFlip.direction === 'next'
-                          ? 'lore-flip-mob-next'
-                          : 'lore-flip-mob-prev'
-                      }
-                      sheenDirection={mobileFlip.direction}
-                    />
-                  </div>
-                )}
-              </div>
-            ) : (
-              /* DESKTOP: Open 2-Page Spread with Center Gold-Banded Spine + Seamless Curved 3D Page Turn */
-              <div className="lore-stage relative grid grid-cols-2 h-[460px] max-h-[70vh] border-2 border-[#5c3b1e] bg-[#f4e4c1]">
-                {/* Left Page */}
-                <div className="relative h-full border-r border-[#6e4624] overflow-hidden">
-                  <PageSurface
-                    page={displayedLeft}
-                    side="left"
-                    onSelectChapter={handleSelectChapter}
-                    onJump={handleJump}
-                  />
-                  {desktopFlip?.direction === 'prev' && (
-                    <div
-                      key={`lsh-${desktopFlip.key}`}
-                      aria-hidden="true"
-                      className="lore-under-shadow-overlay pointer-events-none absolute inset-0 bg-gradient-to-l from-[#261106]/35 via-[#261106]/10 to-transparent"
-                    />
-                  )}
-                  {canPrev && (
-                    <button
-                      type="button"
-                      aria-label="Previous page"
-                      onClick={handlePrev}
-                      className="absolute bottom-0 left-0 w-11 h-11 cursor-pointer group"
-                      title="Previous page"
-                    >
-                      <span className="block absolute bottom-0 left-0 w-4 h-4 bg-[#d9c190] border-t-2 border-r-2 border-[#8c693c] opacity-65 group-hover:opacity-100 transition-opacity" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Right Page */}
-                <div className="relative h-full border-l border-[#6e4624] overflow-hidden">
-                  <PageSurface
-                    page={displayedRight}
-                    side="right"
-                    onSelectChapter={handleSelectChapter}
-                    onJump={handleJump}
-                  />
-                  {desktopFlip?.direction === 'next' && (
-                    <div
-                      key={`rsh-${desktopFlip.key}`}
-                      aria-hidden="true"
-                      className="lore-under-shadow-overlay pointer-events-none absolute inset-0 bg-gradient-to-r from-[#261106]/35 via-[#261106]/10 to-transparent"
-                    />
-                  )}
-                  {canNext && (
-                    <button
-                      type="button"
-                      aria-label="Next page"
-                      onClick={handleNext}
-                      className="absolute bottom-0 right-0 w-11 h-11 cursor-pointer group"
-                      title="Next page"
-                    >
-                      <span className="block absolute bottom-0 right-0 w-4 h-4 bg-[#d9c190] border-t-2 border-l-2 border-[#8c693c] opacity-65 group-hover:opacity-100 transition-opacity" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Center Pixel-Art Leather Spine Gutter */}
+            <div className="relative flex border-2 border-[#5c3b1e] bg-[#f4e4c1]">
+              {/* Mobile left leather binding spine */}
+              {isMobile && (
                 <div
                   aria-hidden="true"
-                  className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2.5 z-20 opacity-90"
+                  className="lore-spine-strip w-3 shrink-0 border-r-2 border-[#1c0b05] z-20"
                 />
+              )}
 
-                {/* Desktop Seamless Curved 3D Turning Leaf */}
-                {desktopFlip && (
-                  <div
-                    key={desktopFlip.key}
-                    aria-hidden="true"
-                    className={`pointer-events-none absolute top-0 bottom-0 w-1/2 z-30 ${
-                      desktopFlip.direction === 'next' ? 'left-1/2' : 'left-0'
-                    }`}
-                  >
-                    <CurvedTurningLeaf
-                      frontPage={
-                        desktopFlip.direction === 'next'
-                          ? desktopFlip.fromSpread.right
-                          : desktopFlip.fromSpread.left
-                      }
-                      frontSide={desktopFlip.direction === 'next' ? 'right' : 'left'}
-                      backPage={
-                        desktopFlip.direction === 'next'
-                          ? desktopFlip.toSpread.left
-                          : desktopFlip.toSpread.right
-                      }
-                      backSide={desktopFlip.direction === 'next' ? 'left' : 'right'}
-                      flipClass={
-                        desktopFlip.direction === 'next' ? 'lore-flip-next' : 'lore-flip-prev'
-                      }
-                      sheenDirection={desktopFlip.direction}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
+              {/* StPageFlip Mount Host (real curved corner-peel physics) */}
+              <div
+                ref={stageRef}
+                className="lore-stage flex-1 min-w-0 h-[min(62dvh,460px)] sm:h-[460px]"
+              />
+
+              {/* Desktop center leather spine overlay */}
+              {!isMobile && (
+                <div
+                  aria-hidden="true"
+                  className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2 z-20 opacity-80"
+                />
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Portal React PageSurfaces directly into StPageFlip's page DOM nodes */}
+        {portalNodes.map((node, idx) => {
+          const page = activePages[idx];
+          if (!page) return null;
+          const side: 'left' | 'right' | 'single' = isMobile
+            ? 'single'
+            : idx % 2 === 0
+              ? 'left'
+              : 'right';
+          return createPortal(
+            <PageSurface
+              key={`${page.kind}_${idx}`}
+              page={page}
+              side={side}
+              onSelectChapter={handleSelectChapter}
+              onJump={handleJump}
+            />,
+            node,
+          );
+        })}
 
         {/* Bottom Page-Turn Controls (44px+ touch targets) */}
         <div className="w-full flex items-center justify-between gap-2">
@@ -815,7 +593,7 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
           >
             ← Previous
           </button>
-          <span className="text-[11px] text-[#cbb286] sm:hidden">Swipe to turn</span>
+          <span className="text-[11px] text-[#cbb286]">Drag corner or swipe to turn</span>
           <button
             type="button"
             data-testid="lore-book-next-btn"
