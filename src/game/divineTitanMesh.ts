@@ -1867,6 +1867,7 @@ export class DivineTitanRenderer {
   private dbBeamOuter: THREE.Mesh;
   private dbHelixA: THREE.Mesh;
   private dbHelixB: THREE.Mesh;
+  private dbLastHelixLen = 24.0;
   private dbEndSphere: THREE.Mesh;
   private dbEndVortex: THREE.Mesh;
   private dbEndPillar: THREE.Mesh;
@@ -2081,7 +2082,7 @@ export class DivineTitanRenderer {
 
     // Twin counter-rotating helical plasma ribbons racing along the Death Beam
     this.dbHelixA = new THREE.Mesh(
-      createHelixTubeGeometry(1.0, 2.45, 4.5, 0.24, 'z', 0, 72, 6),
+      createHelixTubeGeometry(24.0, 2.45, 4.5, 0.24, 'z', 0, 72, 6),
       new THREE.MeshBasicMaterial({
         color: 0xffbb33,
         transparent: true,
@@ -2093,7 +2094,7 @@ export class DivineTitanRenderer {
     this.deathBeamGroup.add(this.dbHelixA);
 
     this.dbHelixB = new THREE.Mesh(
-      createHelixTubeGeometry(1.0, 2.85, 4.5, 0.2, 'z', Math.PI, 72, 6),
+      createHelixTubeGeometry(24.0, 2.85, 4.5, 0.2, 'z', Math.PI, 72, 6),
       new THREE.MeshBasicMaterial({
         color: 0xff2255,
         transparent: true,
@@ -3037,10 +3038,21 @@ export class DivineTitanRenderer {
       (this.dbBeamOuter.material as THREE.MeshBasicMaterial).opacity = 0.52;
 
       // Twin counter-rotating helical plasma ribbons racing along the Death Beam
+      // Rebuild tube geometry at the actual beamLen so tube cross-sections never stretch into long end-spikes
+      if (Math.abs(beamLen - this.dbLastHelixLen) > 1.5) {
+        const turns = Math.max(3.5, Math.min(22, beamLen * 0.16));
+        const segs = Math.min(180, Math.max(64, Math.round(beamLen * 2.2)));
+        this.dbHelixA.geometry.dispose();
+        this.dbHelixB.geometry.dispose();
+        this.dbHelixA.geometry = createHelixTubeGeometry(beamLen, 2.45, turns, 0.24, 'z', 0, segs, 6);
+        this.dbHelixB.geometry = createHelixTubeGeometry(beamLen, 2.85, turns, 0.2, 'z', Math.PI, segs, 6);
+        this.dbLastHelixLen = beamLen;
+      }
+      const helixZScale = beamLen / Math.max(1.0, this.dbLastHelixLen);
       this.dbHelixA.visible = true;
       this.dbHelixB.visible = true;
-      this.dbHelixA.scale.set(flicker * surge, flicker * surge, beamLen);
-      this.dbHelixB.scale.set(flicker * surge * 1.05, flicker * surge * 1.05, beamLen);
+      this.dbHelixA.scale.set(flicker * surge, flicker * surge, helixZScale);
+      this.dbHelixB.scale.set(flicker * surge * 1.05, flicker * surge * 1.05, helixZScale);
       this.dbHelixA.rotation.z = elapsedTotal * 14.5;
       this.dbHelixB.rotation.z = -elapsedTotal * 11.2;
 
