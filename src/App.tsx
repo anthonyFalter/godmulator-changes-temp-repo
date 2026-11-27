@@ -454,7 +454,7 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
-  const [lightingPreset, setLightingPreset] = useState<LightingPreset>('noon');
+  const [lightingPreset, setLightingPreset] = useState<LightingPreset>('auto');
   const [seasonPreset, setSeasonPreset] = useState<SeasonPreset>('auto');
   const [ageBannerEvent, setAgeBannerEvent] = useState<AgeProgressEvent | null>(null);
   const [isAgeScreenShaking, setIsAgeScreenShaking] = useState<boolean>(false);
@@ -2048,7 +2048,7 @@ export default function App() {
                   }}
                   className="px-btn w-full min-h-[42px] sm:min-h-[44px] py-2 sm:py-2.5 text-sm font-semibold cursor-pointer focus-visible:outline-2 focus-visible:outline-[#ffd36b]"
                 >
-                  Continue
+                  Load World
                 </button>
 
                 <button
