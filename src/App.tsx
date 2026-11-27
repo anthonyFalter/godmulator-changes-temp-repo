@@ -472,9 +472,7 @@ export default function App() {
   const ageBannerSeqRef = useRef<number>(1);
   const ageShakeTimerRef = useRef<number | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
-  const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
   const [loreBookOpen, setLoreBookOpen] = useState<boolean>(false);
-  const [chronicleFilter, setChronicleFilter] = useState<'major' | 'all'>('major');
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>(null);
   const [inspectedCity, setInspectedCity] = useState<
@@ -3667,27 +3665,10 @@ export default function App() {
               >
                 <button
                   type="button"
-                  onClick={() => {
-                    setSpeedMenuOpen(false);
-                    setCameraMenuOpen(false);
-                    setChronicleOpen((prev) => !prev);
-                    soundEngine.playClick();
-                  }}
-                  className={`w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
-                    chronicleOpen ? 'px-btn-active' : 'px-btn'
-                  }`}
-                  aria-label="World Log"
-                  title="World Log"
-                >
-                  <HudPixelIcon kind="log" className="w-4 h-4 pixelated-canvas" />
-                </button>
-                <button
-                  type="button"
                   data-testid="hud-lore-book-btn"
                   onClick={() => {
                     setSpeedMenuOpen(false);
                     setCameraMenuOpen(false);
-                    setChronicleOpen(false);
                     ensureLoreBook(simRef.current);
                     markLoreBookRead(simRef.current);
                     setLoreBookOpen(true);
@@ -3698,8 +3679,8 @@ export default function App() {
                   className={`relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
                     loreBookOpen ? 'px-btn-active' : 'px-btn'
                   }`}
-                  aria-label="World Lore Book"
-                  title="World Lore Book"
+                  aria-label="World Chronicle Book"
+                  title="World Chronicle Book"
                 >
                   <HudPixelIcon kind="loreBook" className="w-4 h-4 pixelated-canvas" />
                   {(sim.loreBook?.unreadCount ?? 0) > 0 && !loreBookOpen && (
@@ -3751,7 +3732,7 @@ export default function App() {
           {/* MIDDLE HUD LAYER: Entity Inspector, City Inspector & World Log (bounded cleanly between top bar & bottom dock) */}
           <div className="relative flex-1 min-h-0 w-full pointer-events-none">
             {gameState === 'playing' && isInspectTabActive && (
-              <div className={chronicleOpen && !speedMenuOpen && !cameraMenuOpen ? 'hidden lg:contents' : 'contents'}>
+              <div className="contents">
               <EntityInspectorCard
                 sim={sim}
                 hoveredUnit={hoveredUnit}
@@ -3887,7 +3868,7 @@ export default function App() {
             )}
 
             {gameState === 'playing' && inspectedCity && (
-              <div className={chronicleOpen && !speedMenuOpen && !cameraMenuOpen ? 'hidden lg:contents' : 'contents'}>
+              <div className="contents">
                 <CityInspectorCard
                   sim={sim}
                   cityRef={inspectedCity}
@@ -4031,7 +4012,7 @@ export default function App() {
             )}
 
             {gameState === 'playing' && inspectedStructure && (
-              <div className={chronicleOpen && !speedMenuOpen && !cameraMenuOpen ? 'hidden lg:contents' : 'contents'}>
+              <div className="contents">
                 <StructureInspectorCard
                   sim={sim}
                   structureRef={inspectedStructure}
@@ -4080,86 +4061,6 @@ export default function App() {
                     }
                   }}
                 />
-              </div>
-            )}
-
-            {chronicleOpen && !speedMenuOpen && !cameraMenuOpen && (
-              <div className="pointer-events-auto absolute right-0 top-0 z-20 w-[min(24rem,100%)] max-h-[min(240px,100%)] sm:max-h-full px-panel p-2 sm:p-3 overflow-y-auto">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <h2 className="font-bold text-sm text-[#f2c478]">World Log</h2>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setChronicleFilter('major')}
-                      className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
-                        chronicleFilter === 'major' ? 'px-btn-active' : 'px-btn'
-                      }`}
-                    >
-                      Major
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChronicleFilter('all')}
-                      className={`px-1.5 py-0.5 text-[10px] font-semibold cursor-pointer ${
-                        chronicleFilter === 'all' ? 'px-btn-active' : 'px-btn'
-                      }`}
-                    >
-                      All
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChronicleOpen(false)}
-                      className="px-btn px-2 py-0.5 text-xs cursor-pointer"
-                    >
-                      Close
-                    </button>
-                  </div>
-                </div>
-                <div className="space-y-1 text-xs">
-                  {sim.chronicle
-                    .filter((entry) => chronicleFilter === 'all' || entry.tone !== 'build')
-                    .map((entry) => {
-                      const hasLoc = entry.x !== undefined && entry.z !== undefined;
-                      return (
-                        <button
-                          key={entry.id}
-                          type="button"
-                          disabled={!hasLoc}
-                          onClick={() => {
-                            if (entry.x !== undefined && entry.z !== undefined) {
-                              cameraActionRef.current.focusTarget = { x: entry.x, z: entry.z, zoom: 11.5 };
-                            }
-                          }}
-                          title={hasLoc ? `Jump to (${entry.x}, ${entry.z})` : undefined}
-                          className={`w-full text-left leading-snug flex items-start gap-2 rounded px-1 py-0.5 transition-colors ${
-                            hasLoc
-                              ? 'cursor-pointer hover:bg-[#213357]/70 active:bg-[#2c4270]'
-                              : 'cursor-default'
-                          }`}
-                        >
-                          <span className="font-pixel-num text-[10px] text-[#9e866f] shrink-0 pt-0.5">
-                            {entry.yearLabel}
-                          </span>
-                          <span
-                            className={`flex-1 ${
-                              entry.tone === 'epoch'
-                                ? 'text-[#ffd36b]'
-                                : entry.tone === 'warning'
-                                  ? 'text-[#ff8f6b]'
-                                  : 'text-[#eadbc6]'
-                            }`}
-                          >
-                            {entry.text}
-                          </span>
-                          {hasLoc && (
-                            <span className="text-[10px] text-[#7dd3fc] shrink-0 pt-0.5 opacity-80">
-                              ⌖
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
-                </div>
               </div>
             )}
 

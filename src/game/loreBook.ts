@@ -110,6 +110,24 @@ export function classifyChronicleEvent(ev: ChronicleEvent): {
   return { category: 'legend', emblem: 'legend' };
 }
 
+function formatPoeticYear(year: number, seed: number): string {
+  if (year <= 1) {
+    return pick(
+      ['In the first turning of the sun', 'Before the first winter had passed', 'At the dawn of the First Year'],
+      seed,
+    );
+  }
+  const seasons = ['spring thaw', 'high summer', 'late autumn', 'winter frost'];
+  const s = pick(seasons, seed + year);
+  const forms = [
+    `In the ${s} of Year ${year}`,
+    `When Year ${year} drew toward its ${s}`,
+    `Under the pale skies of Year ${year}`,
+    `By the ${s} of the ${year}th year`,
+  ];
+  return pick(forms, seed);
+}
+
 function weaveEpicVerse(
   ev: ChronicleEvent,
   category: LoreEntryCategory,
@@ -117,78 +135,119 @@ function weaveEpicVerse(
   year: number,
   seed: number,
 ): { title: string; body: string } {
-  const cleanFact = ev.text.trim().replace(/\.$/, '');
-  const yearPrefix = year === 1 ? 'In the First Year' : `In Year ${year}`;
+  const raw = ev.text.trim().replace(/[.!]+$/, '');
+  const factLower = raw.charAt(0).toLowerCase() + raw.slice(1);
+  const when = formatPoeticYear(year, seed);
 
   switch (category) {
     case 'titan': {
-      const titles = ['Iron From Above', 'The Divine Titan', 'Footsteps of Thunder'];
+      const titles = ['The Walking Sun', 'Iron Descended', 'Where Thunder Walked', 'The Colossus'];
+      const closings = [
+        'Where its shadow passed, rivers steamed and men forgot the sound of their own prayers.',
+        'Long after the glow died from the clouds, the ridge still hummed like a struck bell.',
+        'The earth kept the print of its footsteps long after the smoke drifted out to sea.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}. The horizon burned where it walked.`,
+        body: `${when}, the clouds parted to a weight no mountain could bear—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'zombie': {
-      const titles = ['The Green Contagion', 'Shards of Blight', 'The Risen'];
+      const titles = ['The Green Vessel', 'What Rose From the Glass', 'The Pale Hunger', 'Blight of the Living'];
+      const closings = [
+        'By dusk, neither beast nor mortal remembered the warmth of a hearth, and the soil beneath the shards grew dark.',
+        'Watchfires burned through the night, yet the shambling silhouettes did not turn from the flame.',
+        'From hollow throats came no war-cry, only the slow dragging of feet across the ruined grass.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}. Beast and mortal alike turned with hollow eyes.`,
+        body: `${when}, a green star fell and broke open upon the earth—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'wonder': {
-      const titles = ['A Monument Raised', 'Stone and Ambition', 'The Great Wonder'];
+      const titles = ['Stone Against Time', 'The High Work', 'A Crown of Marble', 'Handiwork of Mortals'];
+      const closings = [
+        'Sailors sighting it from the outer shoals swore it caught the morning light before the hills themselves.',
+        'Its shadow measured the passing seasons, outliving the hands that set its highest stone.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}. Travelers came from distant coasts to see it.`,
+        body: `${when}, stone was set upon stone until the skyline itself changed—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'epoch': {
-      const titles = [`The ${epochName}`, 'Turning of the Age', 'A New Craft'];
+      const titles = [`The ${epochName}`, 'Turning of the Wheel', 'New Fire on the Anvil', 'Songs of a New Age'];
+      const closings = [
+        'Old tools were hung above the lintel as a younger generation named the world anew.',
+        'What had seemed impossible to their grandparents became the quiet craft of every village square.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, the long tide of memory turned toward the ${epochName}: ${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'war': {
-      const titles = ['Drums of War', 'Banners Drawn', 'Iron and Ash'];
+      const titles = ['Iron in the Grass', 'The Broken Border', 'Drums Along the Ridge', 'Ash and Banner'];
+      const closings = [
+        'Ravens gathered on the fence-posts, and mothers listened to the wind for news from the pass.',
+        'Neither plow nor song could mend what steel divided before the harvest moon.',
+        'The banners fluttered bright at dawn and came home heavy with dust by nightfall.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, quiet fields learned the tread of marching boots—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'peace': {
-      const titles = ['The Accord', 'Swords Sheathed', 'Quiet Skies'];
+      const titles = ['The Quiet Ink', 'Swords Laid Down', 'Salt and Bread', 'The Long Truce'];
+      const closings = [
+        'Gates stood unbarred at twilight, and lanterns drifted once more across the border road.',
+        'For a season, the smithies turned from spearheads back to hinges, bells, and plows.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, weary hands met across the table—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'kingdom': {
-      const titles = ['Crown and Hearth', 'A Banner Raised', 'Founding'];
+      const titles = ['First Smoke on the Hill', 'Hearth and Crown', 'The Boundary Stone', 'A Name Upon the Map'];
+      const closings = [
+        'Timber went up against the wind, and the wild valley answered to a mortal name at last.',
+        'From a single ring of campfires grew streets, granaries, and songs of belonging.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, travelers drove their stakes into untamed ground—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'disaster': {
-      const titles = ['Fury of the Sky', 'Calamity', 'Ash and Ruin'];
+      const titles = ['The Sky Unbound', 'Ash Upon the Water', 'When the Earth Shook', 'The Dark Omen'];
+      const closings = [
+        'Smoke hung low over the valleys until rain washed the soot down to the shore.',
+        'Those who endured spoke softly for years afterward, glancing upward whenever the wind fell still.',
+        'Yet even in the blackened furrow, small green shoots waited beneath the ash for another spring.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, the calm of the world broke without warning—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     case 'divine': {
-      const titles = ['Hand of the Creator', 'A Miracle', 'Providence'];
+      const titles = ['The Unseen Hand', 'Light Through the Cloud', 'A Quiet Grace', 'The Maker’s Breath'];
+      const closings = [
+        'Elders bowed their heads in the fields, knowing the sky was neither empty nor asleep.',
+        'No scribe could explain how it came to pass, only that the land felt lighter afterward.',
+      ];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, a hush fell across meadow and shore—${factLower}. ${pick(closings, seed + 2)}`,
       };
     }
     default: {
-      const titles = ['Annals of the Realm', 'A Passing Tale', 'Chronicle'];
+      const titles = ['A Passing Tale', 'Ink on Vellum', 'Remembered by the Hearth'];
       return {
         title: pick(titles, seed),
-        body: `${yearPrefix}, ${cleanFact.charAt(0).toLowerCase()}${cleanFact.slice(1)}.`,
+        body: `${when}, the chroniclers set down what the wind carried from afar—${factLower}.`,
       };
     }
   }
@@ -203,26 +262,26 @@ function buildRetroactivePrologueEntries(state: SimulationState): LoreEntry[] {
   const namedRealms = Object.values(state.settlementNames ?? {}).filter(Boolean);
 
   const openingLines = [
-    'Before the first banner was sewn or the first hearth kindled, land rose from the endless sea at the command of an unseen creator.',
-    'Out of primordial mist and shifting stone, a living world took shape beneath the watchful gaze of the heavens.',
-    'In the quiet hush of the First Dawn, mountains lifted their crowns and green valleys awaited the footsteps of mortals.',
+    'Before any bell rang or any furrow was turned, stone lifted itself from the cold sea and drank the first sunlight.',
+    'Out of salt water and drifting cloud, ridges rose into green valleys, waiting quietly for the first footprint in the moss.',
+    'In the stillness before memory, the waters parted and a young world lay open beneath a wide, unhurried sky.',
   ];
 
   let prologueBody = pick(openingLines, seedNum);
   if (namedRealms.length > 0) {
     const realmList = namedRealms.slice(0, 3).join(', ');
-    prologueBody += ` Across these shores arose the realms of ${realmList}, carrying the hopes of ${civUnits.length} living souls.`;
+    prologueBody += ` Along those coasts rose the hearths of ${realmList}, where ${civUnits.length} living souls first learned the shape of the hills.`;
   } else if (civUnits.length > 0) {
-    prologueBody += ` Early wanderers (${civUnits.length} strong) began charting the wilds in search of shelter and destiny.`;
+    prologueBody += ` Along the meadows wandered ${civUnits.length} early souls, carrying little more than fire and stubborn hope.`;
   } else {
-    prologueBody += ' The continents lay untamed, humming with wildlife and awaiting the spark of civilization.';
+    prologueBody += ' Only wind, tide, and wild creatures moved across the shores, awaiting whoever would come to name them.';
   }
   if (speciesSet.size > 1) {
     const speciesNames = Array.from(speciesSet)
       .slice(0, 4)
       .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
       .join(', ');
-    prologueBody += ` Peoples of ${speciesNames} heritage would each leave their mark upon its soil.`;
+    prologueBody += ` Folk of ${speciesNames} blood each claimed their own horizon.`;
   }
 
   entries.push({
@@ -232,7 +291,7 @@ function buildRetroactivePrologueEntries(state: SimulationState): LoreEntry[] {
     epochIndex: 0,
     epochName,
     category: 'creation',
-    title: 'The Dawn of Creation',
+    title: 'Before the First Bell',
     body: prologueBody,
     emblem: 'creation',
     timestamp: Date.now() - 10_000,
@@ -242,7 +301,7 @@ function buildRetroactivePrologueEntries(state: SimulationState): LoreEntry[] {
   const wonders = state.worldWonders ?? [];
   for (const w of wonders) {
     if ((w.hp ?? 1) <= 0) continue;
-    const realmName = state.settlementNames?.[w.settlementId] ?? 'a proud realm';
+    const realmName = state.settlementNames?.[w.settlementId] ?? 'a distant realm';
     entries.push({
       id: `lore_retro_wonder_${w.id}`,
       year: Math.max(1, Math.floor(state.year || 1)),
@@ -251,7 +310,7 @@ function buildRetroactivePrologueEntries(state: SimulationState): LoreEntry[] {
       epochName: getEpochName(state.epochIndex ?? 0),
       category: 'wonder',
       title: `The ${w.name}`,
-      body: `Standing tall as a testament to mortal ambition, the ${w.name} was raised by the artisans of ${realmName}. Travelers speak of its splendor from across the seas.`,
+      body: `High above the roofs of ${realmName} stands the ${w.name}, carved against the years so the sea-wind itself might remember who built it.`,
       emblem: 'wonder',
       x: w.tileX,
       z: w.tileZ,
