@@ -645,6 +645,8 @@ export interface LoreEntry {
   timestamp: number;
   sourceChronicleId?: string;
   count?: number;
+  motif?: string;
+  entityName?: string;
 }
 
 export interface LoreBookState {

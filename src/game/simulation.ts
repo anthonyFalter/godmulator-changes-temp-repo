@@ -2119,7 +2119,8 @@ export function addChronicle(
   tone: ChronicleEvent['tone'] = 'divine',
   coords?: { x: number; z: number },
 ): void {
-  if (state.chronicle.slice(0, 5).some((c) => c.text === text)) {
+  const currentYearLabel = formatYearLabel(state.year);
+  if (state.chronicle.slice(0, 5).some((c) => c.text === text && c.yearLabel === currentYearLabel)) {
     return;
   }
 
@@ -17545,6 +17546,7 @@ function stepSimulationSingle(
 
   // Remove destroyed buildings and immediately clean up wiped-out settlements & their zones
   const destroyedSettlementIds = new Set<string>();
+  const destroyedSettlementCoords = new Map<string, { x: number; z: number }>();
   state.buildings = state.buildings.filter((b) => {
     if (b.hp <= 0) {
       ensureWorldStats(state).buildingsDestroyed += 1;
@@ -17561,6 +17563,7 @@ function stepSimulationSingle(
       }
       if (b.settlementId) {
         destroyedSettlementIds.add(b.settlementId);
+        destroyedSettlementCoords.set(b.settlementId, { x: b.tileX, z: b.tileZ });
         if (!state.settlementRebuildCooldowns) state.settlementRebuildCooldowns = {};
         state.settlementRebuildCooldowns[b.settlementId] = Math.min(
           38,
@@ -17582,9 +17585,18 @@ function stepSimulationSingle(
     return true;
   });
 
-  if (destroyedSettlementIds.size > 0) {
+  // Check destroyed settlements immediately AND sweep all named settlements periodically
+  // so cities whose last citizens perish after their buildings fell are always chronicled.
+  const settlementsToAudit = new Set<string>(destroyedSettlementIds);
+  if (state.settlementNames && (destroyedSettlementIds.size > 0 || (simTick % 12) === 0)) {
+    for (const sid of Object.keys(state.settlementNames)) {
+      settlementsToAudit.add(sid);
+    }
+  }
+
+  if (settlementsToAudit.size > 0) {
     const fallenIds = new Set<string>();
-    for (const sid of destroyedSettlementIds) {
+    for (const sid of settlementsToAudit) {
       const stillHasBlds = state.buildings.some((b) => b.settlementId === sid);
       const stillHasUnits = state.units.some(
         (u) => u.faction === 'civilization' && u.state !== 'ko' && u.hp > 0 && u.settlementId === sid,
@@ -17593,10 +17605,16 @@ function stepSimulationSingle(
         ensureWorldStats(state).citiesDestroyed += 1;
         const fallenName = state.settlementNames?.[sid];
         if (fallenName) {
+          let coords = destroyedSettlementCoords.get(sid);
+          if (!coords) {
+            const claimedTile = state.tiles.find((t) => t.claimedSettlementId === sid);
+            if (claimedTile) coords = { x: claimedTile.x, z: claimedTile.z };
+          }
           addChronicle(
             state,
-            `The settlement of ${fallenName} has been completely destroyed and reduced to ruins!`,
+            `The city of ${fallenName} has fallen and been reduced to ruins!`,
             'warning',
+            coords,
           );
         }
         if (state.settlementNames) delete state.settlementNames[sid];
@@ -26056,6 +26074,7 @@ function stepCivilianUnitAI(
             nearestForeignBld.hp = Math.max(0, nearestForeignBld.hp - bldDmg);
             // When an enemy building is conquered in war, annex its territory and capture/claim the structure for our kingdom!
             if (nearestForeignBld.hp <= 0 && claimSid && myKingdomId) {
+              const conqueredOldSid = nearestForeignBld.settlementId;
               claimTerritoryAround(
                 state,
                 nearestForeignBld.tileX,
@@ -26070,6 +26089,31 @@ function stepCivilianUnitAI(
               nearestForeignBld.species = u.species;
               nearestForeignBld.hp = Math.max(45, Math.round(nearestForeignBld.maxHp * 0.45));
               nearestForeignBld.constructionProgress = Math.min(100, nearestForeignBld.constructionProgress);
+
+              // If that was the conquered city's last standing structure, chronicle the city's fall!
+              if (conqueredOldSid && conqueredOldSid !== claimSid) {
+                const oldStillHasBlds = state.buildings.some((b) => b.settlementId === conqueredOldSid);
+                if (!oldStillHasBlds) {
+                  const fallenCityName = state.settlementNames?.[conqueredOldSid];
+                  const conquerorName =
+                    state.settlementNames?.[claimSid] ??
+                    state.settlementNames?.[myKingdomId] ??
+                    'a rival empire';
+                  if (fallenCityName) {
+                    ensureWorldStats(state).citiesDestroyed += 1;
+                    addChronicle(
+                      state,
+                      `The city of ${fallenCityName} has fallen and been conquered by ${conquerorName}!`,
+                      'warning',
+                      { x: nearestForeignBld.tileX, z: nearestForeignBld.tileZ },
+                    );
+                  }
+                  if (state.settlementNames) delete state.settlementNames[conqueredOldSid];
+                  if (state.settlementSpecies) delete state.settlementSpecies[conqueredOldSid];
+                  if (state.settlementKingdoms) delete state.settlementKingdoms[conqueredOldSid];
+                  if (state.settlementDistricts) delete state.settlementDistricts[conqueredOldSid];
+                }
+              }
             }
           }
           const siegeSubtype: VisualEffectEvent['vfxSubtype'] =

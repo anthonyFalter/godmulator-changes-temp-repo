@@ -8,6 +8,7 @@ import {
   TitanShockwaveEffect,
   TitanSlashEffect,
 } from './types';
+import { syncLoreBookFromChronicle } from './loreBook';
 import { syncTileToWorldGrid, WorldGridBuffers } from './worldGrid';
 
 export const TITAN_HEIGHT_STEP = 0.45;
@@ -75,16 +76,19 @@ function isWaterTile(t: TileData | undefined): boolean {
 function pushChronicle(state: SimulationState, text: string, tone: 'divine' | 'warning' = 'divine'): void {
   if (!state.chronicle) state.chronicle = [];
   const yr = Math.max(1, Math.floor(state.year || 1));
+  const titan = state.divineTitan;
   state.chronicle.unshift({
     id: nextTitanFxId('chr'),
     yearLabel: `Year ${yr}`,
     text,
     tone,
     timestamp: Date.now(),
+    ...(titan ? { x: Math.round(titan.x), z: Math.round(titan.z) } : {}),
   });
   if (state.chronicle.length > 48) {
     state.chronicle.length = 48;
   }
+  syncLoreBookFromChronicle(state, true);
 }
 
 function damageWorldWonders(state: SimulationState, cx: number, cz: number, radius: number, dmg: number): void {

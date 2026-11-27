@@ -6,7 +6,7 @@ import {
   markLoreBookRead,
   syncLoreBookFromChronicle,
 } from './loreBook';
-import { addChronicle, createInitialSimulationState } from './simulation';
+import { addChronicle, createInitialSimulationState, stepSimulation } from './simulation';
 
 test('Lore Book retroactively weaves Prologue, existing Wonders, and existing chronicle in chronological order', () => {
   const sim = createInitialSimulationState(24, 'LORE-RETRO');
@@ -185,3 +185,121 @@ test('Lore Book weaves race cultures, rebellions, and living monarchs into mythi
   assert.ok(book.entries.some((e) => e.category === 'rebellion'), 'Should weave active rebellion entry');
   assert.ok(book.entries.some((e) => e.category === 'legend' && e.title.includes('Thrain')), 'Should weave living monarch legend');
 });
+
+test('Lore Book weaves dynamic historical continuity for recurring God Titan and disasters', () => {
+  const sim = createInitialSimulationState(24, 'LORE-CONTINUITY');
+  ensureLoreBook(sim);
+
+  // First Titan summon in Year 4
+  sim.year = 4;
+  addChronicle(sim, 'A colossal God Titan descended from the heavens!', 'divine', { x: 10, z: 10 });
+  addChronicle(sim, 'A skyward beam reclaimed the God Titan back into the heavens.', 'divine', { x: 10, z: 10 });
+
+  // Second Titan summon in Year 56 (52 years later!)
+  sim.year = 56;
+  addChronicle(sim, 'A colossal God Titan descended from the heavens!', 'divine', { x: 14, z: 14 });
+
+  // Third Titan summon in Year 74
+  sim.year = 74;
+  addChronicle(sim, 'A colossal God Titan descended from the heavens!', 'divine', { x: 16, z: 16 });
+
+  const titanSummons = sim.loreBook!.entries.filter((e) => e.motif === 'titan_summon');
+  assert.equal(titanSummons.length, 3, 'Each Titan summon should produce its own lore verse');
+  assert.notEqual(titanSummons[0].title, titanSummons[1].title, 'Repeated Titan summons must have distinct titles');
+  assert.notEqual(titanSummons[0].body, titanSummons[1].body, 'Repeated Titan summons must have distinct prose');
+  assert.ok(
+    titanSummons[1].body.includes('52 years') || titanSummons[1].body.includes('Year 4'),
+    `Second summon should reference the 52-year gap or Year 4, got: ${titanSummons[1].body}`,
+  );
+  assert.ok(
+    titanSummons[2].body.toLowerCase().includes('third') &&
+      (titanSummons[2].body.includes('Year 4') || titanSummons[2].body.includes('Year 56')),
+    `Third summon should reference the third coming and prior year, got: ${titanSummons[2].body}`,
+  );
+
+  const titanExits = sim.loreBook!.entries.filter((e) => e.motif === 'titan_exit');
+  assert.equal(titanExits.length, 1, 'Titan departure should be logged with titan_exit motif');
+  assert.ok(
+    /upward|departed|reclaimed|ascent|cloud/i.test(`${titanExits[0].title} ${titanExits[0].body}`),
+    'Titan departure should use departure prose rather than arrival prose',
+  );
+});
+
+test('Simulation logs fallen cities (even when last citizen dies after buildings) and Lore Book chronicles them dynamically', () => {
+  const sim = createInitialSimulationState(24, 'LORE-FALL');
+  sim.year = 12;
+  ensureLoreBook(sim);
+  sim.settlementNames = { s1: 'Oakhaven', s2: 'Sunspire' };
+  const tileA = sim.tiles.find((t) => t.height > 0)!;
+  tileA.claimedSettlementId = 's1';
+  sim.buildings.push({
+    id: 'b_oak',
+    type: 'bonfire',
+    tileX: tileA.x,
+    tileZ: tileA.z,
+    hp: 0, // destroyed on next tick
+    maxHp: 100,
+    constructionProgress: 100,
+    epochLevel: 0,
+    blessedTimer: 0,
+    cursedTimer: 0,
+    shieldTimer: 0,
+    settlementId: 's1',
+    species: 'human',
+  });
+  // Keep s2 alive with 1 unit for now
+  sim.units.push({
+    id: 'u_sun',
+    name: 'Lyra',
+    role: 'villager',
+    species: 'elf',
+    faction: 'civilization',
+    x: tileA.x,
+    z: tileA.z,
+    targetX: tileA.x,
+    targetZ: tileA.z,
+    hp: 100,
+    maxHp: 100,
+    state: 'idle',
+    koTimer: 0,
+    statusEffects: {},
+    carryingType: null,
+    carryingAmount: 0,
+    actionCooldown: 0,
+    windupTimer: 0,
+    targetEntityId: null,
+    settlementId: 's2',
+  });
+
+  // Tick once: Oakhaven's last building dies with 0 living citizens -> Oakhaven falls!
+  stepSimulation(sim, 0.05, { skipRandomEvents: true });
+  assert.equal(sim.settlementNames['s1'], undefined, 'Fallen city s1 should be cleaned up');
+  assert.equal(sim.settlementNames['s2'], 'Sunspire', 'Living city s2 should remain');
+
+  // Later in Year 28, Sunspire's last citizen dies (with 0 buildings left) -> periodic/sweep catches Sunspire's fall!
+  sim.year = 28;
+  sim.units = sim.units.filter((u) => u.settlementId !== 's2');
+  for (let i = 0; i < 15; i++) {
+    stepSimulation(sim, 0.05, { skipRandomEvents: true });
+  }
+  assert.equal(sim.settlementNames['s2'], undefined, 'Abandoned/wiped city s2 should be caught and cleaned up');
+
+  const fallenEntries = sim.loreBook!.entries.filter((e) => e.motif === 'city_fallen');
+  assert.equal(fallenEntries.length, 2, 'Both Oakhaven and Sunspire falls should be chronicled');
+  assert.equal(fallenEntries[0].category, 'disaster', 'Fallen city must NOT be misclassified as kingdom');
+  assert.ok(fallenEntries[0].body.includes('Oakhaven'));
+  assert.ok(fallenEntries[1].body.includes('Sunspire'));
+  assert.ok(
+    fallenEntries[1].body.includes('Oakhaven') && fallenEntries[1].body.includes('16 years'),
+    `Second fallen city should reference Oakhaven and the 16-year gap, got: ${fallenEntries[1].body}`,
+  );
+
+  // Conquered city chronicle classification
+  sim.year = 35;
+  addChronicle(sim, 'The city of Thornhold has fallen and been conquered by Ironhold!', 'warning', { x: 8, z: 8 });
+  const conquered = sim.loreBook!.entries.find((e) => e.motif === 'city_conquered');
+  assert.ok(conquered, 'Conquered city should produce a city_conquered lore entry');
+  assert.equal(conquered.category, 'war');
+  assert.ok(conquered.body.includes('Thornhold') && conquered.body.includes('Ironhold'));
+});
+
