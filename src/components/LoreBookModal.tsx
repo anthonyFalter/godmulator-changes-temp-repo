@@ -34,7 +34,7 @@ const BrassCornerClasp: React.FC<{ position: 'tl' | 'tr' | 'bl' | 'br' }> = ({ p
       aria-hidden="true"
       viewBox="0 0 12 12"
       shapeRendering="crispEdges"
-      className={`pointer-events-none absolute ${posClass} w-6 h-6 sm:w-7 sm:h-7 z-30 pixelated-canvas`}
+      className={`pointer-events-none absolute ${posClass} w-6 h-6 sm:w-7 sm:h-7 z-10 pixelated-canvas`}
     >
       <path d="M0 0h12v4h-5v1h-2v2h-1v5h-4z" fill="#140804" />
       <path d="M1 1h10v2h-6v1h-1v1h-1v6h-2z" fill="#c79538" />
@@ -163,36 +163,36 @@ const LoreEntryVerse: React.FC<{
   );
 };
 
+function getParchmentUrl(side: 'left' | 'right' | 'single'): string {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}assets/lore/parchment_${side}.png`;
+}
+
 const PageSurface: React.FC<{
   page: LoreBookPage;
   side: 'left' | 'right' | 'single';
   onSelectChapter: (ch: LoreChapterSummary) => void;
   onJump?: (x: number, z: number) => void;
 }> = ({ page, side, onSelectChapter, onJump }) => {
-  const sideClass =
-    side === 'left'
-      ? 'lore-parchment-left'
-      : side === 'right'
-        ? 'lore-parchment-right'
-        : 'lore-parchment-single';
-
   return (
     <div
-      className={`lore-parchment w-full h-full px-5 py-5 sm:px-7 sm:py-6 flex flex-col justify-between overflow-hidden select-none ${sideClass}`}
+      className="lore-parchment w-full h-full px-6 py-5 sm:px-8 sm:py-6 flex flex-col justify-between overflow-hidden select-none"
+      style={{ backgroundImage: `url(${getParchmentUrl(side)})` }}
     >
       {page.kind === 'title' && (
-        <div className="h-full flex flex-col items-center justify-between text-center border-2 border-[#c8ab73] p-4 sm:p-5 bg-[#f7ead0]/45">
-          <div className="text-[10px] tracking-[0.2em] uppercase font-bold text-[#7d552c]">
-            The Great Chronicle of
+        <div className="h-full flex flex-col items-center justify-between text-center px-2 py-2">
+          <div className="lore-banner px-3 py-1 text-[10px] tracking-[0.18em] uppercase font-bold">
+            The Great Chronicle
           </div>
 
           <div className="flex-1 flex flex-col items-center justify-center py-2">
             <PixelWaxSeal className="w-11 h-11 sm:w-12 sm:h-12 mb-3" />
-            <h2 className="text-xl sm:text-2xl font-black text-[#261209] leading-tight max-w-[260px]">
+            <h2 className="text-xl sm:text-2xl font-black text-[#261209] leading-tight max-w-[250px]">
               {page.worldName}
             </h2>
             <PixelDivider className="w-32 my-2.5" />
-            <p className="text-[11.5px] sm:text-xs text-[#5e3b1c] leading-relaxed max-w-[240px]">
+            <p className="text-[11.5px] sm:text-xs text-[#543318] leading-relaxed max-w-[235px]">
               {page.epigraph}
             </p>
             <p className="mt-3 text-xs font-bold text-[#8b2222] tabular-nums">
@@ -200,7 +200,7 @@ const PageSurface: React.FC<{
             </p>
           </div>
 
-          <p className="text-[11px] text-[#6d4826] leading-snug max-w-[250px]">
+          <p className="text-[11px] text-[#634020] leading-snug max-w-[240px]">
             {page.colophon}
           </p>
         </div>
@@ -209,14 +209,13 @@ const PageSurface: React.FC<{
       {page.kind === 'toc' && (
         <div className="h-full flex flex-col justify-between">
           <div className="min-h-0 flex-1 flex flex-col">
-            <div className="text-center mb-1">
-              <h3 className="text-base sm:text-lg font-black text-[#261209] tracking-wide">
+            <div className="lore-banner px-3 py-1.5 mb-3 text-center">
+              <h3 className="text-xs sm:text-sm font-black tracking-[0.12em] uppercase">
                 Table of Chapters
               </h3>
             </div>
-            <PixelDivider className="mt-1 mb-3" />
 
-            <nav aria-label="Lore Book Chapters" className="space-y-1 overflow-y-auto flex-1 pr-1">
+            <nav aria-label="Lore Book Chapters" className="space-y-1.5 overflow-y-auto flex-1 pr-1">
               {page.chapters.map((ch: LoreChapterSummary) => (
                 <button
                   key={`${ch.chapterNumber}_${ch.title}`}
@@ -227,12 +226,12 @@ const PageSurface: React.FC<{
                     e.stopPropagation();
                     onSelectChapter(ch);
                   }}
-                  className="w-full min-h-[38px] text-left px-2.5 py-1.5 hover:bg-[#e5d0a1] border-b border-dashed border-[#cfb480] flex items-baseline justify-between gap-2 cursor-pointer transition-colors"
+                  className="w-full min-h-[36px] text-left px-2.5 py-1.5 bg-[#cfa974]/60 hover:bg-[#b8894f]/75 border-2 border-[#7b5228] flex items-baseline justify-between gap-2 cursor-pointer"
                 >
                   <span className="text-xs sm:text-[13px] font-bold text-[#2b150b] truncate">
                     Chapter {ch.roman} — {ch.title}
                   </span>
-                  <span className="text-[11px] font-semibold text-[#734d2c] tabular-nums shrink-0">
+                  <span className="text-[11px] font-bold text-[#5d3818] tabular-nums shrink-0">
                     Yr {ch.startYear}
                   </span>
                 </button>
@@ -240,7 +239,7 @@ const PageSurface: React.FC<{
             </nav>
           </div>
 
-          <p className="text-[11px] text-[#7a5230] tabular-nums pt-2 text-center">
+          <p className="text-[11px] text-[#6e4824] tabular-nums pt-2 text-center">
             {page.totalEntries} {page.totalEntries === 1 ? 'tale' : 'tales'} preserved in ink
           </p>
         </div>
@@ -251,13 +250,12 @@ const PageSurface: React.FC<{
           <div className="flex-1 overflow-y-auto pr-1 min-h-0">
             {page.isChapterStart && (
               <header className="mb-3.5 text-center">
-                <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-[#7d552c]">
-                  Chapter {page.chapterRoman}
-                </p>
-                <h3 className="text-sm sm:text-base font-black text-[#8b2222] leading-snug">
-                  {page.chapterTitle}
-                </h3>
-                <p className="text-[11px] text-[#6b4624] mt-0.5 leading-snug">
+                <div className="lore-banner px-3 py-1 mb-1.5 inline-block max-w-full">
+                  <span className="text-[11px] sm:text-xs font-black tracking-wide uppercase truncate block">
+                    Ch. {page.chapterRoman} — {page.chapterTitle}
+                  </span>
+                </div>
+                <p className="text-[11px] text-[#5e3a1c] leading-snug">
                   “{page.chapterEpigraph}”
                 </p>
                 <PixelDivider className="mt-2 mb-1" />
@@ -373,10 +371,10 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
       minHeight: 340,
       maxHeight: 520,
       drawShadow: true,
-      maxShadowOpacity: 0.48,
-      flippingTime: 650,
+      maxShadowOpacity: 0.3,
+      flippingTime: 420,
       usePortrait: isMobile,
-      startZIndex: 10,
+      startZIndex: 50,
       autoSize: true,
       showCover: false,
       mobileScrollSupport: true,
@@ -518,43 +516,43 @@ export const LoreBookModal: React.FC<LoreBookModalProps> = ({
           </button>
         </div>
 
-        {/* Pixel-Art Leather Tome */}
+        {/* Pixel-Art Burgundy Leather Tome (overflow-visible + lower z-index so turning leaves float cleanly above) */}
         <div className="lore-book-cover relative w-full p-2.5 pb-4 sm:p-3.5 sm:pb-5">
-          {/* 4 Hammered Brass Pixel Corner Clasps */}
+          {/* 4 Hammered Brass Pixel Corner Clasps (z-10, below turning pages) */}
           <BrassCornerClasp position="tl" />
           <BrassCornerClasp position="tr" />
           <BrassCornerClasp position="bl" />
           <BrassCornerClasp position="br" />
 
-          {/* Pixel-Art Crimson Silk Bookmark Ribbon */}
+          {/* Pixel-Art Crimson Silk Bookmark Ribbon (z-20, below turning pages) */}
           <PixelRibbonBookmark
-            className={`absolute -top-1.5 z-30 w-4 h-8 sm:w-5 sm:h-10 ${
+            className={`absolute -top-1.5 z-20 w-4 h-8 sm:w-5 sm:h-10 ${
               isMobile ? 'left-5' : 'left-1/2 -translate-x-1/2'
             }`}
           />
 
           {/* Thick Stacked Pixel Paper Block */}
           <div className="lore-paper-stack relative px-1.5 py-1 sm:px-2 sm:py-1">
-            <div className="relative flex border-2 border-[#5c3b1e] bg-[#f4e4c1]">
+            <div className="relative flex border-2 border-[#5c3b1e] bg-[#f4e2b8] overflow-visible">
               {/* Mobile left leather binding spine */}
               {isMobile && (
                 <div
                   aria-hidden="true"
-                  className="lore-spine-strip w-3 shrink-0 border-r-2 border-[#1c0b05] z-20"
+                  className="lore-spine-strip w-3 shrink-0 border-r-2 border-[#22070a] z-10"
                 />
               )}
 
-              {/* StPageFlip Mount Host (real curved corner-peel physics) */}
+              {/* StPageFlip Mount Host (z-40, startZIndex: 50 — always above cover & clasps) */}
               <div
                 ref={stageRef}
                 className="lore-stage flex-1 min-w-0 h-[min(62dvh,460px)] sm:h-[460px]"
               />
 
-              {/* Desktop center leather spine overlay */}
+              {/* Desktop center leather spine seam (z-10, behind turning pages) */}
               {!isMobile && (
                 <div
                   aria-hidden="true"
-                  className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2 z-20 opacity-80"
+                  className="lore-spine-strip pointer-events-none absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-2 z-10 opacity-75"
                 />
               )}
             </div>

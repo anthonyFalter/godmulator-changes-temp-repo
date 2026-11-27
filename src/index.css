@@ -836,118 +836,118 @@
 }
 
 /* =========================================================================
- * Pixelated Lore Book Tome & Multi-Segment 3D Curved Page-Flip Animation
+ * Pixelated Lore Book Tome (Bestiary-inspired Pixel Art + StPageFlip)
  * ========================================================================= */
 .lore-book-cover {
-  background-color: #422012;
+  background-color: #6b1d24;
   background-image:
     repeating-linear-gradient(
       0deg,
-      rgba(20, 8, 4, 0.14) 0px,
-      rgba(20, 8, 4, 0.14) 2px,
+      rgba(26, 6, 10, 0.16) 0px,
+      rgba(26, 6, 10, 0.16) 2px,
       transparent 2px,
       transparent 6px
     ),
     repeating-linear-gradient(
       90deg,
-      rgba(128, 70, 38, 0.12) 0px,
-      rgba(128, 70, 38, 0.12) 2px,
+      rgba(168, 62, 68, 0.14) 0px,
+      rgba(168, 62, 68, 0.14) 2px,
       transparent 2px,
       transparent 8px
     );
-  border: 3px solid #120703;
+  border: 3px solid #22070a;
   box-shadow:
-    inset 3px 3px 0 0 #754024,
-    inset -3px -3px 0 0 #1f0d06,
-    inset 6px 6px 0 0 #552b17,
-    inset -6px -6px 0 0 #2d140a,
-    0 6px 0 0 #1c0c06,
-    0 18px 42px rgba(0, 0, 0, 0.72);
+    inset 3px 3px 0 0 #9c343b,
+    inset -3px -3px 0 0 #3a0d12,
+    inset 6px 6px 0 0 #7f252c,
+    inset -6px -6px 0 0 #4a1218,
+    0 6px 0 0 #2c090d,
+    0 18px 40px rgba(0, 0, 0, 0.72);
   image-rendering: pixelated;
+  overflow: visible;
 }
 
 /* Thick physical pixel-art page block edges on left, right, and bottom */
 .lore-paper-stack {
-  background-color: #cbb07c;
+  background-color: #c8a872;
   background-image:
     repeating-linear-gradient(
       90deg,
-      #e6d2a4 0px,
-      #e6d2a4 2px,
-      #bfa16c 2px,
-      #bfa16c 4px
+      #e6d09f 0px,
+      #e6d09f 2px,
+      #b5925d 2px,
+      #b5925d 4px
     );
-  border: 2px solid #241007;
+  border: 2px solid #2a1208;
   box-shadow:
-    0 4px 0 0 #a88954,
-    0 6px 0 0 #7c5f34,
-    0 8px 0 0 #241007;
+    0 4px 0 0 #a3804c,
+    0 6px 0 0 #765830,
+    0 8px 0 0 #2a1208;
   image-rendering: pixelated;
+  overflow: visible;
 }
 
 .lore-parchment {
-  background-color: #f4e4c1;
-  background-image:
-    radial-gradient(circle at 50% 50%, rgba(255, 248, 226, 0.45) 0%, rgba(224, 198, 146, 0.22) 100%);
+  background-color: #f4e2b8;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
   color: #2b1a10;
   font-family: 'Pixelify Sans', ui-sans-serif, system-ui, sans-serif;
   image-rendering: pixelated;
 }
 
-.lore-parchment-left {
-  box-shadow:
-    inset 3px 0 0 0 #e6d1a3,
-    inset -4px 0 0 0 #e3cc9b,
-    inset -10px 0 0 0 #d4b780,
-    inset -16px 0 12px -8px rgba(48, 24, 8, 0.42);
-}
-
-.lore-parchment-right {
-  box-shadow:
-    inset -3px 0 0 0 #e6d1a3,
-    inset 4px 0 0 0 #e3cc9b,
-    inset 10px 0 0 0 #d4b780,
-    inset 16px 0 12px -8px rgba(48, 24, 8, 0.42);
-}
-
-.lore-parchment-single {
-  box-shadow:
-    inset -3px 0 0 0 #e6d1a3,
-    inset 4px 0 0 0 #e2ca98,
-    inset 10px 0 0 0 #d2b47c,
-    inset 16px 0 12px -8px rgba(48, 24, 8, 0.42);
-}
-
 /* Pixel-art leather spine with gold-tooled horizontal bands */
 .lore-spine-strip {
-  background-color: #2d1409;
+  background-color: #3d1015;
   background-image: repeating-linear-gradient(
     180deg,
-    #2d1409 0px,
-    #2d1409 36px,
-    #c89b3c 36px,
-    #c89b3c 38px,
-    #5d311b 38px,
-    #5d311b 42px,
-    #190a04 42px,
-    #190a04 44px
+    #3d1015 0px,
+    #3d1015 36px,
+    #d4a23c 36px,
+    #d4a23c 38px,
+    #702028 38px,
+    #702028 42px,
+    #22070a 42px,
+    #22070a 44px
   );
   box-shadow:
-    inset 2px 0 0 0 #532a16,
-    inset -2px 0 0 0 #160803;
+    inset 2px 0 0 0 #661c24,
+    inset -2px 0 0 0 #22070a;
+}
+
+/* Bestiary-style crimson pixel header banner */
+.lore-banner {
+  background-color: #631926;
+  border: 2px solid #2b090f;
+  box-shadow:
+    inset 2px 2px 0 0 #942c3c,
+    inset -2px -2px 0 0 #3f0e17;
+  color: #fdf1d4;
 }
 
 .lore-stage {
   position: relative;
+  z-index: 40;
   overflow: visible;
 }
 
 .lore-stage .stf__parent {
   margin: 0 auto;
+  overflow: visible !important;
 }
 
+.lore-stage .stf__wrapper,
+.lore-stage .stf__block {
+  overflow: visible !important;
+}
+
+/* GPU-composited turning leaves for smooth 60fps folding */
 .lore-stage .stf__item {
-  background-color: #f4e4c1;
+  background-color: #f4e2b8;
+  will-change: transform;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 
