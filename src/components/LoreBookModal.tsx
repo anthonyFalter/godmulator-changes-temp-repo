@@ -377,8 +377,8 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
       minHeight: 340,
       maxHeight: 520,
       drawShadow: true,
-      maxShadowOpacity: 0.22,
-      flippingTime: 480,
+      maxShadowOpacity: 0.24,
+      flippingTime: 650,
       usePortrait: isMobile,
       startZIndex: 50,
       autoSize: true,
@@ -416,26 +416,33 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
     };
   }, [isMobile, pageCount]);
 
-  // Trigger StPageFlip backward fold using actual rect.left + 12 (fixes StPageFlip's hardcoded x: 10 bug)
-  const triggerAnimatedPrev = useCallback((pf: PageFlip) => {
+  // Symmetric rect-aware curved corner flips for both Next and Previous
+  // (fixes StPageFlip's hardcoded x: 10 bug in flipPrev and aligns both directions identically)
+  const triggerAnimatedTurn = useCallback((pf: PageFlip, direction: 'next' | 'prev') => {
     const internal = pf as unknown as {
-      getBoundsRect?: () => { left: number; top?: number; height: number };
+      getBoundsRect?: () => { left: number; top?: number; width: number; pageWidth: number; height: number };
       getFlipController?: () => { flip?: (pos: { x: number; y: number }) => void };
     };
     try {
       const rect = internal.getBoundsRect?.();
       const ctrl = internal.getFlipController?.();
       if (rect && ctrl && typeof ctrl.flip === 'function') {
-        ctrl.flip({
-          x: Math.max(8, rect.left + 12),
-          y: Math.max(8, (rect.top ?? 0) + rect.height - 8),
-        });
+        const y = Math.max(8, (rect.top ?? 0) + rect.height - 8);
+        const x =
+          direction === 'next'
+            ? rect.left + rect.pageWidth * 2 - 12
+            : Math.max(8, rect.left + 12);
+        ctrl.flip({ x, y });
         return;
       }
     } catch {
-      // Fallback to built-in flipPrev
+      // Fallback to built-in helpers
     }
-    pf.flipPrev('bottom');
+    if (direction === 'next') {
+      pf.flipNext('bottom');
+    } else {
+      pf.flipPrev('bottom');
+    }
   }, []);
 
   const triggerAnimatedToPage = useCallback(
@@ -453,33 +460,50 @@ const LoreBookModalInner: React.FC<LoreBookModalProps> = ({
           if (pc) {
             const targetSpread = pc.getSpreadIndexByPage(target);
             pc.setCurrentSpreadIndex(targetSpread + 1);
-            triggerAnimatedPrev(pf);
+            triggerAnimatedTurn(pf, 'prev');
             return;
           }
         } catch {
           // Fallback below
         }
-        pf.flip(target, 'top');
+        pf.flip(target, 'bottom');
       } else if (target > cur) {
-        pf.flip(target, 'top');
+        const internal = pf as unknown as {
+          getPageCollection?: () => {
+            getSpreadIndexByPage: (p: number) => number;
+            setCurrentSpreadIndex: (s: number) => void;
+          };
+        };
+        try {
+          const pc = internal.getPageCollection?.();
+          if (pc) {
+            const targetSpread = pc.getSpreadIndexByPage(target);
+            pc.setCurrentSpreadIndex(Math.max(0, targetSpread - 1));
+            triggerAnimatedTurn(pf, 'next');
+            return;
+          }
+        } catch {
+          // Fallback below
+        }
+        pf.flip(target, 'bottom');
       }
     },
-    [triggerAnimatedPrev],
+    [triggerAnimatedTurn],
   );
 
   const handleNext = useCallback(() => {
     const pf = pageFlipRef.current;
     if (!pf) return;
     soundEngine.playClick();
-    pf.flipNext('bottom');
-  }, []);
+    triggerAnimatedTurn(pf, 'next');
+  }, [triggerAnimatedTurn]);
 
   const handlePrev = useCallback(() => {
     const pf = pageFlipRef.current;
     if (!pf) return;
     soundEngine.playClick();
-    triggerAnimatedPrev(pf);
-  }, [triggerAnimatedPrev]);
+    triggerAnimatedTurn(pf, 'prev');
+  }, [triggerAnimatedTurn]);
 
   const handleGoContents = useCallback(() => {
     const pf = pageFlipRef.current;

@@ -337,6 +337,7 @@ function stripBracketsAndStats(rawText: string): string {
 function poeticizeChronicleFact(rawText: string): string {
   let s = stripBracketsAndStats(rawText);
   s = s
+    .replace(/\bMy World\b/gi, 'the young realm')
     .replace(/\bGod Titan Death Beam\b/gi, 'the Brass Colossus’s pillar of blinding sun-fire')
     .replace(/\bDeath Beam\b/gi, 'pillar of blinding sun-fire')
     .replace(/\bGod Titan\b/gi, 'the Brass Colossus')
