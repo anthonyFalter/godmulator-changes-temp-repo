@@ -167,25 +167,32 @@ export function getEpochEpigraph(epochIndex: number): string {
   return EPOCH_EPIGRAPHS[Math.max(0, Math.min(EPOCH_EPIGRAPHS.length - 1, epochIndex))] ?? EPOCH_EPIGRAPHS[0];
 }
 
+function stripBracketsAndStats(rawText: string): string {
+  return rawText
+    .replace(/<([^<>]+)>/g, '$1')
+    .replace(/[<>]/g, '')
+    .replace(/\s*\([^)]*(?:seed|\+|\d+\s*,\s*\d+|%|damage|speed|knowledge|ore|alloy|hp)[^)]*\)/gi, '')
+    .replace(/\s*at \(\d+\s*,\s*\d+\)/gi, '')
+    .replace(/\+\d+\s*[a-zA-Z%]+/g, '')
+    .replace(/\b\d+x\s+kingdom output\b/gi, 'abundant harvests and bustling forges')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .replace(/[.!]+$/, '');
+}
+
 function poeticizeChronicleFact(rawText: string): string {
-  let s = rawText.trim().replace(/[.!]+$/, '');
-  // Translate mechanical game-log phrasing into mythic chronicle language
+  let s = stripBracketsAndStats(rawText);
   s = s
     .replace(/\bGod Titan Death Beam\b/gi, 'the Brass Colossus’s pillar of blinding sun-fire')
     .replace(/\bDeath Beam\b/gi, 'pillar of blinding sun-fire')
     .replace(/\bGod Titan\b/gi, 'the Brass Colossus')
-    .replace(/\bZombie Virus flask shattered,?\s*mutating (\d+) creatures? into zombies\b/gi, 'a green-glass vessel of blight shattered upon the earth, twisting $1 living souls into shambling husks')
     .replace(/\bZombie Virus\b/gi, 'the pale green blight')
-    .replace(/\bmutating (\d+) creatures? into zombies\b/gi, 'twisting $1 living souls into shambling husks')
     .replace(/\bnuclear mushroom cloud\b/gi, 'towering crown of ash and blinding fire')
     .replace(/\bnuclear\b/gi, 'sun-forged')
     .replace(/\bnuke\b/gi, 'falling star of fire')
-    .replace(/\bwas founded\b/gi, 'raised its first banners and hearth-fires')
-    .replace(/\bdeclared war on\b/gi, 'drew steel and marched against')
-    .replace(/\bsigned a peace treaty with\b/gi, 'broke bread and swore truce with')
+    .replace(/\bunits\b/gi, 'folk')
     .replace(/\bHP\b/g, 'vigor')
-    .replace(/\s*\([^)]*seed[^)]*\)/gi, '')
-    .replace(/\s*\(\d+\s*,\s*\d+\)/g, '')
+    .replace(/\s{2,}/g, ' ')
     .trim();
 
   if (!s) return 'the fates moved unseen across the land';
@@ -197,7 +204,7 @@ function formatPoeticYear(year: number, seed: number): string {
     return pick(
       [
         'In the first turning of the sun',
-        'Before the first winter had laid its frost',
+        'Before the first winter laid its frost upon the hills',
         'At the dawn of the First Year',
       ],
       seed,
@@ -207,9 +214,9 @@ function formatPoeticYear(year: number, seed: number): string {
   const s = pick(seasons, seed + year);
   const forms = [
     `In the ${s} of Year ${year}`,
-    `When Year ${year} drew toward its ${s}`,
-    `Under the wide skies of Year ${year}`,
-    `As the ${s} of Year ${year} settled over the hills`,
+    `When Year ${year} drew toward ${s}`,
+    `Beneath the turning skies of Year ${year}`,
+    `As ${s} settled over the valleys in Year ${year}`,
   ];
   return pick(forms, seed);
 }
@@ -221,34 +228,259 @@ function weaveEpicVerse(
   year: number,
   seed: number,
 ): { title: string; body: string } {
-  const fact = poeticizeChronicleFact(ev.text);
+  const clean = stripBracketsAndStats(ev.text);
+  const lower = clean.toLowerCase();
   const when = formatPoeticYear(year, seed);
 
+  // --- Specific legendary event patterns (pure myth, zero raw game-log phrasing) ---
+
+  // 1. Monarch crowned
+  const crownMatch = /^(.+?)\s+has been crowned monarch of\s+(.+)$/i.exec(clean);
+  if (crownMatch) {
+    const [, monarch, realm] = crownMatch;
+    return {
+      title: pick(['The Crown of ' + realm, 'Anointed by Hearthfire', 'A Sovereign Rises'], seed),
+      body: `${when}, ${monarch} took the crown of ${realm} before hearth and banner. Horns echoed from the watchtowers, and the scattered folk swore fealty beneath a single crest.`,
+    };
+  }
+
+  // 2. Fallen hero / monarch
+  const fallenMatch = /^(.+?)\s+has fallen\b/i.exec(clean);
+  if (fallenMatch) {
+    const [, hero] = fallenMatch;
+    return {
+      title: pick(['Lament for ' + hero, 'The Quiet Bier', 'When a Great Light Passed'], seed),
+      body: `${when}, ${hero} passed beyond the western mist, and silence fell over hall and market square. Bards sang through the night of deeds carved deeper than stone, awaiting the heir who would bear the mantle next.`,
+    };
+  }
+
+  // 3. Dragon / Leviathan / Phoenix legends
+  const dragonSlain = /^Dragon\s+(.+?)\s+has been vanquished/i.exec(clean);
+  if (dragonSlain) {
+    const [, name] = dragonSlain;
+    return {
+      title: pick(['The Fall of ' + name, 'Wyrm-Bane', 'Ashes of the Great Wing'], seed),
+      body: `${when}, mortal courage at last broke the dread wyrm ${name}. Its final roar shook the valleys like distant thunder, and from that dusk onward, the high passes belonged once more to the living.`,
+    };
+  }
+
+  const dragonStrafe = /^Dragon\s+(.+?)\s+strafes\s+(.+?)\s+with/i.exec(clean);
+  if (dragonStrafe) {
+    const [, name, realm] = dragonStrafe;
+    return {
+      title: pick(['Shadow of ' + name, 'Fire Over ' + realm, 'The Burning Sky'], seed),
+      body: `${when}, the winged terror ${name} descended upon ${realm} in a tempest of cinders. Roofs flared like dry straw beneath its shadow, and bells tolled frantically across the smoke-choked hills.`,
+    };
+  }
+
+  const leviathanSlain = /^The Leviathan\s*\((.+?)\)\s*has been defeated/i.exec(clean);
+  if (leviathanSlain) {
+    const [, name] = leviathanSlain;
+    return {
+      title: pick(['Bane of the Deep', 'The Quieting of ' + name, 'Masters of the Tide'], seed),
+      body: `${when}, harpoons and iron songs brought down ${name}, ancient sovereign of the abyss. The churning swells grew still, and sailors hung lanterns along the prows to give thanks to the sea.`,
+    };
+  }
+
+  const phoenixMatch = /^(?:Phoenix\s+)?(.+?)\s+(?:erupted from the ashes|burst into flames and rose again)/i.exec(clean);
+  if (phoenixMatch) {
+    const [, name] = phoenixMatch;
+    return {
+      title: pick(['Rebirth of ' + name, 'The Undying Ember', 'Wings of Dawn'], seed),
+      body: `${when}, where only cold cinders lay, ${name} rose anew in a crown of living gold. Those who beheld the bright ascent swore that not even death holds sway over the fires of heaven.`,
+    };
+  }
+
+  // 4. Ancient Relic / Tomb
+  const relicMatch = /^(.+?)\s+of\s+(.+?)\s+uncovered an Ancient Relic/i.exec(clean);
+  if (relicMatch) {
+    const [, explorer, realm] = relicMatch;
+    return {
+      title: pick(['The Forgotten Relic', 'Treasure of the Elder Age', 'Gift of the Ruins'], seed),
+      body: `${when}, ${explorer} of ${realm} unsealed a weathered vault beneath the moss and bore home a relic of the elder world. Wise elders marveled at its gleaming craft, and fresh lore kindled in every hall.`,
+    };
+  }
+
+  const tombMatch = /^(.+?)\s+disturbed an Ancient Tomb near\s+(.+)$/i.exec(clean);
+  if (tombMatch) {
+    const [, explorer, realm] = tombMatch;
+    return {
+      title: pick(['The Waking Barrow', 'Bones Beneath ' + realm, 'The Broken Seal'], seed),
+      body: `${when}, ${explorer} broke the quiet seal of an ancient barrow near ${realm}. Cold wind poured from the stone steps, and pale bone-clad wardens marched out beneath the stars.`,
+    };
+  }
+
+  // 5. Kingdom founded
+  const foundedMatch = /^(?:The Kingdom of\s+)?(.+?)\s+was founded/i.exec(clean);
+  if (foundedMatch) {
+    const [, realm] = foundedMatch;
+    return {
+      title: pick(['The Founding of ' + realm, 'First Smoke Upon the Hill', 'Hearth and Banner'], seed),
+      body: `${when}, wanderers drove their stakes into untamed earth and named the valley ${realm}. Timber rose against the wind, hearth-fires answered the twilight, and a new realm entered the memory of the world.`,
+    };
+  }
+
+  // 6. World Wonder built or fallen
+  const wonderFoundation = /^(.+?)\s+laid the foundation for a World Wonder:\s*(.+)$/i.exec(clean);
+  if (wonderFoundation) {
+    const [, realm, wonder] = wonderFoundation;
+    return {
+      title: pick(['The ' + wonder, 'Stone Against Time', 'The High Work of ' + realm], seed),
+      body: `${when}, the masons of ${realm} set the cornerstone of the ${wonder}. Song and chisel rang through the valley, for they meant their handiwork to outlast the very kings who commissioned it.`,
+    };
+  }
+
+  const wonderFall = /^The\s+(.+?)\s+(?:collapsed|was shattered|fell into ruin)/i.exec(clean);
+  if (wonderFall) {
+    const [, wonder] = wonderFall;
+    return {
+      title: pick(['Ruin of the ' + wonder, 'Fallen Marble', 'What Time Unmade'], seed),
+      body: `${when}, the proud ${wonder} gave way with a grief-stricken roar, scattering carved stone across the dust. Travelers still linger among its broken pillars, whispering of the hands that once raised it.`,
+    };
+  }
+
+  // 7. Specific Divine Powers & Cataclysms (pure mythic narration)
+  if (category === 'titan') {
+    const titles = ['The Walking Sun', 'The Brass Colossus', 'Where Thunder Walked', 'Iron From Heaven'];
+    const bodies = [
+      `${when}, the firmament parted to a weight no mountain could endure, and the Brass Colossus strode down through blinding cloud. Where its shadow fell, rivers steamed and men forgot the cadence of their own prayers.`,
+      `${when}, a pillar of searing sun-fire split the heavens at the Colossus’s command, crowning the horizon in ash and light. Long after the glare died, the ridge still hummed like a struck bell.`,
+    ];
+    return { title: pick(titles, seed), body: pick(bodies, seed) };
+  }
+
+  if (category === 'zombie') {
+    const titles = ['The Green Vessel', 'What Rose From the Glass', 'The Pale Hunger', 'Blight of the Living'];
+    const bodies = [
+      `${when}, a vessel of sickly green glass fell out of the dusk and shattered upon the earth. Before the moon climbed high, a pale hunger crept through meadow and street, turning the living into hollow wanderers who remembered neither kin nor fire.`,
+      `${when}, an emerald mist uncoiled from broken shards and drank the warmth from beast and mortal alike. Watchfires burned sleepless along the ridges, yet the shambling silhouettes did not turn from the flame.`,
+    ];
+    return { title: pick(titles, seed), body: pick(bodies, seed) };
+  }
+
+  if (lower.includes('meteor') || lower.includes('asteroid')) {
+    return {
+      title: pick(['The Falling Star', 'Hammer of the Sky', 'Fire From the Void'], seed),
+      body: `${when}, a burning star tore a bright wound across the heavens and struck the earth with the roar of a breaking mountain. Timber and stone vanished in cinders, leaving a smoking basin that shepherds still cross themselves to pass.`,
+    };
+  }
+
+  if (lower.includes('volcano')) {
+    return {
+      title: pick(['The Mountain Woke', 'Rivers of Living Fire', 'Wrath Beneath the Stone'], seed),
+      body: `${when}, the deep earth groaned and split open into a crest of molten flame. Glowing rivers spilled down the blackened slopes while ash drifted like grey snow over silent roofs.`,
+    };
+  }
+
+  if (lower.includes('tsunami')) {
+    return {
+      title: pick(['The Rising Wall of Sea', 'When the Ocean Walked Inland', 'The Salt Reckoning'], seed),
+      body: `${when}, the tide drew back until the seabed lay bare, then returned as a towering wall of dark water. Harbors and coastal meadows vanished beneath white foam before the sea reclaimed its ancient hush.`,
+    };
+  }
+
+  if (lower.includes('tornado') || lower.includes('cyclone')) {
+    return {
+      title: pick(['The Spinning Spire', 'Fury of the Gale', 'The Sky’s Finger'], seed),
+      body: `${when}, the clouds twisted into a howling spire that danced across field and roof alike. Trees bowed and snapped like reeds until the tempest spent its breath beyond the distant hills.`,
+    };
+  }
+
+  if (lower.includes('earthquake')) {
+    return {
+      title: pick(['When the Earth Shook', 'The Broken Ground', 'Tremor of the Deep'], seed),
+      body: `${when}, the solid ground rolled like an angry sea beneath mortal feet. Walls cracked and boulders tumbled from the crags, reminding every realm how lightly it rests upon the slumbering stone.`,
+    };
+  }
+
+  if (lower.includes('alien') || lower.includes('mothership')) {
+    return {
+      title: pick(['Visitors Beyond the Stars', 'Silver Shadows Overhead', 'The Sky-Armada'], seed),
+      body: `${when}, strange silver vessels drifted out of the high dark, casting cold blue beams across bewildered towns. Neither priest nor scholar had a name for the star-born host that descended upon the fields.`,
+    };
+  }
+
+  if (lower.includes('black hole')) {
+    return {
+      title: pick(['The Hungry Dark', 'The Eye of the Abyss', 'Where Light Bent'], seed),
+      body: `${when}, a ring of violet fire opened around a sphere of utter night, drawing stone, dust, and starlight alike toward its silent center before vanishing in a shuddering burst of force.`,
+    };
+  }
+
+  if (lower.includes('skeleton portal')) {
+    return {
+      title: pick(['The Violet Gate', 'March of the Unburied', 'Rift of Bone'], seed),
+      body: `${when}, a rent of violet light tore open above the grass, and hollow warriors of bone stepped forth into the sun. Bells sounded the alarm across the hills as blades were drawn against the ancient dead.`,
+    };
+  }
+
+  if (lower.includes('dark ooze')) {
+    return {
+      title: pick(['The Creeping Shadow', 'Tide of Pitch', 'What Crawled From the Mire'], seed),
+      body: `${when}, a glistening blackness welled up across the soil, swallowing flower and furrow beneath a cold hush. Pale wisps rose where the mire lingered, flickering like drowned lanterns in the dusk.`,
+    };
+  }
+
+  if (lower.includes('golden age')) {
+    return {
+      title: pick(['The Golden Season', 'When Granaries Overflowed', 'Sunlit Prosperity'], seed),
+      body: `${when}, a rare and radiant grace settled over town and harbor alike. Forges rang with cheerful song, granaries swelled to the rafters, and the realms grew strong beneath an unclouded sky.`,
+    };
+  }
+
+  if (lower.includes('divine insight') || lower.includes('eureka')) {
+    return {
+      title: pick(['The Spark of Wisdom', 'A Sudden Clarity', 'Light Upon the Scroll'], seed),
+      body: `${when}, inspiration fell like morning dew upon thinkers and craftsmen across the land. Secrets that had eluded generations yielded at once, and workshops hummed with newfound mastery.`,
+    };
+  }
+
+  if (lower.includes('divine blessing') || lower.includes('aurora')) {
+    return {
+      title: pick(['The Unseen Grace', 'Light Through the Cloud', 'A Quiet Miracle'], seed),
+      body: `${when}, warm radiance drifted down from the heavens, mending weary limbs and coaxing fresh green shoots from scarred earth. Elders bowed their heads in the fields, knowing the sky was neither empty nor asleep.`,
+    };
+  }
+
+  if (lower.includes('monsoon') || lower.includes('rain')) {
+    return {
+      title: pick(['Mercy of the Clouds', 'The Silver Downpour', 'When the Fires Slept'], seed),
+      body: `${when}, heavy silver clouds gathered and loosed a generous rain upon parched hills and smoldering timber. Smoke yielded to the scent of wet moss as streams ran bright once more.`,
+    };
+  }
+
+  if (lower.includes('peace treaty')) {
+    return {
+      title: pick(['Salt and Bread', 'Swords Laid Down', 'The Long Truce'], seed),
+      body: `${when}, weary hands met across the council table and sealed a lasting peace. Gates stood unbarred at twilight, and smithies turned from spearheads back to hinges, bells, and plows.`,
+    };
+  }
+
+  if (lower.includes('rage cast') || lower.includes('bloodlust')) {
+    return {
+      title: pick(['The Crimson Fever', 'Fury in the Blood', 'Drums of Wrath'], seed),
+      body: `${when}, a fierce scarlet wind swept through the ranks, setting eyes aflame with reckless valor. Even the wounded rose with a roar, charging into the fray as though iron itself could not stay them.`,
+    };
+  }
+
+  if (lower.includes('curse weakened')) {
+    return {
+      title: pick(['The Heavy Hex', 'Shadow on the Threshold', 'Bane of the Weakened'], seed),
+      body: `${when}, a violet gloom settled upon roof and shield, sapping strength from arm and stone alike. Folk spoke in hushed voices behind shuttered windows until the bleak omen lifted.`,
+    };
+  }
+
+  if (lower.includes('plague')) {
+    return {
+      title: pick(['The Bitter Mist', 'Fever on the Wind', 'The Pale Season'], seed),
+      body: `${when}, a sour mist drifted low through orchard and lane, spoiling the grain and laying strong folk low. Herbs burned in every doorway while healers kept vigil through the long nights.`,
+    };
+  }
+
+  // --- General mythic fallback by category (always stripped of <> and raw stats) ---
+  const fact = poeticizeChronicleFact(clean);
+
   switch (category) {
-    case 'titan': {
-      const titles = ['The Walking Sun', 'Iron Descended', 'Where Thunder Walked', 'The Brass Colossus'];
-      const closings = [
-        'Where its shadow passed, rivers steamed and men forgot the cadence of their own prayers.',
-        'Long after the glare faded from the clouds, the ridge still hummed like a struck bell.',
-        'The earth kept the print of its stride long after the smoke drifted out beyond the shoals.',
-      ];
-      return {
-        title: pick(titles, seed),
-        body: `${when}, the firmament split beneath a weight no mountain could endure, for ${fact}. ${pick(closings, seed + 2)}`,
-      };
-    }
-    case 'zombie': {
-      const titles = ['The Green Vessel', 'What Rose From the Glass', 'The Pale Hunger', 'Blight of the Living'];
-      const closings = [
-        'By dusk, neither beast nor mortal remembered the warmth of a hearth, and the soil beneath the shards grew black.',
-        'Watchfires burned red upon the hills through the night, yet the shambling silhouettes did not turn from the flame.',
-        'From hollow throats came no war-cry, only the slow dragging of feet across the ruined grass.',
-      ];
-      return {
-        title: pick(titles, seed),
-        body: `${when}, a sickly star fell from the heavens and ${fact}. ${pick(closings, seed + 2)}`,
-      };
-    }
     case 'wonder': {
       const titles = ['Stone Against Time', 'The High Work', 'A Crown of Marble', 'Handiwork of Mortals'];
       const closings = [

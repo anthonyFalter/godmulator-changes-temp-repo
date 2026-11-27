@@ -117,5 +117,11 @@ test('Lore Book replaces generic "My World", omits seed from title page, and poe
   assert.ok(zombieEntry);
   assert.ok(!zombieEntry.body.includes('times recorded'), 'Coalescing should use poetic prose, not raw counts');
   assert.ok(!zombieEntry.body.includes('mutating 4 creatures'), 'Raw mechanical game text should be poeticized');
+
+  addChronicle(sim, '<Aldric> has been crowned monarch of <Sunspire>!', 'divine');
+  const crownEntry = sim.loreBook!.entries[sim.loreBook!.entries.length - 1];
+  assert.ok(crownEntry.body.includes('Aldric') && crownEntry.body.includes('Sunspire'));
+  assert.ok(!crownEntry.body.includes('<') && !crownEntry.body.includes('>'), 'Entity names must never include <>');
+  assert.ok(!crownEntry.title.includes('<') && !crownEntry.title.includes('>'));
   assert.ok(pages.length >= 3);
 });
