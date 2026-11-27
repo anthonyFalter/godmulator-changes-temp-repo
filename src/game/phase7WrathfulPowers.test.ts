@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  castGodPower,
   createInitialSimulationState,
   executeGodPowerImpact,
   getTile,
@@ -355,4 +356,46 @@ test('Phase 7 [H4, H8, M9]: volcano_eruption underwater damages buildings & Wond
   executeGodPowerImpact(state, 'volcano_eruption', 12, 12);
   const caldera = getTile(state, 12, 12)!;
   assert.equal(caldera.onFireTimer, 0, 'land volcano_eruption must not ignite tiles when wildfireSpread is false');
+});
+
+test('Zombie Virus drops flask with deferred impact, corrupts small patch of land, and mutates races, animals, and mythic animals into zombies', () => {
+  const state = makeFlatState('ZOMBIE-VIRUS', 48);
+  const raceUnit = spawnUnit(state, 'villager', 24, 24, true).unit!;
+  const animalUnit = spawnUnit(state, 'wolf', 25, 24, true).unit!;
+  const mythicUnit = spawnUnit(state, 'dragon', 23, 25, true).unit!;
+  const shieldedUnit = spawnUnit(state, 'warrior', 24, 25, true).unit!;
+  shieldedUnit.statusEffects.shielded = 20;
+  const farUnit = spawnUnit(state, 'deer', 38, 38, true).unit!;
+
+  // 1. Cast with deferImpact: true (sky-drop flask in flight)
+  state.pendingVfx = [];
+  const castRes = castGodPower(state, 'zombie_virus', 24, 24, { deferImpact: true });
+  assert.equal(castRes.ok, true);
+  assert.ok(
+    state.pendingVfx.some((v) => v.type === 'zombie_virus' && v.deferImpact),
+    'zombie_virus cast must emit deferred zombie_virus VFX for falling flask',
+  );
+  assert.notEqual(raceUnit.isZombie, true, 'Units should not mutate before flask lands');
+  assert.equal(getTile(state, 24, 24)!.terrain, 'grass', 'Land should not corrupt before flask lands');
+
+  // 2. Flask lands -> executeGodPowerImpact
+  executeGodPowerImpact(state, 'zombie_virus', 24, 24);
+
+  assert.equal(getTile(state, 24, 24)!.terrain, 'blighted_mire', 'Center tile must corrupt to blighted_mire');
+  assert.ok(getTile(state, 24, 24)!.cursedTimer >= 28, 'Corrupted center tile must be cursed');
+  assert.equal(getTile(state, 38, 38)!.terrain, 'grass', 'Far tiles must remain uncorrupted');
+
+  for (const [u, label] of [
+    [raceUnit, 'race (villager)'],
+    [animalUnit, 'animal (wolf)'],
+    [mythicUnit, 'mythic animal (dragon)'],
+  ] as const) {
+    assert.equal(u.isZombie, true, `${label} caught in Zombie Virus must mutate into a zombie`);
+    assert.equal(u.faction, 'hostile', `${label} zombie must turn hostile`);
+    assert.ok(u.name.startsWith('Zombie '), `${label} zombie name must be prefixed with Zombie`);
+    assert.ok(u.traits?.includes('Zombie'), `${label} zombie must gain Zombie trait`);
+  }
+
+  assert.notEqual(shieldedUnit.isZombie, true, 'Shielded unit must resist Zombie Virus mutation');
+  assert.notEqual(farUnit.isZombie, true, 'Unit outside blast radius must not mutate');
 });

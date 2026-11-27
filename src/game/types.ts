@@ -388,6 +388,8 @@ export interface UnitEntity {
   dragTargetAltitude?: number;
   lastAttackerId?: string;
   underAttackTimer?: number;
+  /** Mutated into an undead zombie by Zombie Virus (preserves original animal/mythic/race form) */
+  isZombie?: boolean;
   weaponCooldown?: number;
   isRebel?: boolean;
   battlewillActive?: number;
@@ -431,6 +433,7 @@ export type GodPowerType =
   | 'start_war'
   | 'curse'
   | 'plague_miasma'
+  | 'zombie_virus'
   | 'lightning_smite'
   | 'tornado'
   | 'tsunami'

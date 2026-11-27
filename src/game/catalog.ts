@@ -1788,6 +1788,16 @@ export const GOD_POWERS: GodPowerDefinition[] = [
     color: '#80ed99',
   },
   {
+    type: 'zombie_virus',
+    name: 'Zombie Virus',
+    category: 'Wrathful',
+    summary: 'Drops a bio-flask that corrupts land and mutates creatures into zombies',
+    faithCost: 30,
+    radius: 4.5,
+    keyHint: '',
+    color: '#84cc16',
+  },
+  {
     type: 'locust_swarm',
     name: 'Locust Swarm',
     category: 'Wrathful',

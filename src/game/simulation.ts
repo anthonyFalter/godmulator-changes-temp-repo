@@ -7271,6 +7271,60 @@ export function executeGodPowerImpact(
       break;
     }
 
+    case 'zombie_virus': {
+      isHeavy = true;
+      const corruptR = Math.max(2.6, r * 0.72);
+      const corruptRSq = corruptR * corruptR;
+      const wg = state.worldGrid as WorldGridBuffers | undefined;
+      forEachTileInBounds(state, targetX - corruptR, targetX + corruptR, targetZ - corruptR, targetZ + corruptR, (t) => {
+        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
+        if (dSq > corruptRSq) return;
+        if (t.height === 0) {
+          if (dSq <= corruptRSq * 0.65 && !t.isBridge && t.terrain !== 'stone_road') {
+            t.waterKind = 'poison';
+            specialLiquidPossibleByState.set(state, true);
+            if (wg) syncTileToWorldGrid(wg, t);
+          }
+          return;
+        }
+        if (
+          !t.buildingId &&
+          t.terrain !== 'stone_road' &&
+          t.terrain !== 'rail_track' &&
+          t.terrain !== 'runway'
+        ) {
+          t.terrain = 'blighted_mire';
+          t.cursedTimer = Math.max(t.cursedTimer, 28);
+          t.farmSettlementId = undefined;
+          t.farmPlotKind = undefined;
+          t.cropType = undefined;
+          t.cropStage = undefined;
+          t.cropGrowth = undefined;
+          t.burntTree = undefined;
+          t.burntTreeBiome = undefined;
+          if (t.resourceNode === 'berry_bush') {
+            t.resourceAmount = Math.floor(t.resourceAmount * 0.25);
+          }
+          if (wg) syncTileToWorldGrid(wg, t);
+        }
+      });
+      let mutatedCount = 0;
+      for (const u of state.units) {
+        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
+        if (dSq <= rSq && mutateUnitIntoZombie(state, u)) {
+          mutatedCount++;
+        }
+      }
+      addChronicle(
+        state,
+        mutatedCount > 0
+          ? `A Zombie Virus flask shattered, corrupting the land and mutating ${mutatedCount} creature${mutatedCount === 1 ? '' : 's'} into zombies!`
+          : 'A Zombie Virus flask shattered, corrupting the ground with necrotic blight!',
+        'warning',
+      );
+      break;
+    }
+
     case 'lightning_smite': {
       isHeavy = true;
       const isWaterStrike =
@@ -20256,6 +20310,54 @@ function stampWalkerFootprints(
   }
 }
 
+export function mutateUnitIntoZombie(state: SimulationState, u: UnitEntity): boolean {
+  if (
+    u.isZombie ||
+    u.state === 'ko' ||
+    u.statusEffects.shielded ||
+    u.role === 'skeleton' ||
+    u.role === 'alien_ufo' ||
+    u.role === 'alien_walker'
+  ) {
+    return false;
+  }
+  u.isZombie = true;
+  u.faction = 'hostile';
+  u.settlementId = undefined;
+  u.kingdomId = undefined;
+  u.isKing = false;
+  if (!u.name.startsWith('Zombie ')) {
+    u.name = `Zombie ${u.name}`;
+  }
+  if (!u.traits) u.traits = [];
+  if (!u.traits.includes('Zombie')) {
+    u.traits.push('Zombie');
+  }
+  u.maxHp = Math.max(u.maxHp, Math.round(u.maxHp * 1.25));
+  u.hp = u.maxHp;
+  if (!u.statBonuses) u.statBonuses = {};
+  u.statBonuses.attackDamage = (u.statBonuses.attackDamage ?? 0) + 6;
+  delete u.statusEffects.blessed;
+  delete u.statusEffects.frozen;
+  delete u.statusEffects.plagued;
+  u.state = 'idle';
+  u.targetEntityId = null;
+  if (state.pendingVfx.length < 64) {
+    const ut = getTile(state, Math.round(u.x), Math.round(u.z));
+    state.pendingVfx.push({
+      id: nextEntityId('vfx'),
+      type: 'hit_spark',
+      x: u.x,
+      y: (ut?.height ?? 1) * 0.45 + 0.6,
+      z: u.z,
+      radius: 1.4,
+      color: '#84cc16',
+      createdAt: Date.now(),
+    });
+  }
+  return true;
+}
+
 function stepHostileUnitAI(
   state: SimulationState,
   u: UnitEntity,
@@ -20307,10 +20409,11 @@ function stepHostileUnitAI(
   let nearestCiv: UnitEntity | null = null;
   let bestDistSq = Infinity;
   for (const other of state.units) {
-    if (
-      other.state !== 'ko' &&
-      (other.faction === 'civilization' || (other.id === u.lastAttackerId && (u.underAttackTimer ?? 0) > 0))
-    ) {
+    if (other.id === u.id || other.state === 'ko') continue;
+    const isValidTarget = u.isZombie
+      ? !other.isZombie
+      : other.faction === 'civilization' || (other.id === u.lastAttackerId && (u.underAttackTimer ?? 0) > 0);
+    if (isValidTarget) {
       const dSq = (other.x - u.x) ** 2 + (other.z - u.z) ** 2;
       if (dSq < bestDistSq) {
         bestDistSq = dSq;
@@ -20484,7 +20587,16 @@ function stepHostileUnitAI(
         if (hostileEff.vampiric && u.hp > 0) u.hp = Math.min(u.maxHp, u.hp + dealt * 0.2);
         if (hostileEff.venomous) nearestCiv.statusEffects.plagued = Math.max(nearestCiv.statusEffects.plagued ?? 0, 7);
         if (defEff.thorns && !u.statusEffects.shielded) u.hp -= Math.max(1, dealt * 0.25);
-        if (nearestCiv.hp <= 0) u.kills = (u.kills ?? 0) + 1;
+        if (
+          u.isZombie &&
+          !nearestCiv.isZombie &&
+          (nearestCiv.hp <= 0 || (nearestCiv.hp <= nearestCiv.maxHp * 0.35 && Math.random() < 0.32))
+        ) {
+          mutateUnitIntoZombie(state, nearestCiv);
+          u.kills = (u.kills ?? 0) + 1;
+        } else if (nearestCiv.hp <= 0) {
+          u.kills = (u.kills ?? 0) + 1;
+        }
       }
     }
   } else {

@@ -327,6 +327,30 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     PB_MATS,
   ),
 
+  // 16x16 Falling bio-flask with glowing zombie-green mutagen & skull-bubble vapor
+  zombie_virus: cluster16(
+    [
+      '.......w........',
+      '.....BbbB.......',
+      '......bkk.......',
+      '......SskM......',
+      '......Ss2M......',
+      '.....Ss22sM.....',
+      '....Ss2w22sM....',
+      '...Ss222222sM...',
+      '..Ss2w2k2k22sM..',
+      '..s222222222WM..',
+      '..s222k22k22WM..',
+      '..s1222kk22WWM..',
+      '...s122222WWM...',
+      '....s11111WM....',
+      '.....MMMMMM.....',
+      '................',
+    ],
+    MAT.toxic,
+    PB_MATS,
+  ),
+
   // 16x16 Dark iron stormcloud unleashing a bold jagged yellow lightning bolt
   lightning_smite: cluster16(
     [

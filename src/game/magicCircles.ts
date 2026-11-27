@@ -679,6 +679,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
       return 'wrath';
     case 'terraform_beam':
     case 'plague_miasma':
+    case 'zombie_virus':
     case 'blight_plague':
     case 'blighted_mire':
     case 'poison_river':

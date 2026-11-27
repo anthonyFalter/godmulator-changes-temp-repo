@@ -1609,6 +1609,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       mythicFxAccum: number;
       lastCarryType: string | null;
       lastStatusKey: number;
+      appliedZombieTint?: boolean;
       shadowCasters: THREE.Mesh[];
       lastUnitCastShadow: boolean;
       seenStamp: number;
@@ -3939,8 +3940,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'volcano_burst'
         | 'volcanic_lava_bomb'
         | 'void_goo_splash'
-        | 'sky_rain_shower';
+        | 'sky_rain_shower'
+        | 'zombie_flask';
       isMegaMeteor?: boolean;
+      flaskGroup?: THREE.Group;
       powerType: string;
       group: THREE.Group;
       materials: THREE.Material[];
@@ -5018,6 +5021,78 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           impactFired: false,
           ringMesh,
           motes,
+          particleEmitTimer: 0,
+          colorHex,
+        });
+        return;
+      }
+
+      // 10b. ZOMBIE VIRUS FLASK (zombie_virus): Falling glass bio-flask from the sky that shatters into necrotic green mutagen
+      if (type === 'zombie_virus') {
+        const ringMat = createMagicCircleMat('zombie_virus', 0.88, 61);
+        const glassMat = new THREE.MeshStandardMaterial({
+          color: 0xd9f99d,
+          emissive: 0x3f6212,
+          emissiveIntensity: 0.35,
+          transparent: true,
+          opacity: 0.62,
+          roughness: 0.15,
+          metalness: 0.1,
+        });
+        const liquidMat = new THREE.MeshBasicMaterial({
+          color: 0x84cc16,
+          transparent: true,
+          opacity: 0.96,
+        });
+        const corkMat = new THREE.MeshStandardMaterial({
+          color: 0x92400e,
+          roughness: 0.85,
+        });
+        materials.push(ringMat, glassMat, liquidMat, corkMat);
+
+        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, ringMat);
+        ringMesh.position.set(tx, ty + 0.14, tz);
+        ringMesh.scale.setScalar(radius * 0.45);
+        group.add(ringMesh);
+
+        // 3D pixelated/faceted bio-flask tumbling down from the sky
+        const flaskGroup = new THREE.Group();
+        const bulbMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.72, 0.95, 6), glassMat);
+        bulbMesh.position.y = 0;
+        flaskGroup.add(bulbMesh);
+        const liquidCore = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.6, 0.62, 6), liquidMat);
+        liquidCore.position.y = -0.1;
+        flaskGroup.add(liquidCore);
+        const neckMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.55, 6), glassMat);
+        neckMesh.position.y = 0.7;
+        flaskGroup.add(neckMesh);
+        const rimMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.12, 6), glassMat);
+        rimMesh.position.y = 0.98;
+        flaskGroup.add(rimMesh);
+        const corkMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.18, 0.28, 6), corkMat);
+        corkMesh.position.y = 1.12;
+        flaskGroup.add(corkMesh);
+        flaskGroup.scale.setScalar(1.15);
+        flaskGroup.position.set(tx + 4.5, ty + 26, tz - 4.5);
+        group.add(flaskGroup);
+
+        burstFxGroup.add(group);
+        activeBurstFx.push({
+          kind: 'zombie_flask',
+          powerType: type,
+          group,
+          materials,
+          age: 0,
+          duration: 2.6,
+          impactDelay: 0.72,
+          deferImpact,
+          tx,
+          ty,
+          tz,
+          radius,
+          impactFired: false,
+          ringMesh,
+          flaskGroup,
           particleEmitTimer: 0,
           colorHex,
         });
@@ -10957,6 +11032,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           (u.z - camTarget.z) * (u.z - camTarget.z);
         const canBatchUnit =
           !isCameraPinnedUnit &&
+          !u.isZombie &&
           u.role !== 'phoenix' &&
           (u.battlewillActive ?? 0) <= 0 &&
           !(u.role === 'leviathan' && (u.leviathanBeamTimer ?? 0) > 0) &&
@@ -12639,21 +12715,48 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
         }
 
+        if (u.isZombie && !uEntry.appliedZombieTint) {
+          uEntry.appliedZombieTint = true;
+          const zombieTone = new THREE.Color(0x65a30d);
+          const zombieEmissive = new THREE.Color(0x1a2e05);
+          uGroup.traverse((child) => {
+            if (child instanceof THREE.Mesh && child !== uEntry.statusRing && child.name !== 'contact_shadow') {
+              const applyMat = (m: THREE.Material): THREE.Material => {
+                const cloned = m.clone();
+                if ('color' in cloned && cloned.color instanceof THREE.Color) {
+                  cloned.color.lerp(zombieTone, 0.62);
+                }
+                if ('emissive' in cloned && cloned.emissive instanceof THREE.Color) {
+                  cloned.emissive.lerp(zombieEmissive, 0.55);
+                }
+                return cloned;
+              };
+              if (Array.isArray(child.material)) {
+                child.material = child.material.map(applyMat);
+              } else if (child.material) {
+                child.material = applyMat(child.material);
+              }
+            }
+          });
+        }
+
         const statusRing = uEntry.statusRing;
         if (statusRing) {
           const statusKey = u.statusEffects.frozen
             ? 6
-            : u.statusEffects.blessed
-              ? 1
-              : u.statusEffects.shielded
-                ? 2
-                : u.statusEffects.frenzied
-                  ? 3
-                  : u.statusEffects.plagued
-                    ? 4
-                    : u.statusEffects.cursed
-                      ? 5
-                      : 0;
+            : u.isZombie
+              ? 4
+              : u.statusEffects.blessed
+                ? 1
+                : u.statusEffects.shielded
+                  ? 2
+                  : u.statusEffects.frenzied
+                    ? 3
+                    : u.statusEffects.plagued
+                      ? 4
+                      : u.statusEffects.cursed
+                        ? 5
+                        : 0;
           if (statusKey !== uEntry.lastStatusKey) {
             uEntry.lastStatusKey = statusKey;
             const sharedStatusMat = getSharedStatusRingMaterial(statusKey);
@@ -15551,6 +15654,52 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
           for (const mat of fx.materials) {
             (mat as THREE.MeshBasicMaterial).opacity = 0.84 * envelope;
+          }
+        } else if (fx.kind === 'zombie_flask' && fx.ringMesh) {
+          const dropPhase = Math.min(1, fx.age / Math.max(0.01, fx.impactDelay));
+          if (dropPhase < 1 && fx.flaskGroup) {
+            const easeIn = Math.pow(dropPhase, 1.75);
+            const fxX = fx.tx + 4.5 * (1 - easeIn);
+            const fxY = fx.ty + 0.55 + 26.0 * (1 - easeIn);
+            const fxZ = fx.tz - 4.5 * (1 - easeIn);
+            fx.flaskGroup.position.set(fxX, fxY, fxZ);
+            fx.flaskGroup.rotation.set(fx.age * 7.5, fx.age * 5.2, fx.age * 6.4);
+            fx.ringMesh.scale.setScalar(fx.radius * (0.35 + dropPhase * 0.65));
+            fx.ringMesh.rotation.set(0, fx.age * 2.8, 0);
+            fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
+            if (fx.particleEmitTimer >= 0.04) {
+              fx.particleEmitTimer = 0;
+              spawnParticleBurst(fxX, fxY, fxZ, 3, '#84cc16', 0.45, 1.5, 0.9);
+            }
+          } else {
+            if (!fx.impactFired) {
+              fx.impactFired = true;
+              if (fx.flaskGroup) fx.flaskGroup.visible = false;
+              if (fx.deferImpact) {
+                executeGodPowerImpact(simRef.current, 'zombie_virus', fx.tx, fx.tz, {
+                  radiusOverride: fx.radius,
+                });
+              }
+              soundEngine.playHeavyImpact();
+              trauma = Math.min(0.85, trauma + 0.48);
+              triggerLightFlash(fx.tx, fx.ty + 1.5, fx.tz, '#84cc16', 32);
+              // Shattering glass shards + toxic zombie-green mutagen splash + blight mist
+              spawnParticleBurst(fx.tx, fx.ty + 0.5, fx.tz, 26, '#e0fbfc', fx.radius * 0.85, 7.2, 1.0);
+              spawnParticleBurst(fx.tx, fx.ty + 0.4, fx.tz, 48, '#84cc16', fx.radius * 1.05, 6.4, 1.45);
+              spawnParticleBurst(fx.tx, fx.ty + 0.35, fx.tz, 28, '#9333ea', fx.radius * 0.9, 4.2, 1.6);
+            }
+            const postAge = fx.age - fx.impactDelay;
+            const postDur = Math.max(0.1, fx.duration - fx.impactDelay);
+            const postProg = Math.min(1, postAge / postDur);
+            fx.ringMesh.scale.setScalar(fx.radius * (1.0 + postProg * 0.28));
+            fx.ringMesh.rotation.set(0, fx.age * 1.4, 0);
+            const ringMat = fx.materials[0] as THREE.MeshBasicMaterial | undefined;
+            if (ringMat) ringMat.opacity = 0.88 * Math.max(0, 1 - postProg);
+            fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
+            if (fx.particleEmitTimer >= 0.12 && postProg < 0.78) {
+              fx.particleEmitTimer = 0;
+              spawnRisingParticles(fx.tx, fx.ty, fx.tz, 4, '#84cc16', fx.radius * 0.78, 2.2, 0.9, 1.35);
+            }
           }
         } else if (fx.kind === 'terraform_strata' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
