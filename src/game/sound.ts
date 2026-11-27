@@ -41,6 +41,7 @@ class SoundEngine {
   public playPeaceAccord(): void {}
   public playGravityFlux(): void {}
   public playSkyRain(_kind?: string): void {}
+  public playPageFlip(): void {}
 }
 
 export const soundEngine = new SoundEngine();

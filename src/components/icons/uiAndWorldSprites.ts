@@ -1435,6 +1435,7 @@ export const HUD_SPRITES: Record<
   | 'zoomOut'
   | 'pan'
   | 'log'
+  | 'loreBook'
   | 'audioOn'
   | 'audioOff'
   | 'pause'
@@ -1599,6 +1600,33 @@ export const HUD_SPRITES: Record<
   ),
 
   log: TAB_SPRITES.rules,
+  loreBook: icon16((c) => {
+    // 16x16 Pixel-art leather-bound Lore Tome with brass clasp, parchment pages, and crimson ribbon
+    c.stamp(
+      0,
+      0,
+      [
+        '................',
+        '...kBBBBBBBBk...',
+        '..kBbbbbbbbbBk..',
+        '..kBbYYYYYYbBk..',
+        '..kBbbYbbYbbBk..',
+        '..kBbbYYYYbbBk..',
+        '..kBbbbbbbbbBk..',
+        '..kBbbYYYYbbBk..',
+        '..kBbbbbbbbbBk..',
+        '..kBBBBBBBBBBk..',
+        '..kWWWWWWWWWWk..',
+        '..kWwwwwwwwwWk..',
+        '..kBBBBBBBBBBk..',
+        '...kk..RR..kk...',
+        '.......Rr.......',
+        '................',
+      ],
+      MAT.wood,
+      MATS,
+    );
+  }),
 
   audioOn: cluster16(
     [

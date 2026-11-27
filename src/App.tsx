@@ -110,6 +110,8 @@ import {
   StructureInspectorCard,
 } from './components/StructureInspectorCard';
 import { GraphicsSettingsPanel } from './components/GraphicsSettingsPanel';
+import { LoreBookModal } from './components/LoreBookModal';
+import { ensureLoreBook, markLoreBookRead } from './game/loreBook';
 import { AgeProgressBanner, AgeProgressEvent } from './components/AgeProgressBanner';
 import {
   HudPixelIcon,
@@ -471,6 +473,7 @@ export default function App() {
   const ageShakeTimerRef = useRef<number | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(false);
   const [chronicleOpen, setChronicleOpen] = useState<boolean>(false);
+  const [loreBookOpen, setLoreBookOpen] = useState<boolean>(false);
   const [chronicleFilter, setChronicleFilter] = useState<'major' | 'all'>('major');
   const [muted, setMuted] = useState<boolean>(false);
   const [hoverTile, setHoverTile] = useState<{ x: number; z: number } | null>(null);
@@ -1845,7 +1848,7 @@ export default function App() {
   const hasInGameOverlayModal =
     gameState === 'paused' ||
     gameState === 'gameover' ||
-    (gameState === 'playing' && (showWorldInfoModal || showGodRulesModal)) ||
+    (gameState === 'playing' && (showWorldInfoModal || showGodRulesModal || loreBookOpen)) ||
     hasBlockingSaveOrQuitModal;
   const hasSavedWorldRulesModal =
     gameState === 'title' && Boolean(editingRulesWorldId && editingRulesDraft);
@@ -3677,6 +3680,34 @@ export default function App() {
                   title="World Log"
                 >
                   <HudPixelIcon kind="log" className="w-4 h-4 pixelated-canvas" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="hud-lore-book-btn"
+                  onClick={() => {
+                    setSpeedMenuOpen(false);
+                    setCameraMenuOpen(false);
+                    setChronicleOpen(false);
+                    ensureLoreBook(simRef.current);
+                    markLoreBookRead(simRef.current);
+                    setLoreBookOpen(true);
+                    soundEngine.playPageFlip();
+                    soundEngine.playClick();
+                    setHudTick((t) => t + 1);
+                  }}
+                  className={`relative w-6 h-6 sm:w-8 sm:h-8 flex items-center justify-center cursor-pointer shrink-0 ${
+                    loreBookOpen ? 'px-btn-active' : 'px-btn'
+                  }`}
+                  aria-label="World Lore Book"
+                  title="World Lore Book"
+                >
+                  <HudPixelIcon kind="loreBook" className="w-4 h-4 pixelated-canvas" />
+                  {(sim.loreBook?.unreadCount ?? 0) > 0 && !loreBookOpen && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-[#facc15] border border-[#2b1408]"
+                    />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -5807,6 +5838,17 @@ export default function App() {
           </div>
         );
       })()}
+
+      {gameState === 'playing' && loreBookOpen && (
+        <LoreBookModal
+          sim={sim}
+          worldName={sim.worldName?.trim() || worldConfig.worldName.trim() || 'Untitled Realm'}
+          onClose={() => setLoreBookOpen(false)}
+          onJumpToLocation={(x, z) => {
+            cameraActionRef.current.focusTarget = { x, z, zoom: 16 };
+          }}
+        />
+      )}
     </main>
   );
 }

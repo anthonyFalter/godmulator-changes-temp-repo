@@ -80,6 +80,7 @@ import {
   FlowFieldManager,
   TimeSlicedPathBudget,
 } from './pathfinding';
+import { syncLoreBookFromChronicle } from './loreBook';
 import { computeSeasonState } from './worldSeasons';
 import { summonDivineTitan } from './divineTitan';
 
@@ -2163,6 +2164,7 @@ export function addChronicle(
     },
     ...state.chronicle.slice(0, 119),
   ];
+  syncLoreBookFromChronicle(state, true);
 }
 
 export function placeBuilding(

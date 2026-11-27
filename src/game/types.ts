@@ -615,6 +615,43 @@ export interface ChronicleEvent {
   z?: number;
 }
 
+export type LoreEntryCategory =
+  | 'creation'
+  | 'epoch'
+  | 'kingdom'
+  | 'war'
+  | 'peace'
+  | 'wonder'
+  | 'disaster'
+  | 'divine'
+  | 'zombie'
+  | 'titan'
+  | 'legend';
+
+export interface LoreEntry {
+  id: string;
+  year: number;
+  yearLabel: string;
+  epochIndex: number;
+  epochName: string;
+  category: LoreEntryCategory;
+  title: string;
+  body: string;
+  emblem: string;
+  x?: number;
+  z?: number;
+  timestamp: number;
+  sourceChronicleId?: string;
+  count?: number;
+}
+
+export interface LoreBookState {
+  entries: LoreEntry[];
+  processedChronicleIds: string[];
+  unreadCount: number;
+  seededRetroactive?: boolean;
+}
+
 export interface WorldWonder {
   id: string;
   kingdomId: string;
@@ -1040,6 +1077,7 @@ export interface SimulationState {
   autoBuildEnabled: boolean;
   sandboxFreeMode: boolean;
   chronicle: ChronicleEvent[];
+  loreBook?: LoreBookState;
   worldWonders?: WorldWonder[];
   battleMemorials?: BattleMemorial[];
   pendingVfx: VisualEffectEvent[];
