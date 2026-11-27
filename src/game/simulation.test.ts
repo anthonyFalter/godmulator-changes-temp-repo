@@ -6792,9 +6792,9 @@ test('Land Powers Expansion: 13 new creative land powers, sky_rain_drop VFX targ
   obsSeaTile.terrain = 'shallow_water';
   obsSeaTile.height = 0;
   obsSeaTile.resourceNode = 'none';
-  assert.equal(applyTerrainTool(state, 'volcanic_obsidian', 25, 32, 0).ok, true);
-  assert.equal(obsSeaTile.height, 1, 'volcanic_obsidian can still raise volcanic islands out of water');
-  assert.equal(obsSeaTile.terrain, 'scorched');
+  assert.equal(applyTerrainTool(state, 'volcanic_obsidian', 25, 32, 0).ok, false);
+  assert.equal(obsSeaTile.height, 0, 'volcanic_obsidian biome paint must not generate land from water');
+  assert.equal(obsSeaTile.terrain, 'shallow_water');
 
   // Coral Reef -> requires water, seeds coral_reef immediately
   const coralLandFail = applyTerrainTool(state, 'coral_reef_rain', 21, 12, 0);

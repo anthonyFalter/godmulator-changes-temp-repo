@@ -690,14 +690,26 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'soil_enrich':
     case 'acid_rain':
     case 'swamp_mire':
+    case 'savanna_biome':
+    case 'forest_biome':
+    case 'taiga_biome':
+    case 'highland_biome':
       return 'nature';
+    case 'tundra_biome':
+    case 'snow_biome':
+      return 'frost';
+    case 'badlands_biome':
+    case 'scorched_biome':
+      return 'wrath';
     case 'curse':
     case 'wormhole_ascension':
     case 'void_goo':
     case 'gravity_flip':
     case 'undead_portal':
     case 'crystal_shower':
+    case 'crystal_biome':
     case 'blossom_rain':
+    case 'blossom_biome':
     case 'sinkhole':
     default:
       return 'arcane';

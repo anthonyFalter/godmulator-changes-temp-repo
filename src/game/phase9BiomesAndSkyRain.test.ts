@@ -233,3 +233,44 @@ test('Organic biomes (grass, jungle, etc.) naturally spread onto cooled burnt (s
   assert.equal(rockCenter.terrain, 'scorched', 'Non-organic rock must not spread onto scorched land');
   assert.equal(devastatedCenter.terrain, 'scorched', 'Devastated scorched land must wait until devastation clears');
 });
+
+test('All Biome land powers paint existing land without changing height or generating land from water', () => {
+  const state = makeFlatState('BIOME-PAINT', 48);
+  const waterTile = getTile(state, 5, 5)!;
+  waterTile.height = 0;
+  waterTile.terrain = 'shallow_water';
+
+  const cases = [
+    ['savanna_biome', 'savanna'],
+    ['forest_biome', 'forest'],
+    ['taiga_biome', 'taiga'],
+    ['tundra_biome', 'tundra'],
+    ['snow_biome', 'snow'],
+    ['badlands_biome', 'badlands'],
+    ['blossom_biome', 'blossom'],
+    ['highland_biome', 'highland'],
+    ['crystal_biome', 'crystal_field'],
+    ['scorched_biome', 'scorched'],
+    ['volcanic_wasteland', 'volcanic_wasteland'],
+    ['volcanic_obsidian', 'scorched'],
+  ] as const;
+
+  cases.forEach(([tool, expectedTerrain], idx) => {
+    // 1. Must NOT generate land on water
+    const waterRes = applyTerrainTool(state, tool, 5, 5, 0);
+    assert.equal(waterRes.ok, false, `${tool} must reject water tiles`);
+    assert.equal(waterTile.height, 0, `${tool} must not generate land on water`);
+    assert.equal(waterTile.terrain, 'shallow_water', `${tool} must leave water terrain intact`);
+
+    // 2. Must paint existing land cleanly while preserving height
+    const lx = 10 + idx * 2;
+    const lz = 20;
+    const landTile = getTile(state, lx, lz)!;
+    landTile.height = 3;
+    landTile.terrain = 'grass';
+    const landRes = applyTerrainTool(state, tool, lx, lz, 0);
+    assert.equal(landRes.ok, true, `${tool} must paint existing land`);
+    assert.equal(landTile.terrain, expectedTerrain, `${tool} must set terrain to ${expectedTerrain}`);
+    assert.equal(landTile.height, 3, `${tool} must preserve existing land height`);
+  });
+});

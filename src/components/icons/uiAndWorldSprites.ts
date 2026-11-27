@@ -1051,6 +1051,162 @@ export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
     );
   }),
 
+  savanna_biome: icon16((c) => {
+    c.isoTile(MAT.gold, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..LLLLLL..',
+        '.LlLLLLlL.',
+        '....Bb....',
+        '....bB....',
+      ],
+      MAT.gold,
+      MATS,
+    );
+  }),
+
+  forest_biome: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..ll..ll..',
+        '.lLLllLLl.',
+        '..lLllLl..',
+        '...B..B...',
+      ],
+      MAT.leaf,
+      MATS,
+    );
+  }),
+
+  taiga_biome: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.stone, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '....w.....',
+        '...lLl....',
+        '..lLLLl...',
+        '.lLLLLLl..',
+        '....B.....',
+      ],
+      MAT.leaf,
+      MATS,
+    );
+  }),
+
+  tundra_biome: icon16((c) => {
+    c.isoTile(MAT.stone, MAT.darkWood, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      2,
+      [
+        '.ww...Ww..',
+        'wW..ss..w.',
+        '..ssWWss..',
+      ],
+      MAT.ice,
+      MATS,
+    );
+  }),
+
+  snow_biome: icon16((c) => {
+    c.isoTile(MAT.ice, MAT.stone, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..w...W...',
+        '.wWw.wWw..',
+        '..w...W...',
+      ],
+      MAT.ice,
+      MATS,
+    );
+  }),
+
+  badlands_biome: icon16((c) => {
+    c.isoTile(MAT.flame, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      2,
+      [
+        '..fffff...',
+        '.fFFFFff..',
+        'dDDDDDDdd.',
+      ],
+      MAT.flame,
+      MATS,
+    );
+  }),
+
+  blossom_biome: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '..pPPp....',
+        '.pPPwPp...',
+        '..pPPp.p..',
+        '....B.....',
+      ],
+      MAT.arcane,
+      MATS,
+    );
+  }),
+
+  highland_biome: icon16((c) => {
+    c.isoTile(MAT.stone, MAT.darkWood, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '...ss.....',
+        '..sSSs.s..',
+        '.sSDDssSs.',
+      ],
+      MAT.stone,
+      MATS,
+    );
+  }),
+
+  crystal_biome: icon16((c) => {
+    c.isoTile(MAT.ice, MAT.arcane, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      1,
+      [
+        '....w.....',
+        '...wCw.w..',
+        '..cCCcwCw.',
+        '..cCCccCc.',
+      ],
+      MAT.ice,
+      MATS,
+    );
+  }),
+
+  scorched_biome: icon16((c) => {
+    c.isoTile(MAT.darkIron, MAT.darkIron, MAT.darkIron, 14, 3);
+    c.stamp(
+      2,
+      2,
+      [
+        '.dD..f..D.',
+        'dDd.fFf.d.',
+        '..dd..dd..',
+      ],
+      MAT.flame,
+      MATS,
+    );
+  }),
+
   lava_river: icon16((c) => {
     c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 12, 4, (x, y) => {
       const band = Math.abs(x - 7.5 + (y - 6) * 1.4);

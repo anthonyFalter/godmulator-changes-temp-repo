@@ -512,7 +512,17 @@ export type TerrainToolType =
   | 'island_bridge'
   | 'water_drop'
   | 'lava_drop'
-  | 'poison_drop';
+  | 'poison_drop'
+  | 'savanna_biome'
+  | 'forest_biome'
+  | 'taiga_biome'
+  | 'tundra_biome'
+  | 'snow_biome'
+  | 'badlands_biome'
+  | 'blossom_biome'
+  | 'highland_biome'
+  | 'crystal_biome'
+  | 'scorched_biome';
 
 export interface TerrainToolDefinition {
   type: TerrainToolType;

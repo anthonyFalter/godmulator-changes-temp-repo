@@ -2697,12 +2697,22 @@ export function canApplyTerrainToolToTile(
     case 'smooth_terrain':
       return true;
     case 'alpine_glacier':
-    case 'volcanic_obsidian':
-    case 'volcanic_wasteland':
     case 'mesa_plateau':
     case 'volcanic_crater':
       return !t.buildingId;
+    case 'volcanic_obsidian':
+    case 'volcanic_wasteland':
     case 'canyon_carve':
+    case 'savanna_biome':
+    case 'forest_biome':
+    case 'taiga_biome':
+    case 'tundra_biome':
+    case 'snow_biome':
+    case 'badlands_biome':
+    case 'blossom_biome':
+    case 'highland_biome':
+    case 'crystal_biome':
+    case 'scorched_biome':
       return t.height > 0 && !t.buildingId;
     case 'island_bridge':
       return (
@@ -3163,23 +3173,19 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'volcanic_obsidian': {
-          if (t.buildingId) break;
+          if (t.height <= 0 || t.buildingId) break;
           if (
             state &&
             (state.worldWonders ?? []).some((w) => (w.hp ?? 1) > 0 && w.tileX === t.x && w.tileZ === t.z)
           ) {
             break;
           }
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'scorched', 1);
-          } else {
-            t.terrain = 'scorched';
-            delete t.liquidLevel;
-            delete t.liquidKind;
-            clearTileFarmState(t);
-            clearBurntTreeState(t);
-            delete t.treeBiomeOverride;
-          }
+          t.terrain = 'scorched';
+          delete t.liquidLevel;
+          delete t.liquidKind;
+          clearTileFarmState(t);
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
           t.tempOffset = Math.min(60, (t.tempOffset ?? 0) + 25);
           t.resourceNode = (t.x + t.z) % 2 === 0 ? 'ore_vein' : 'stone_outcrop';
           t.resourceAmount = 380;
@@ -3187,23 +3193,19 @@ function applyTerrainToolTileMutation(
           break;
         }
         case 'volcanic_wasteland': {
-          if (t.buildingId) break;
+          if (t.height <= 0 || t.buildingId) break;
           if (
             state &&
             (state.worldWonders ?? []).some((w) => (w.hp ?? 1) > 0 && w.tileX === t.x && w.tileZ === t.z)
           ) {
             break;
           }
-          if (t.height === 0) {
-            raiseWaterTileToLand(t, 'volcanic_wasteland', 1);
-          } else {
-            t.terrain = 'volcanic_wasteland';
-            delete t.liquidLevel;
-            delete t.liquidKind;
-            clearTileFarmState(t);
-            clearBurntTreeState(t);
-            delete t.treeBiomeOverride;
-          }
+          t.terrain = 'volcanic_wasteland';
+          delete t.liquidLevel;
+          delete t.liquidKind;
+          clearTileFarmState(t);
+          clearBurntTreeState(t);
+          delete t.treeBiomeOverride;
           t.tempOffset = Math.min(65, Math.max(t.tempOffset ?? 0, 26));
           const roll = (t.x * 13 + t.z * 17) % 7;
           if (roll <= 1) {
@@ -3274,6 +3276,97 @@ function applyTerrainToolTileMutation(
             } else {
               t.resourceNode = 'none';
               t.resourceAmount = 0;
+            }
+            tileModified = true;
+          }
+          break;
+        }
+        case 'savanna_biome':
+        case 'forest_biome':
+        case 'taiga_biome':
+        case 'tundra_biome':
+        case 'snow_biome':
+        case 'badlands_biome':
+        case 'blossom_biome':
+        case 'highland_biome':
+        case 'crystal_biome':
+        case 'scorched_biome': {
+          if (t.height > 0 && !t.buildingId) {
+            const biomeMap: Record<string, TerrainType> = {
+              savanna_biome: 'savanna',
+              forest_biome: 'forest',
+              taiga_biome: 'taiga',
+              tundra_biome: 'tundra',
+              snow_biome: 'snow',
+              badlands_biome: 'badlands',
+              blossom_biome: 'blossom',
+              highland_biome: 'highland',
+              crystal_biome: 'crystal_field',
+              scorched_biome: 'scorched',
+            };
+            t.terrain = biomeMap[toolType];
+            t.onFireTimer = 0;
+            if (toolType !== 'scorched_biome') {
+              t.cursedTimer = 0;
+            }
+            delete t.liquidLevel;
+            delete t.liquidKind;
+            clearTileFarmState(t);
+            clearBurntTreeState(t);
+            delete t.treeBiomeOverride;
+            const roll = (t.x * 11 + t.z * 17) % 8;
+            if (toolType === 'forest_biome' || toolType === 'taiga_biome' || toolType === 'blossom_biome') {
+              if (roll <= 3) {
+                t.resourceNode = 'timber_grove';
+                t.resourceAmount = 280;
+              } else if (roll === 4) {
+                t.resourceNode = 'berry_bush';
+                t.resourceAmount = 220;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (toolType === 'savanna_biome') {
+              if (roll <= 1) {
+                t.resourceNode = 'timber_grove';
+                t.resourceAmount = 220;
+              } else if (roll === 2) {
+                t.resourceNode = 'berry_bush';
+                t.resourceAmount = 190;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (toolType === 'badlands_biome' || toolType === 'highland_biome') {
+              if (roll <= 1) {
+                t.resourceNode = 'stone_outcrop';
+                t.resourceAmount = 280;
+              } else if (roll === 2) {
+                t.resourceNode = 'ore_vein';
+                t.resourceAmount = 260;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (toolType === 'crystal_biome') {
+              if (roll <= 2) {
+                t.resourceNode = 'crystal_monolith';
+                t.resourceAmount = 320;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
+            } else if (toolType === 'tundra_biome' || toolType === 'snow_biome' || toolType === 'scorched_biome') {
+              if (toolType === 'tundra_biome' || toolType === 'snow_biome') {
+                t.tempOffset = Math.min(t.tempOffset ?? 0, -14);
+              }
+              if (roll === 0 && toolType !== 'scorched_biome') {
+                t.resourceNode = 'stone_outcrop';
+                t.resourceAmount = 240;
+              } else {
+                t.resourceNode = 'none';
+                t.resourceAmount = 0;
+              }
             }
             tileModified = true;
           }
@@ -5628,7 +5721,19 @@ export function applyTerrainTool(
       toolType === 'desert_dunes' ||
       toolType === 'swamp_mire' ||
       toolType === 'blighted_mire' ||
-      toolType === 'floral_plains'
+      toolType === 'floral_plains' ||
+      toolType === 'volcanic_obsidian' ||
+      toolType === 'volcanic_wasteland' ||
+      toolType === 'savanna_biome' ||
+      toolType === 'forest_biome' ||
+      toolType === 'taiga_biome' ||
+      toolType === 'tundra_biome' ||
+      toolType === 'snow_biome' ||
+      toolType === 'badlands_biome' ||
+      toolType === 'blossom_biome' ||
+      toolType === 'highland_biome' ||
+      toolType === 'crystal_biome' ||
+      toolType === 'scorched_biome'
     ) {
       return {
         ok: false,
