@@ -8,7 +8,7 @@ import type {
   UnitRole,
   ZoneOverlayType,
 } from '../game/types';
-import { PixelArtSvg, refineSpriteTo32 } from './icons/pixelEngine';
+import { PixelArtSvg } from './icons/pixelEngine';
 import {
   HUD_SPRITES,
   RESOURCE_SPRITES,
@@ -47,43 +47,37 @@ export const TitleEmblemSvg: React.FC<{ centered?: boolean }> = React.memo(({ ce
 export const ResourceIconSvg: React.FC<{ resource: keyof Resources; className?: string }> = React.memo(({
   resource,
   className = 'w-4 h-4 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(RESOURCE_SPRITES[resource])} className={className} />);
+}) => <PixelArtSvg sprite={RESOURCE_SPRITES[resource]} className={className} />);
 
 export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string }> = React.memo(({
   category,
   className = 'w-4 h-4 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(TAB_SPRITES[category])} className={className} />);
+}) => <PixelArtSvg sprite={TAB_SPRITES[category]} className={className} />);
 
 export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string }> = React.memo(({
   zone,
   className = 'w-5 h-5 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(ZONE_SPRITES[zone])} className={className} />);
+}) => <PixelArtSvg sprite={ZONE_SPRITES[zone]} className={className} />);
 
 export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string }> = React.memo(({
   power,
   className = 'w-7 h-7 pixelated-canvas',
-}) =>
-  power === 'heat_wave' ? (
-    <FlameSpriteIcon className={className} label="Heat Wave Flame" />
-  ) : (
-    <PixelArtSvg sprite={refineSpriteTo32(POWER_SPRITES[power])} className={className} />
-  ),
-);
+}) => <PixelArtSvg sprite={POWER_SPRITES[power]} className={className} />);
 
 export const TerrainPixelIcon: React.FC<{ tool: TerrainToolType; className?: string }> = React.memo(({
   tool,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(TERRAIN_SPRITES[tool])} className={className} />);
+}) => <PixelArtSvg sprite={TERRAIN_SPRITES[tool]} className={className} />);
 
 export const BuildingPixelIcon: React.FC<{ building: BuildingType; className?: string }> = React.memo(({
   building,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(BUILDING_SPRITES[building])} className={className} />);
+}) => <PixelArtSvg sprite={BUILDING_SPRITES[building]} className={className} />);
 
 export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = React.memo(({
   role,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(UNIT_SPRITES[role] ?? UNIT_SPRITES.human, true)} className={className} />);
+}) => <PixelArtSvg sprite={UNIT_SPRITES[role] ?? UNIT_SPRITES.human} className={className} />);
 
 export type HudIconKind = keyof typeof HUD_SPRITES;
 

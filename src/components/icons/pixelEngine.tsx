@@ -567,175 +567,162 @@ export function cluster16(
   }, outline);
 }
 
-const refinedFullCache = new WeakMap<CompiledSprite, CompiledSprite>();
-const refinedHalfCache = new WeakMap<CompiledSprite, CompiledSprite>();
-
-function parseHexRgb(hex: string): [number, number, number] | null {
-  if (!hex.startsWith('#') || hex.length !== 7) return null;
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
-  return [r, g, b];
-}
-
-function rgbToHex(r: number, g: number, b: number): string {
-  const cr = Math.max(0, Math.min(255, Math.round(r)));
-  const cg = Math.max(0, Math.min(255, Math.round(g)));
-  const cb = Math.max(0, Math.min(255, Math.round(b)));
-  return `#${((1 << 24) | (cr << 16) | (cg << 8) | cb).toString(16).slice(1)}`;
-}
-
-function rgbLum(r: number, g: number, b: number): number {
-  return 0.299 * r + 0.587 * g + 0.114 * b;
-}
-
 /**
- * Refines a 16x16 pixel-art sprite into a crisp, chunky 24x24 (<=32x32) pixel-art icon:
- * - Preserves the exact original pixel-art designs and vibrant palette
- * - Nearest-pixel scales the interior cleanly onto a 24x24 grid (blocky, visibly pixelly, never blurry)
- * - Optionally crops units to their upper half-body (head + shoulders + chest, removing legs/boots)
- * - Adds crisp 1px top highlight bevel and 1px rich bottom shade
- * - Wraps the silhouette in a bold 1px dark pixel outline (#14101a)
+ * Native 24x24 Crisp Pixel-Art Canvas (<=32x32 max, zero mixels).
+ * Uses vibrant MAT ramps with crisp 1px dark outer outlines matching simple retro app/game icons.
  */
-export function refineSpriteTo32(sprite: CompiledSprite, halfBody = false): CompiledSprite {
-  if (sprite.size !== 16 || sprite.hasCurrentColor) return sprite;
-  const cache = halfBody ? refinedHalfCache : refinedFullCache;
-  const cached = cache.get(sprite);
-  if (cached) return cached;
+export class Icon24 {
+  readonly size = 24;
+  readonly color: (string | null)[];
+  readonly rampRef: (MatRamp | null)[];
 
-  const g: (string | null)[] = new Array(16 * 16).fill(null);
-  for (let i = 0; i < sprite.runs.length; i++) {
-    const run = sprite.runs[i];
-    const rowOff = run.y * 16;
-    for (let x = run.x; x < run.x + run.w; x++) {
-      g[rowOff + x] = run.fill;
-    }
+  constructor() {
+    const n = 24 * 24;
+    this.color = new Array(n).fill(null);
+    this.rampRef = new Array(n).fill(null);
   }
 
-  // Strip outer 1px dark outline so we redraw a crisp, uniform 1px outline at 24x24
-  const interior: (string | null)[] = new Array(16 * 16).fill(null);
-  let minX = 16;
-  let maxX = -1;
-  let minY = 16;
-  let maxY = -1;
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < 16; x++) {
-      const idx = y * 16 + x;
-      const c = g[idx];
-      if (!c) continue;
-      const rgb = parseHexRgb(c);
-      const touchesEmpty =
-        x === 0 ||
-        x === 15 ||
-        y === 0 ||
-        y === 15 ||
-        g[idx - 16] === null ||
-        g[idx + 16] === null ||
-        g[idx - 1] === null ||
-        g[idx + 1] === null;
-      if (rgb && rgbLum(rgb[0], rgb[1], rgb[2]) < 42 && touchesEmpty) {
-        continue;
-      }
-      interior[idx] = c;
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
-    }
+  inBounds(x: number, y: number): boolean {
+    return x >= 0 && y >= 0 && x < 24 && y < 24;
   }
 
-  if (maxX < minX || maxY < minY) return sprite;
-
-  if (halfBody) {
-    // Keep upper ~76% (head, shoulders, upper torso, tools/weapons) and remove legs/boots
-    const h = maxY - minY + 1;
-    if (h >= 8) {
-      maxY = minY + Math.max(6, Math.round(h * 0.76)) - 1;
-    }
+  set(x: number, y: number, ramp: MatRamp, tone: number): void {
+    const ix = Math.round(x);
+    const iy = Math.round(y);
+    if (!this.inBounds(ix, iy)) return;
+    const idx = iy * 24 + ix;
+    this.color[idx] = toneColor(ramp, tone);
+    this.rampRef[idx] = ramp;
   }
 
-  const bw = maxX - minX + 1;
-  const bh = maxY - minY + 1;
-  const target = 20;
-  const scale = Math.min(target / bw, target / bh);
-  const nw = Math.max(1, Math.round(bw * scale));
-  const nh = Math.max(1, Math.round(bh * scale));
-  const ox = Math.floor((24 - nw) / 2);
-  const oy = halfBody ? Math.max(2, 24 - 2 - nh) : Math.floor((24 - nh) / 2);
-
-  const out: (string | null)[] = new Array(24 * 24).fill(null);
-  for (let dy = 0; dy < nh; dy++) {
-    const sy = minY + Math.min(bh - 1, Math.floor(dy / scale));
-    const dstRow = (oy + dy) * 24;
-    const srcRow = sy * 16;
-    for (let dx = 0; dx < nw; dx++) {
-      const sx = minX + Math.min(bw - 1, Math.floor(dx / scale));
-      const c = interior[srcRow + sx];
-      if (c !== null) {
-        out[dstRow + ox + dx] = c;
-      }
-    }
+  setOut(x: number, y: number, ramp: MatRamp): void {
+    const ix = Math.round(x);
+    const iy = Math.round(y);
+    if (!this.inBounds(ix, iy)) return;
+    const idx = iy * 24 + ix;
+    this.color[idx] = ramp.out;
+    this.rampRef[idx] = ramp;
   }
 
-  // Crisp 1px top inner highlight & 1px bottom inner shade
-  const shaded = out.slice();
-  for (let y = 0; y < 24; y++) {
-    for (let x = 0; x < 24; x++) {
-      const idx = y * 24 + x;
-      const c = out[idx];
-      if (!c) continue;
-      const rgb = parseHexRgb(c);
-      if (!rgb) continue;
-      const up = y > 0 ? out[idx - 24] : null;
-      const dn = y < 23 ? out[idx + 24] : null;
-      const l = rgbLum(rgb[0], rgb[1], rgb[2]);
-      if (up === null && dn !== null && l < 235) {
-        shaded[idx] = rgbToHex(rgb[0] * 1.18 + 10, rgb[1] * 1.18 + 10, rgb[2] * 1.18 + 6);
-      } else if (dn === null && up !== null && l > 42) {
-        shaded[idx] = rgbToHex(rgb[0] * 0.74, rgb[1] * 0.72, rgb[2] * 0.78);
+  setRaw(x: number, y: number, hex: string, ramp: MatRamp = MAT.hud): void {
+    const ix = Math.round(x);
+    const iy = Math.round(y);
+    if (!this.inBounds(ix, iy)) return;
+    const idx = iy * 24 + ix;
+    this.color[idx] = hex;
+    this.rampRef[idx] = ramp;
+  }
+
+  has(x: number, y: number): boolean {
+    if (!this.inBounds(x, y)) return false;
+    return this.color[y * 24 + x] !== null;
+  }
+
+  stamp(
+    ox: number,
+    oy: number,
+    rows: readonly string[],
+    primary: MatRamp,
+    materials?: MatLegend,
+  ): void {
+    for (let ry = 0; ry < rows.length; ry++) {
+      const row = rows[ry];
+      for (let rx = 0; rx < row.length; rx++) {
+        const ch = row[rx];
+        if (ch === '.' || ch === ' ') continue;
+        const x = ox + rx;
+        const y = oy + ry;
+        if (!this.inBounds(x, y)) continue;
+        if (ch >= '1' && ch <= '4') {
+          this.set(x, y, primary, ch.charCodeAt(0) - 48);
+        } else if (ch === '0' || ch === 'o') {
+          this.set(x, y, primary, 0);
+        } else if (ch === 'O') {
+          this.setOut(x, y, primary);
+        } else if (materials && ch in materials) {
+          const m = materials[ch];
+          if (typeof m === 'string') {
+            this.setRaw(x, y, m, primary);
+          } else {
+            this.set(x, y, m.ramp, m.tone);
+          }
+        }
       }
     }
   }
 
-  // Bold 1px dark outer outline (#14101a)
-  const finalGrid = shaded.slice();
-  for (let y = 0; y < 24; y++) {
-    for (let x = 0; x < 24; x++) {
-      const idx = y * 24 + x;
-      if (shaded[idx] !== null) continue;
-      if (
-        (y > 0 && shaded[idx - 24] !== null) ||
-        (x > 0 && shaded[idx - 1] !== null) ||
-        (x < 23 && shaded[idx + 1] !== null) ||
-        (y < 23 && shaded[idx + 24] !== null)
-      ) {
-        finalGrid[idx] = '#14101a';
+  finalize(outline = true): CompiledSprite {
+    if (outline) {
+      const queue: Array<{ x: number; y: number; hex: string }> = [];
+      const dirs = [
+        [0, -1],
+        [-1, 0],
+        [1, 0],
+        [0, 1],
+      ] as const;
+
+      for (let y = 0; y < 24; y++) {
+        for (let x = 0; x < 24; x++) {
+          if (this.has(x, y)) continue;
+          let picked: MatRamp | null = null;
+          for (const [dx, dy] of dirs) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (!this.inBounds(nx, ny)) continue;
+            const idx = ny * 24 + nx;
+            if (this.color[idx] !== null) {
+              picked = this.rampRef[idx] ?? MAT.hud;
+              break;
+            }
+          }
+          if (picked) {
+            queue.push({ x, y, hex: '#14101a' });
+          }
+        }
+      }
+
+      for (const o of queue) {
+        this.color[o.y * 24 + o.x] = o.hex;
       }
     }
-  }
 
-  const runs: PixelRun[] = [];
-  for (let y = 0; y < 24; y++) {
-    let x = 0;
-    const rowOff = y * 24;
-    while (x < 24) {
-      const fill = finalGrid[rowOff + x];
-      if (!fill) {
-        x++;
-        continue;
+    const runs: PixelRun[] = [];
+    for (let y = 0; y < 24; y++) {
+      let x = 0;
+      const rowOff = y * 24;
+      while (x < 24) {
+        const fill = this.color[rowOff + x];
+        if (!fill) {
+          x++;
+          continue;
+        }
+        let w = 1;
+        while (x + w < 24 && this.color[rowOff + x + w] === fill) {
+          w++;
+        }
+        runs.push({ x, y, w, fill });
+        x += w;
       }
-      let w = 1;
-      while (x + w < 24 && finalGrid[rowOff + x + w] === fill) {
-        w++;
-      }
-      runs.push({ x, y, w, fill });
-      x += w;
     }
-  }
 
-  const { paths, hasCurrentColor } = buildPathsFromRuns(runs);
-  const compiled: CompiledSprite = { size: 24, runs, paths, hasCurrentColor };
-  cache.set(sprite, compiled);
-  return compiled;
+    const { paths, hasCurrentColor } = buildPathsFromRuns(runs);
+    return { size: 24, runs, paths, hasCurrentColor };
+  }
+}
+
+export function icon24(draw: (c: Icon24) => void, outline = true): CompiledSprite {
+  const c = new Icon24();
+  draw(c);
+  return c.finalize(outline);
+}
+
+export function cluster24(
+  rows: readonly string[],
+  primary: MatRamp,
+  materials?: MatLegend,
+  outline = true,
+): CompiledSprite {
+  return icon24((c) => {
+    c.stamp(0, 0, rows, primary, materials);
+  }, outline);
 }
