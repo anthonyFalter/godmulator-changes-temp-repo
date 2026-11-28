@@ -59,16 +59,44 @@ export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string
   className = 'w-5 h-5 pixelated-canvas',
 }) => <PixelArtSvg sprite={ZONE_SPRITES[zone]} className={className} />);
 
+const POWER_IMAGE_OVERRIDES: Partial<Record<GodPowerType, string>> = {
+  drag_entity: 'grab_power.png',
+  blessing: 'bless_power.png',
+  rain_of_plenty: 'rain_power.png',
+  cleanse_land: 'purify_power.png',
+  bountiful_harvest: 'bountiful_harvest_power.png',
+  divine_shield: 'divine_shield_power.png',
+  harmony_dove: 'harmony_dove_power.png',
+};
+
+function getPowerImageUrl(filename: string): string {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}assets/powers/${filename}`;
+}
+
 export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string }> = React.memo(({
   power,
   className = 'w-7 h-7 pixelated-canvas',
-}) =>
-  power === 'heat_wave' ? (
+}) => {
+  const imageOverride = POWER_IMAGE_OVERRIDES[power];
+  if (imageOverride) {
+    return (
+      <img
+        src={getPowerImageUrl(imageOverride)}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className={`${className} object-contain select-none pointer-events-none`}
+      />
+    );
+  }
+  return power === 'heat_wave' ? (
     <FlameSpriteIcon className={className} label="Heat Wave Flame" />
   ) : (
     <PixelArtSvg sprite={POWER_SPRITES[power]} className={className} />
-  ),
-);
+  );
+});
 
 export const TerrainPixelIcon: React.FC<{ tool: TerrainToolType; className?: string }> = React.memo(({
   tool,
