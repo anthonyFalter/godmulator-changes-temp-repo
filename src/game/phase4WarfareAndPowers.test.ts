@@ -171,33 +171,6 @@ test('Phase 4 [C8]: super_tornado random world event and direct castGodPower spa
   );
 });
 
-test('Phase 4 [H10]: golden_age power strictly costs God Energy and never creates infinite faith exploit', () => {
-  const sim = makeCleanLandSim(64, 'P4-H10-GOLD');
-  sim.sandboxFreeMode = false;
-  seedKingdom(sim, 'k_gold', 'human', 3, 30, 30, 3, 3);
-
-  const faithBefore = sim.resources.faith;
-  const res1 = castGodPower(sim, 'golden_age', 30, 30, { brushSize: 1 });
-  assert.equal(res1.ok, true);
-  assert.ok(
-    sim.resources.faith < faithBefore,
-    `golden_age (1x) must strictly consume faith (before=${faithBefore}, after=${sim.resources.faith})`,
-  );
-
-  // Even at brushSize 10, faith must never net-increase
-  const sim10 = makeCleanLandSim(64, 'P4-H10-GOLD-10');
-  sim10.sandboxFreeMode = false;
-  sim10.resources.faith = 600;
-  seedKingdom(sim10, 'k_gold10', 'human', 3, 30, 30, 3, 3);
-  const faithBefore10 = sim10.resources.faith;
-  const res10 = castGodPower(sim10, 'golden_age', 30, 30, { brushSize: 10 });
-  assert.equal(res10.ok, true);
-  assert.ok(
-    sim10.resources.faith < faithBefore10,
-    `golden_age (10x) must strictly consume faith with zero infinite-energy refund (before=${faithBefore10}, after=${sim10.resources.faith})`,
-  );
-});
-
 test('Phase 4 [H6]: start_war respects warsEnabled=false and single-nation start_war prefers neutral rivals over closer allies', () => {
   // Part 1: warsEnabled = false must NOT mutate diplomacy, break alliances/treaties, or increment warsStarted
   const simOff = makeCleanLandSim(64, 'P4-H6-OFF');

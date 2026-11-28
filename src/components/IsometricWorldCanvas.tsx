@@ -3917,9 +3917,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         | 'meteor'
         | 'lightning'
         | 'rain_summon'
-        | 'insight_circle'
         | 'blessing_bloom'
-        | 'golden_dawn'
         | 'shield_pulse'
         | 'fury_vortex'
         | 'curse_eclipse'
@@ -4586,76 +4584,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
         return;
       }
 
-      // 4. INSIGHT (eureka): 5-second lingering sacred geometry magic circle with continuous upward-floating wisdom motes & particles
-      if (type === 'eureka') {
-        const outerMat = createMagicCircleMat('eureka', 0.96, 11);
-        const runeMat = createMagicCircleMat('eureka', 0.88, 37);
-        const moteMat = new THREE.MeshBasicMaterial({
-          color: 0x90e0ef,
-          transparent: true,
-          opacity: 0.92,
-        });
-        materials.push(outerMat, runeMat, moteMat);
-
-        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, outerMat);
-        ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(radius * 1.05);
-        group.add(ringMesh);
-
-        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, runeMat);
-        outerRingMesh.position.set(tx, ty + 0.17, tz);
-        outerRingMesh.scale.setScalar(radius * 0.72);
-        group.add(outerRingMesh);
-
-        const thirdRingMesh = new THREE.Mesh(sharedMagicCircleGeo, outerMat);
-        thirdRingMesh.position.set(tx, ty + 0.19, tz);
-        thirdRingMesh.scale.setScalar(radius * 0.45);
-        group.add(thirdRingMesh);
-
-        const motes: PowerMote[] = [];
-        for (let i = 0; i < 28; i++) {
-          const angle = (i / 28) * Math.PI * 2 + (i % 3) * 0.4;
-          const dist = (0.14 + ((i * 37) % 85) / 100) * radius * 0.9;
-          const m = new THREE.Mesh(sharedOrbMoteGeo, moteMat);
-          const s = 0.65 + (i % 4) * 0.22;
-          m.scale.setScalar(s);
-          m.position.set(tx + Math.cos(angle) * dist, ty + 0.2, tz + Math.sin(angle) * dist);
-          group.add(m);
-          motes.push({
-            mesh: m,
-            angle,
-            dist,
-            speed: 1.6 + (i % 5) * 0.35,
-            phase: (i * 0.23) % 4.2,
-            height: 3.8 + (i % 3) * 0.65,
-          });
-        }
-
-        burstFxGroup.add(group);
-        activeBurstFx.push({
-          kind: 'insight_circle',
-          powerType: type,
-          group,
-          materials,
-          age: 0,
-          duration: 5.25,
-          impactDelay: 0.22,
-          deferImpact,
-          tx,
-          ty,
-          tz,
-          radius,
-          impactFired: false,
-          ringMesh,
-          outerRingMesh,
-          thirdRingMesh,
-          motes,
-          particleEmitTimer: 0,
-          colorHex,
-        });
-        return;
-      }
-
       // 5. BLESS & FLORAL PARADISE (blessing, floral_paradise): Blooming golden-emerald runic magic circle & ascending spiral life petals
       if (type === 'blessing' || type === 'floral_paradise') {
         const goldMat = createMagicCircleMat(type, 0.95, 19);
@@ -4712,85 +4640,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           impactFired: false,
           ringMesh,
           outerRingMesh,
-          motes,
-          particleEmitTimer: 0,
-          colorHex,
-        });
-        return;
-      }
-
-      // 6. GOLDEN AGE (golden_age): Top-facing solar runic crown + triple imperial ground seal + 5.5s golden stardust
-      if (type === 'golden_age') {
-        const sunMat = createMagicCircleMat('golden_age', 0.96, 23);
-        const crownMat = createMagicCircleMat('golden_age', 0.92, 67);
-        const moteMat = new THREE.MeshBasicMaterial({
-          color: 0xfff3b0,
-          transparent: true,
-          opacity: 0.95,
-        });
-        materials.push(sunMat, crownMat, moteMat);
-
-        const ringMesh = new THREE.Mesh(sharedMagicCircleGeo, sunMat);
-        ringMesh.position.set(tx, ty + 0.14, tz);
-        ringMesh.scale.setScalar(radius * 1.06);
-        group.add(ringMesh);
-
-        const outerRingMesh = new THREE.Mesh(sharedMagicCircleGeo, crownMat);
-        outerRingMesh.position.set(tx, ty + 0.17, tz);
-        outerRingMesh.scale.setScalar(radius * 0.76);
-        group.add(outerRingMesh);
-
-        const thirdRingMesh = new THREE.Mesh(sharedMagicCircleGeo, sunMat);
-        thirdRingMesh.position.set(tx, ty + 0.19, tz);
-        thirdRingMesh.scale.setScalar(radius * 0.48);
-        group.add(thirdRingMesh);
-
-        const floatingCrown = new THREE.Group();
-        floatingCrown.position.set(tx, ty + 3.4, tz);
-        const halo1 = new THREE.Mesh(sharedMagicCircleGeo, crownMat);
-        halo1.scale.setScalar(1.65);
-        const halo2 = new THREE.Mesh(sharedMagicCircleGeo, sunMat);
-        halo2.position.y = 0.12;
-        halo2.scale.setScalar(1.15);
-        floatingCrown.add(halo1, halo2);
-        group.add(floatingCrown);
-
-        const motes: PowerMote[] = [];
-        for (let i = 0; i < 26; i++) {
-          const angle = (i / 26) * Math.PI * 2;
-          const dist = (0.15 + ((i * 41) % 85) / 100) * radius * 0.92;
-          const m = new THREE.Mesh(sharedOrbMoteGeo, moteMat);
-          m.scale.setScalar(0.8 + (i % 3) * 0.25);
-          group.add(m);
-          motes.push({
-            mesh: m,
-            angle,
-            dist,
-            speed: 1.5 + (i % 4) * 0.35,
-            phase: (i * 0.25) % 4.0,
-            height: 4.2,
-          });
-        }
-
-        burstFxGroup.add(group);
-        activeBurstFx.push({
-          kind: 'golden_dawn',
-          powerType: type,
-          group,
-          materials,
-          age: 0,
-          duration: 5.5,
-          impactDelay: 0.25,
-          deferImpact,
-          tx,
-          ty,
-          tz,
-          radius,
-          impactFired: false,
-          ringMesh,
-          outerRingMesh,
-          thirdRingMesh,
-          floatingCrown,
           motes,
           particleEmitTimer: 0,
           colorHex,
@@ -15381,58 +15230,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
               (fx.materials[1] as THREE.MeshBasicMaterial).opacity = (1 - splashPhase) * 0.75;
             }
           }
-        } else if (fx.kind === 'insight_circle' && fx.ringMesh) {
-          // 5-second lingering Sacred Knowledge Circle with continuous upward particles
-          if (fx.age >= fx.impactDelay && !fx.impactFired) {
-            fx.impactFired = true;
-            if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
-              soundEngine.playBlessing();
-            }
-            triggerLightFlash(fx.tx, fx.ty, fx.tz, '#56cfe1', 15);
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 28, '#56cfe1', fx.radius * 0.92, 2.8, 1.05, 1.8);
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 16, '#e0fbfc', fx.radius * 0.75, 3.2, 0.9, 1.6);
-          }
-          const fadeIn = Math.min(1, fx.age / 0.3);
-          const fadeOut = Math.min(1, (fx.duration - fx.age) / 0.85);
-          const envelope = fadeIn * fadeOut;
-
-          fx.ringMesh.scale.setScalar(fx.radius * (0.98 + Math.sin(fx.age * 3.2) * 0.04));
-          fx.ringMesh.rotation.set(0, fx.age * 0.75, 0);
-          if (fx.outerRingMesh) {
-            fx.outerRingMesh.rotation.set(0, fx.age * 1.1, 0);
-            fx.outerRingMesh.scale.setScalar(fx.radius * (0.72 + Math.cos(fx.age * 2.8) * 0.04));
-          }
-          if (fx.thirdRingMesh) {
-            fx.thirdRingMesh.rotation.set(0, fx.age * 1.45, 0);
-            fx.thirdRingMesh.scale.setScalar(fx.radius * (0.46 + Math.sin(fx.age * 4.5) * 0.05));
-          }
-          if (fx.motes) {
-            for (const m of fx.motes) {
-              const cycle = ((fx.age * m.speed + m.phase) % m.height) / m.height; // 0 -> 1 upward
-              const yOff = cycle * m.height;
-              const swirl = m.angle + fx.age * 0.55;
-              m.mesh.position.set(
-                fx.tx + Math.cos(swirl) * m.dist,
-                fx.ty + 0.15 + yOff,
-                fx.tz + Math.sin(swirl) * m.dist,
-              );
-              m.mesh.rotation.y = fx.age * 2.4 + m.phase;
-              m.mesh.rotation.x = fx.age * 1.6;
-              const moteScale = Math.sin(cycle * Math.PI) * 1.15 * envelope;
-              m.mesh.scale.setScalar(Math.max(0.01, moteScale));
-            }
-          }
-          // Emit a steady upward stream of glowing cyan & white particles throughout the 5s duration
-          fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
-          if (fx.particleEmitTimer >= 0.09 && fx.age < fx.duration - 0.5) {
-            fx.particleEmitTimer = 0;
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 4, '#56cfe1', fx.radius * 0.9, 2.5, 0.9, 1.5);
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 2, '#e0fbfc', fx.radius * 0.75, 3.0, 0.8, 1.4);
-          }
-          (fx.materials[0] as THREE.MeshBasicMaterial).opacity = 0.88 * envelope;
-          (fx.materials[1] as THREE.MeshBasicMaterial).opacity = 0.78 * envelope;
-          (fx.materials[2] as THREE.MeshBasicMaterial).opacity = 0.92 * envelope;
         } else if (fx.kind === 'blessing_bloom' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {
             fx.impactFired = true;
@@ -15473,54 +15270,6 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           }
           for (const mat of fx.materials) {
             (mat as THREE.MeshBasicMaterial).opacity = 0.85 * envelope;
-          }
-        } else if (fx.kind === 'golden_dawn' && fx.ringMesh) {
-          if (fx.age >= fx.impactDelay && !fx.impactFired) {
-            fx.impactFired = true;
-            if (fx.deferImpact) {
-              executeGodPowerImpact(simRef.current, fx.powerType as GodPowerType, fx.tx, fx.tz, { radiusOverride: fx.radius });
-              soundEngine.playBlessing();
-              trauma = Math.min(1.0, trauma + 0.35);
-            }
-            triggerLightFlash(fx.tx, fx.ty + 2, fx.tz, '#ffd166', 20);
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 36, '#ffd166', fx.radius * 0.95, 2.8, 1.1, 1.9);
-          }
-          const envelope = Math.min(1, fx.age / 0.3) * Math.min(1, (fx.duration - fx.age) / 0.9);
-          fx.ringMesh.scale.setScalar(fx.radius * (1.02 + Math.sin(fx.age * 3.0) * 0.04));
-          fx.ringMesh.rotation.set(0, fx.age * 0.7, 0);
-          if (fx.outerRingMesh) fx.outerRingMesh.rotation.set(0, fx.age * 1.05, 0);
-          if (fx.thirdRingMesh) {
-            fx.thirdRingMesh.rotation.set(0, fx.age * 1.4, 0);
-            fx.thirdRingMesh.scale.setScalar(fx.radius * (0.48 + Math.cos(fx.age * 4) * 0.05));
-          }
-          if (fx.floatingCrown) {
-            fx.floatingCrown.position.y = fx.ty + 3.2 + Math.sin(fx.age * 2.5) * 0.25;
-            fx.floatingCrown.rotation.set(0, fx.age * 1.2, 0);
-            if (fx.floatingCrown.children[0]) fx.floatingCrown.children[0].rotation.set(0, fx.age * 0.8, 0);
-            if (fx.floatingCrown.children[1]) fx.floatingCrown.children[1].rotation.set(0, fx.age * 1.35, 0);
-            fx.floatingCrown.scale.setScalar(Math.max(0.05, envelope));
-          }
-          if (fx.motes) {
-            for (const m of fx.motes) {
-              const cycle = ((fx.age * m.speed + m.phase) % m.height) / m.height;
-              const swirl = m.angle + fx.age * 0.45;
-              m.mesh.position.set(
-                fx.tx + Math.cos(swirl) * m.dist,
-                fx.ty + 0.15 + cycle * m.height,
-                fx.tz + Math.sin(swirl) * m.dist,
-              );
-              m.mesh.rotation.y = fx.age * 2.5;
-              m.mesh.scale.setScalar(Math.max(0.01, Math.sin(cycle * Math.PI) * 1.1 * envelope));
-            }
-          }
-          fx.particleEmitTimer = (fx.particleEmitTimer ?? 0) + dt;
-          if (fx.particleEmitTimer >= 0.09 && fx.age < fx.duration - 0.5) {
-            fx.particleEmitTimer = 0;
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 5, '#ffd166', fx.radius * 0.95, 2.6, 0.95, 1.6);
-            spawnRisingParticles(fx.tx, fx.ty, fx.tz, 2, '#fff3b0', fx.radius * 0.7, 3.1, 0.85, 1.5);
-          }
-          for (const mat of fx.materials) {
-            (mat as THREE.MeshBasicMaterial).opacity = 0.9 * envelope;
           }
         } else if (fx.kind === 'shield_pulse' && fx.ringMesh) {
           if (fx.age >= fx.impactDelay && !fx.impactFired) {

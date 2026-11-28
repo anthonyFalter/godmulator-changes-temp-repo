@@ -223,11 +223,6 @@ test('terrain sculpting raises and lowers tile elevation and consumes faith', ()
 test('casting god powers applies status effects, resources, and chronicle events', () => {
   const state = createInitialSimulationState(128, 33333);
   spawnUnit(state, 'villager', 64, 64);
-  const k0 = state.resources.knowledge;
-
-  const eurekaRes = castGodPower(state, 'eureka', 64, 64);
-  assert.equal(eurekaRes.ok, true);
-  assert.equal(state.resources.knowledge, k0 + 140);
 
   const blessRes = castGodPower(state, 'blessing', 64, 64);
   assert.equal(blessRes.ok, true);
@@ -6374,13 +6369,6 @@ test('God Powers Rework: gradual thermal sea ice without creating land, no ocean
   assert.equal(unfinishedBld.constructionProgress, 100, 'Chrono Warp must instantly complete nearby constructions');
   assert.equal(unfinishedBld.hp, unfinishedBld.maxHp, 'Chrono Warp must repair buildings');
   assert.ok((state.kingdomEpochProgress['king_chrono'] ?? 0) > 0, 'Chrono Warp must advance nearby kingdom epoch progress');
-
-  const progAfterChrono = state.kingdomEpochProgress['king_chrono'] ?? 0;
-  castGodPower(state, 'eureka', 38, 38);
-  assert.equal(state.kingdomEpochProgress['king_chrono'], progAfterChrono + 22, 'Modernized Eureka must add +22 kingdom epoch progress');
-  state.kingdomEpochProgress['king_chrono'] = 85;
-  castGodPower(state, 'eureka', 38, 38);
-  assert.ok(getKingdomEpoch(state, 'king_chrono') >= 1, 'Modernized Eureka must advance nearby kingdom epoch when reaching 100% progress');
 
   castGodPower(state, 'harmony_dove', 38, 38);
   assert.equal(getKingdomRelation(state, 'king_chrono', 'king_ally'), 'allied', 'Peace Accord must end wars and forge alliance');

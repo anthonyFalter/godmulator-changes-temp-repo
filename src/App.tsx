@@ -1807,10 +1807,8 @@ export default function App() {
       if (!power) return null;
       const isSingleCastPower =
         power.type === 'drag_entity' ||
-        power.type === 'golden_age' ||
         power.type === 'harmony_dove' ||
-        power.type === 'divine_shield' ||
-        power.type === 'eureka';
+        power.type === 'divine_shield';
       const clusterCount = isSingleCastPower ? 1 : getPowerClusterCount(brushSize);
       const totalFaithCost = power.faithCost * clusterCount;
       return {
@@ -3392,11 +3390,6 @@ export default function App() {
                   <span className="whitespace-nowrap">
                     Pop <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#f4e7d4]">{sim.population}</span>
                   </span>
-                  {sim.goldenAgeTimer > 0 && (
-                    <span className="font-pixel-num text-[9px] sm:text-[10px] text-[#ffd36b] whitespace-nowrap">
-                      ★ {Math.ceil(sim.goldenAgeTimer)}s
-                    </span>
-                  )}
                 </div>
               </div>
               <div
@@ -4370,10 +4363,8 @@ export default function App() {
                         activeTool.kind === 'power' && activeTool.power === power.type;
                       const isSingleCastPower =
                         power.type === 'drag_entity' ||
-                        power.type === 'golden_age' ||
                         power.type === 'harmony_dove' ||
-                        power.type === 'divine_shield' ||
-                        power.type === 'eureka';
+                        power.type === 'divine_shield';
                       const clusterCount = isSingleCastPower ? 1 : getPowerClusterCount(brushSize);
                       const totalFaithCost = power.faithCost * clusterCount;
                       const affordable =

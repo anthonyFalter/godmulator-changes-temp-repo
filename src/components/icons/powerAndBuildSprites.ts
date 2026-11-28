@@ -135,54 +135,6 @@ export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
     PB_MATS,
   ),
 
-  // 16x16 Crisp glowing lightbulb with clear glass, filament, screw base & separated rays
-  eureka: cluster16(
-    [
-      '................',
-      '.......YY.......',
-      '..Y..........Y..',
-      '.....333333.....',
-      '....33IIII32....',
-      '.Y..3IIFFII2..Y.',
-      '....2IIFFII1....',
-      '.....22aa21.....',
-      '......1111......',
-      '.....SssssM.....',
-      '.....mMMMMM.....',
-      '.....SssssM.....',
-      '......gggg......',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.gold,
-    PB_MATS,
-  ),
-
-  // 16x16 Golden royal chalice with crisp rim, ruby gem, slender stem & wide foot
-  golden_age: cluster16(
-    [
-      '................',
-      '................',
-      '..33333333332...',
-      '..21111111112...',
-      '..2222RR22221...',
-      '...222rq2221....',
-      '....2222221.....',
-      '.....12221......',
-      '......221.......',
-      '......221.......',
-      '.....32211......',
-      '...332222111....',
-      '...111111111....',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.gold,
-    PB_MATS,
-  ),
-
   // 16x16 Clean Paladin heater shield (silver border, royal azure field, bold gold cross)
   divine_shield: cluster16(
     [

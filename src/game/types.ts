@@ -424,8 +424,6 @@ export type GodPowerType =
   | 'drag_entity'
   | 'blessing'
   | 'rain_of_plenty'
-  | 'eureka'
-  | 'golden_age'
   | 'divine_shield'
   | 'heat_wave'
   | 'freeze_snap'
@@ -1077,7 +1075,6 @@ export interface SimulationState {
   population: number;
   populationCap: number;
   happiness: number; // 0..100
-  goldenAgeTimer: number;
   autoBuildEnabled: boolean;
   sandboxFreeMode: boolean;
   chronicle: ChronicleEvent[];

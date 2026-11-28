@@ -155,10 +155,10 @@ function classifyCitizenBubble(state: SimulationState, u: UnitEntity): BubbleIco
   if (u.state === 'researching' || u.state === 'praying') {
     return 'eureka';
   }
-  if ((u.statusEffects.blessed ?? 0) > 0 || state.goldenAgeTimer > 0) {
+  if ((u.statusEffects.blessed ?? 0) > 0) {
     // Show happy/sparkle on a subset of citizens so it feels charming, not noisy
     const hash = (u.id.charCodeAt(u.id.length - 1) ?? 0) & 3;
-    if (hash === 0) return state.goldenAgeTimer > 0 ? 'eureka' : 'happy';
+    if (hash === 0) return 'happy';
   }
   return null;
 }

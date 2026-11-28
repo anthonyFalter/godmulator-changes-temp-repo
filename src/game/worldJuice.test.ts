@@ -207,7 +207,7 @@ test('computeWorldZones shifts temperature bands with seasons and anchors labels
 
 test('TERRAIN_TOOLS is ordered by player usage frequency with all liquid tools grouped together', () => {
   const types = TERRAIN_TOOLS.map((t) => t.type);
-  assert.equal(types.length, 35);
+  assert.equal(types.length, 46);
   assert.deepEqual(types.slice(0, 12), [
     'raise',
     'lower',
@@ -222,20 +222,18 @@ test('TERRAIN_TOOLS is ordered by player usage frequency with all liquid tools g
     'lava_river',
     'poison_river',
   ]);
-  assert.equal(new Set(types).size, 35, 'all terrain tool types must be unique');
+  assert.equal(new Set(types).size, 46, 'all terrain tool types must be unique');
 });
 
 test('GOD_POWERS is ordered by usage frequency and logical category groups with all powers preserved', () => {
   const types = GOD_POWERS.map((p) => p.type);
   assert.equal(types.length, 37);
   assert.equal(new Set(types).size, 37, 'all god power types must be unique');
-  assert.deepEqual(types.slice(0, 6), [
+  assert.deepEqual(types.slice(0, 4), [
     'drag_entity',
     'blessing',
     'rain_of_plenty',
     'cleanse_land',
-    'eureka',
-    'golden_age',
   ]);
   // Climate controls grouped together
   const heatIdx = types.indexOf('heat_wave');

@@ -283,20 +283,12 @@ test('Phase 5 [M13]: setUnitStatValue avoids double-heal, setUnitAgeYears syncs 
   assert.equal(seenKeys.size, 4, 'All 4 Dragon color variants must map to distinct batched keys');
 });
 
-test('Phase 5 [M14]: eureka targets local kingdom, Rage tooltip aligns with 2.0x damage, and Inspector diet & civ range floors are accurate', () => {
+test('Phase 5 [M14]: Rage tooltip aligns with 2.0x damage, and Inspector diet & civ range floors are accurate', () => {
   const state = makeFlatLandState('PHASE5-M14', 64);
   placeBuilding(state, 'bonfire', 14, 14);
   placeBuilding(state, 'bonfire', 50, 50);
   const sidA = state.buildings[0].settlementId!;
   const sidB = state.buildings[1].settlementId!;
-  const kidA = getKingdomId(state, sidA);
-  const kidB = getKingdomId(state, sidB);
-  state.kingdomResources![kidA].knowledge = 0;
-  state.kingdomResources![kidB].knowledge = 0;
-
-  castGodPower(state, 'eureka', 14, 14);
-  assert.equal(state.kingdomResources![kidA].knowledge, 140, 'Eureka must grant +140 Knowledge to the targeted kingdom');
-  assert.equal(state.kingdomResources![kidB].knowledge, 0, 'Eureka must not split Knowledge to unrelated distant kingdoms');
 
   const rageDef = GOD_POWERS.find((p) => p.type === 'bloodlust_frenzy')!;
   assert.ok(rageDef.summary.includes('+100%'), 'Rage tooltip should match +100% (2.0x) damage');

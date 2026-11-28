@@ -174,11 +174,11 @@ test('Phase 6 [M2, M3, M4, M5]: sentinel_eye skips shielded targets, cleanse_lan
   state.unallocatedResources!.faith = 500;
   state.resources.faith = 500;
 
-  // M5: global powers cap clusterCount = 1 even at 10x brush
-  const gaRes = castGodPower(state, 'golden_age', 32, 32, { brushSize: 10 });
-  assert.equal(gaRes.ok, true);
-  assert.equal(gaRes.count, 1, 'golden_age must cap clusterCount to 1 on 10x brush');
-  assert.equal(gaRes.totalCost, 40, 'golden_age must only charge 1x cost on 10x brush');
+  // M5: global/single-cast powers cap clusterCount = 1 even at 10x brush
+  const dsRes = castGodPower(state, 'divine_shield', 32, 32, { brushSize: 10 });
+  assert.equal(dsRes.ok, true);
+  assert.equal(dsRes.count, 1, 'divine_shield must cap clusterCount to 1 on 10x brush');
+  assert.equal(dsRes.totalCost, 25, 'divine_shield must only charge 1x cost on 10x brush');
 
   // M4: wormhole_ascension does not refund 50% Faith
   const faithBeforeBH = state.resources.faith;

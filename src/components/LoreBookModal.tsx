@@ -100,17 +100,17 @@ const LoreEmblemIcon: React.FC<{ emblem: string }> = ({ emblem }) => {
     case 'rebellion':
       return <PowerPixelIcon power="bloodlust_frenzy" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'culture':
-      return <PowerPixelIcon power="golden_age" className="w-4 h-4 pixelated-canvas shrink-0" />;
+      return <PowerPixelIcon power="floral_paradise" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'peace':
       return <PowerPixelIcon power="harmony_dove" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'divine':
       return <PowerPixelIcon power="blessing" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'wonder':
-      return <PowerPixelIcon power="golden_age" className="w-4 h-4 pixelated-canvas shrink-0" />;
+      return <PowerPixelIcon power="bountiful_harvest" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'kingdom':
       return <PowerPixelIcon power="divine_shield" className="w-4 h-4 pixelated-canvas shrink-0" />;
     case 'epoch':
-      return <PowerPixelIcon power="eureka" className="w-4 h-4 pixelated-canvas shrink-0" />;
+      return <PowerPixelIcon power="chrono_surge" className="w-4 h-4 pixelated-canvas shrink-0" />;
     default:
       return <HudPixelIcon kind="loreBook" className="w-4 h-4 pixelated-canvas shrink-0" />;
   }

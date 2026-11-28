@@ -1667,7 +1667,6 @@ export function createInitialSimulationState(
     population: 0,
     populationCap: 0,
     happiness: 88,
-    goldenAgeTimer: 0,
     autoBuildEnabled: rules.autoBuildEnabled,
     sandboxFreeMode: rules.sandboxFreeMode,
     chronicle: initialChronicle,
@@ -2103,9 +2102,8 @@ export function recalculateRatesAndCaps(state: SimulationState): void {
     rates.food = Math.max(hasSettlement ? 0 : -foodUpkeep, rates.food - foodUpkeep);
   }
 
-  const mult = state.goldenAgeTimer > 0 ? 2 : 1;
   for (const k of Object.keys(rates) as (keyof Resources)[]) {
-    rates[k] = Math.round(rates[k] * mult);
+    rates[k] = Math.round(rates[k]);
   }
 
   state.rates = rates;
@@ -7036,164 +7034,6 @@ export function executeGodPowerImpact(
       break;
     }
 
-    case 'eureka': {
-      isHeavy = true;
-      const liveKids = getLiveKingdomIds(state);
-      const boostKids = new Set<string>();
-      const reachSq = (r * 2.6) ** 2;
-      let nearestKid: string | undefined;
-      let nearestKidDistSq = Infinity;
-      for (const b of state.buildings) {
-        if (!b.settlementId) continue;
-        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-        if (dSq <= reachSq) {
-          const kid = getKingdomId(state, b.settlementId);
-          boostKids.add(kid);
-          if (dSq < nearestKidDistSq) {
-            nearestKidDistSq = dSq;
-            nearestKid = kid;
-          }
-        }
-      }
-      for (const u of state.units) {
-        if (u.faction !== 'civilization' || u.state === 'ko') continue;
-        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        if (dSq <= reachSq) {
-          const kid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
-          if (kid) {
-            boostKids.add(kid);
-            if (dSq < nearestKidDistSq) {
-              nearestKidDistSq = dSq;
-              nearestKid = kid;
-            }
-          }
-        }
-      }
-      const targetKids = boostKids.size > 0 ? Array.from(boostKids) : liveKids;
-      grantResourcesToKingdomOrPool(state, { knowledge: 140 }, nearestKid ?? targetKids[0]);
-      if (targetKids.length > 0) {
-        if (!state.kingdomEpochProgress) state.kingdomEpochProgress = {};
-        for (const kid of targetKids) {
-          const curEp = getKingdomEpoch(state, kid);
-          if (curEp < EPOCHS.length - 1) {
-            const nextProg = (state.kingdomEpochProgress[kid] ?? 0) + 22;
-            if (nextProg >= 100) {
-              advanceKingdomEpoch(state, kid, false, { freeFromProgress: true, skipAverageSync: true });
-            } else {
-              state.kingdomEpochProgress[kid] = nextProg;
-            }
-          }
-        }
-        syncAverageEpochFromKingdoms(state);
-      } else {
-        state.epochProgress = Math.min(100, state.epochProgress + 22);
-      }
-
-      const targetKidSet = new Set(targetKids);
-      const cityReachSq = (r * 2.6) ** 2;
-      for (const u of state.units) {
-        if (u.faction !== 'civilization' || u.state === 'ko') continue;
-        const dSq = (u.x - targetX) ** 2 + (u.z - targetZ) ** 2;
-        const uKid = u.kingdomId ?? (u.settlementId ? getKingdomId(state, u.settlementId) : undefined);
-        if (dSq <= rSq || (uKid && targetKidSet.has(uKid) && dSq <= cityReachSq)) {
-          u.statusEffects.blessed = Math.max(u.statusEffects.blessed ?? 0, 25);
-        }
-      }
-      for (const b of state.buildings) {
-        const dSq = (b.tileX - targetX) ** 2 + (b.tileZ - targetZ) ** 2;
-        const bKid = b.settlementId ? getKingdomId(state, b.settlementId) : undefined;
-        if (dSq <= rSq || (bKid && targetKidSet.has(bKid) && dSq <= cityReachSq)) {
-          b.constructionProgress = 100;
-          b.hp = b.maxHp;
-          b.blessedTimer = Math.max(b.blessedTimer, 25);
-          b.cursedTimer = 0;
-        }
-      }
-      for (const v of state.vehicles ?? []) {
-        const dSq = (v.x - targetX) ** 2 + (v.z - targetZ) ** 2;
-        if (dSq <= rSq) {
-          v.hp = v.maxHp ?? 150;
-        }
-      }
-      // Pave stone roads around structures & crystallize nearby stone outcrops
-      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
-        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq <= rSq && t.height > 0) {
-          if (t.resourceNode === 'stone_outcrop' && dSq <= rSq * 0.45) {
-            t.resourceNode = 'crystal_monolith';
-            t.resourceAmount = 360;
-          } else if (
-            !t.buildingId &&
-            t.resourceNode === 'none' &&
-            dSq <= 6.5 &&
-            (t.x === targetX || t.z === targetZ)
-          ) {
-            t.terrain = 'stone_road';
-          }
-        }
-      });
-      addChronicle(state, 'Divine Insight granted +140 Knowledge, boosted kingdom eras, repaired ships & completed builds!', 'divine');
-      break;
-    }
-
-    case 'golden_age': {
-      isHeavy = true;
-      state.goldenAgeTimer = 35;
-      state.happiness = 100;
-      grantResourcesToKingdomOrPool(state, { food: 120, wood: 80 });
-      for (const u of state.units) {
-        if (u.faction === 'civilization' && u.state !== 'ko') {
-          u.hp = u.maxHp;
-          u.statusEffects.blessed = 35;
-          delete u.statusEffects.cursed;
-          delete u.statusEffects.plagued;
-          delete u.statusEffects.frozen;
-        }
-      }
-      for (const b of state.buildings) {
-        b.hp = b.maxHp;
-        b.cursedTimer = 0;
-        b.blessedTimer = Math.max(b.blessedTimer, 20);
-      }
-      for (const w of state.worldWonders ?? []) {
-        w.hp = w.maxHp ?? 2600;
-        const wt = getTile(state, w.tileX, w.tileZ);
-        if (wt) wt.onFireTimer = 0;
-      }
-      for (const v of state.vehicles ?? []) {
-        v.hp = v.maxHp ?? 150;
-      }
-      forEachTileInBounds(state, targetX - r, targetX + r, targetZ - r, targetZ + r, (t) => {
-        const dSq = (t.x - targetX) ** 2 + (t.z - targetZ) ** 2;
-        if (dSq <= rSq && t.height > 0) {
-          t.onFireTimer = 0;
-          t.cursedTimer = 0;
-          t.blessedTimer = 35;
-          if (t.buildingId) {
-            if (t.terrain === 'stone_road') t.terrain = 'grass';
-          } else if (t.terrain === 'scorched' || t.terrain === 'savanna' || t.terrain === 'swamp') {
-            t.terrain = 'fertile';
-          } else if (t.terrain === 'grass' && dSq <= rSq * 0.5 && t.resourceNode === 'none') {
-            t.terrain = (t.x === targetX || t.z === targetZ) && dSq > 1.5 ? 'stone_road' : 'fertile';
-          }
-        }
-      });
-      // Inspire a baby boom across active towns (respecting WorldRulesConfig.allowReproduction)
-      if (state.worldRules?.allowReproduction !== false) {
-        const settlementIds = Array.from(new Set(state.buildings.map((b) => b.settlementId ?? 'city_default')));
-        for (const sid of settlementIds) {
-          const hub = state.buildings.find((b) => b.settlementId === sid && b.constructionProgress >= 100);
-          if (hub) {
-            const sp = state.settlementSpecies?.[sid] ?? 'human';
-            spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'child', isBirth: true });
-            spawnUnit(state, sp, hub.tileX, hub.tileZ, true, sid, { ageStage: 'adult' });
-          }
-        }
-      }
-      addChronicle(state, 'Golden Age dawned! 2x kingdom output, full repairs & booming towns.', 'epoch');
-      break;
-    }
-
     case 'divine_shield': {
       isHeavy = true;
       const targetKid = findTargetedKingdomId(state, targetX, targetZ, Math.max(r + 4.5, 11));
@@ -9407,10 +9247,8 @@ export function castGodPower(
     options?.radiusOverride !== undefined && Number.isFinite(options.radiusOverride);
   const isSingleCastPower =
     powerType === 'drag_entity' ||
-    powerType === 'golden_age' ||
     powerType === 'harmony_dove' ||
     powerType === 'divine_shield' ||
-    powerType === 'eureka' ||
     powerType === 'divine_titan';
   const clusterCount =
     isSingleCastPower || hasExplicitRadius
@@ -13682,10 +13520,6 @@ function stepSimulationSingle(
     state.year += YEARS_PER_SEC_AT_1X * dt;
   }
 
-  if (state.goldenAgeTimer > 0) {
-    state.goldenAgeTimer = Math.max(0, state.goldenAgeTimer - dt);
-  }
-
   // 2. Smoothly measure actual citizen harvest deposits over rolling 2.5s window
   state.harvestWindowTimer = (state.harvestWindowTimer ?? 0) + dt;
   if (state.harvestWindowTimer >= 2.5) {
@@ -13706,10 +13540,9 @@ function stepSimulationSingle(
     recalculateRatesAndCaps(state);
   }
   const paceMult = state.sandboxFreeMode ? 1.0 : 0.34;
-  const goldenMult = state.goldenAgeTimer > 0 ? 2 : 1;
 
   if (!state.unallocatedResources) state.unallocatedResources = emptyResources();
-  state.unallocatedResources.faith += 2 * goldenMult * dt;
+  state.unallocatedResources.faith += 2 * dt;
 
   const prodByKid = new Map<string, Resources>();
   const ensureProd = (kid: string) => {
@@ -13744,7 +13577,7 @@ function stepSimulationSingle(
         else if (key === 'alloy') spMult = 0.5;
         else if (key === 'food' || key === 'ore') spMult = 1.15;
       }
-      const addVal = (v ?? 0) * blessMult * epochMult * spMult * paceMult * goldenMult * dt;
+      const addVal = (v ?? 0) * blessMult * epochMult * spMult * paceMult * dt;
       if (pRec && key !== 'faith') pRec[key] += addVal;
       else if (key === 'faith') state.unallocatedResources.faith += addVal;
     }
@@ -13769,7 +13602,7 @@ function stepSimulationSingle(
     }
     const kPop = popByKid.get(kid) ?? 0;
     if (kPop > 6) {
-      const kUpkeep = (kPop - 6) * 0.1 * goldenMult * dt;
+      const kUpkeep = (kPop - 6) * 0.1 * dt;
       stock.food = Math.max(0, stock.food - kUpkeep);
     }
   }
@@ -27799,7 +27632,7 @@ export function triggerRandomWorldEvent(
     });
     state.pendingVfx.push({
       id: nextEntityId('vfx'),
-      type: 'eureka',
+      type: 'blessing',
       x: tx,
       y: ty,
       z: tz,

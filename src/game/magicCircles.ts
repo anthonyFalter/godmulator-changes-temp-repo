@@ -626,8 +626,6 @@ export function createMagicCirclePlaneGeometry(): THREE.PlaneGeometry {
 
 export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleTheme {
   switch (powerOrTool) {
-    case 'eureka':
-      return 'insight';
     case 'blessing':
     case 'harmony_dove':
     case 'floral_paradise':
@@ -635,7 +633,6 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'floral_rain':
     case 'cleanse_land':
       return 'blessing';
-    case 'golden_age':
     case 'chrono_surge':
     case 'seed_ore':
     case 'bountiful_harvest':
