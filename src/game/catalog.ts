@@ -1895,9 +1895,9 @@ export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
   // Tier 1: Core Terrain Sculpting (Most Frequent)
   {
     type: 'base_dirt',
-    name: 'Base Dirt',
+    name: 'Draw Land',
     category: 'Sculpt',
-    summary: 'Draws flat base dirt land without raising or lowering',
+    summary: 'Draws flat dirt land without raising or lowering',
     faithCost: 2,
     color: '#8f623e',
   },

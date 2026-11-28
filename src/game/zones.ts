@@ -364,7 +364,7 @@ const BIOME_META: Record<
     baseTempC: 19,
   },
   dirt: {
-    name: 'Base Dirt',
+    name: 'Soil',
     category: 'Terrestrial',
     color: [143, 98, 62],
     baseTempC: 18,
