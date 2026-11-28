@@ -1,5 +1,15 @@
 import type { Resources, TerrainToolType, ToolCategory, ZoneOverlayType } from '../../game/types';
-import { type CompiledSprite, MAT, type MatLegend, cluster16, icon16 } from './pixelEngine';
+import {
+  type CompiledSprite,
+  type Icon24,
+  MAT,
+  type MatLegend,
+  PMAT,
+  cluster16,
+  cluster24,
+  icon16,
+  icon24,
+} from './pixelEngine';
 
 const MATS: MatLegend = {
   // Gold
@@ -85,1345 +95,1794 @@ export const TITLE_EMBLEM_SPRITE: CompiledSprite = cluster16(
   MATS,
 );
 
+const PMATS: MatLegend = {
+  // Gold
+  Y: { ramp: PMAT.gold, tone: 4 },
+  y: { ramp: PMAT.gold, tone: 3 },
+  g: { ramp: PMAT.gold, tone: 2 },
+  G: { ramp: PMAT.gold, tone: 1 },
+  // Wood
+  B: { ramp: PMAT.wood, tone: 4 },
+  b: { ramp: PMAT.wood, tone: 3 },
+  k: { ramp: PMAT.wood, tone: 2 },
+  K: { ramp: PMAT.wood, tone: 1 },
+  // Dark Wood
+  W: { ramp: PMAT.darkWood, tone: 3 },
+  w: { ramp: PMAT.darkWood, tone: 2 },
+  T: { ramp: PMAT.darkWood, tone: 1 },
+  t: { ramp: PMAT.darkWood, tone: 0 },
+  // Moss / Leaf
+  E: { ramp: PMAT.moss, tone: 4 },
+  e: { ramp: PMAT.moss, tone: 3 },
+  l: { ramp: PMAT.moss, tone: 2 },
+  L: { ramp: PMAT.moss, tone: 1 },
+  // Water / Azure
+  C: { ramp: PMAT.water, tone: 4 },
+  c: { ramp: PMAT.water, tone: 3 },
+  u: { ramp: PMAT.water, tone: 2 },
+  U: { ramp: PMAT.water, tone: 1 },
+  // Steel / Silver
+  S: { ramp: PMAT.steel, tone: 4 },
+  s: { ramp: PMAT.steel, tone: 3 },
+  m: { ramp: PMAT.steel, tone: 2 },
+  M: { ramp: PMAT.steel, tone: 1 },
+  // Crimson
+  R: { ramp: PMAT.crimson, tone: 4 },
+  r: { ramp: PMAT.crimson, tone: 3 },
+  q: { ramp: PMAT.crimson, tone: 2 },
+  Q: { ramp: PMAT.crimson, tone: 1 },
+  // Parchment / Ivory
+  I: { ramp: PMAT.parchment, tone: 4 },
+  i: { ramp: PMAT.parchment, tone: 3 },
+  j: { ramp: PMAT.parchment, tone: 2 },
+  J: { ramp: PMAT.parchment, tone: 1 },
+  // Amber / Flame
+  F: { ramp: PMAT.amber, tone: 4 },
+  f: { ramp: PMAT.amber, tone: 3 },
+  a: { ramp: PMAT.amber, tone: 2 },
+  A: { ramp: PMAT.amber, tone: 1 },
+  // Arcane
+  P: { ramp: PMAT.arcane, tone: 4 },
+  p: { ramp: PMAT.arcane, tone: 3 },
+  z: { ramp: PMAT.arcane, tone: 2 },
+  Z: { ramp: PMAT.arcane, tone: 1 },
+  // Stone
+  N: { ramp: PMAT.stone, tone: 4 },
+  n: { ramp: PMAT.stone, tone: 3 },
+  h: { ramp: PMAT.stone, tone: 2 },
+  H: { ramp: PMAT.stone, tone: 1 },
+  // Bronze / Terracotta
+  X: { ramp: PMAT.bronze, tone: 4 },
+  x: { ramp: PMAT.bronze, tone: 3 },
+  v: { ramp: PMAT.bronze, tone: 2 },
+  V: { ramp: PMAT.bronze, tone: 1 },
+  // Iron (dark shadows / fissures / rivets)
+  D: { ramp: PMAT.iron, tone: 2 },
+  d: { ramp: PMAT.iron, tone: 1 },
+  // Ice
+  '^': { ramp: PMAT.ice, tone: 4 },
+  '~': { ramp: PMAT.ice, tone: 3 },
+  '=': { ramp: PMAT.ice, tone: 2 },
+  '-': { ramp: PMAT.ice, tone: 1 },
+  // Toxic
+  '+': { ramp: PMAT.toxic, tone: 4 },
+  '*': { ramp: PMAT.toxic, tone: 3 },
+  '%': { ramp: PMAT.toxic, tone: 2 },
+  '&': { ramp: PMAT.toxic, tone: 1 },
+  // Rose / Blossom
+  '@': { ramp: PMAT.rose, tone: 4 },
+  '#': { ramp: PMAT.rose, tone: 3 },
+  '!': { ramp: PMAT.rose, tone: 2 },
+  '?': { ramp: PMAT.rose, tone: 1 },
+  // Sand
+  ':': { ramp: PMAT.sand, tone: 4 },
+  ';': { ramp: PMAT.sand, tone: 3 },
+  ',': { ramp: PMAT.sand, tone: 2 },
+  _: { ramp: PMAT.sand, tone: 1 },
+};
+
+function drawIsoRiver24(
+  c: Icon24,
+  topRamp: typeof PMAT.moss,
+  leftRamp: typeof PMAT.wood,
+  rightRamp: typeof PMAT.darkWood,
+  liquidRamp: typeof PMAT.water,
+  highlightRamp?: typeof PMAT.ice,
+): void {
+  c.isoBlock(topRamp, leftRamp, rightRamp, 17, 4, (x, y) => {
+    const wave = Math.sin((y - 10) * 0.65) * 1.1;
+    const band = Math.abs(x - 11.5 + (y - 13) * 1.35 + wave);
+    if (band <= 1.2) return { ramp: highlightRamp ?? liquidRamp, tone: 4 };
+    if (band <= 2.3) return { ramp: liquidRamp, tone: 3 };
+    if (band <= 3.1) return { ramp: liquidRamp, tone: 2 };
+    return null;
+  });
+}
+
 export const RESOURCE_SPRITES: Record<keyof Resources, CompiledSprite> = {
-  // 16x16 Crisp flat-shaded crimson apple with emerald leaf (inspired by ref sheet 1 strawberry)
-  food: cluster16(
+  // 24x24 Plump crimson orchard apple with emerald leaf & golden wheat stalk
+  food: cluster24(
     [
-      '................',
-      '........b..eE...',
-      '.......bk.eel...',
-      '.....221kllL....',
-      '...2332112222...',
-      '..243222222222..',
-      '..232222222222..',
-      '..222222222222..',
-      '..222222222221..',
-      '..222222222211..',
-      '...1222222211...',
-      '...1122222111...',
-      '....111o1111....',
-      '.....11.111.....',
-      '................',
-      '................',
+      '........................',
+      '.................Yy.....',
+      '................Yyg.....',
+      '.........bK....YygG.....',
+      '........bk.EeE.ygG......',
+      '........kK.EelEgG.......',
+      '......333kKellLg........',
+      '....3443322llL2233......',
+      '...3443322222222223.....',
+      '..343322222222222222....',
+      '..333222222222222221....',
+      '..322222222222222221....',
+      '..222222222222222211....',
+      '..222222222222222211....',
+      '..222222222222222111....',
+      '...2222222222222111.....',
+      '...1222222222221111.....',
+      '....11222222221111......',
+      '.....111222221111.......',
+      '......1111o11111........',
+      '.......111.1111.........',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.ruby,
-    MATS,
+    PMAT.crimson,
+    PMATS,
   ),
 
-  // 16x16 Diagonal oak log with bright spiral cut-end & textured bark stripes (matching ref log)
-  wood: cluster16(
+  // 24x24 Stacked timber logs (2 bottom, 1 top) with pale spiral cut-ends & rough bark
+  wood: cluster24(
     [
-      '................',
-      '.........Ee.....',
-      '........el.222..',
-      '.......el.23321.',
-      '......222222221.',
-      '....23322112211.',
-      '...22211222221..',
-      '..2Iii22221121..',
-      '.2IijIi212221...',
-      '.2iJjJi22111....',
-      '.2iJjiI1111.....',
-      '.1iIii2111......',
-      '..1JJJ111.......',
-      '...1111.........',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '..........333333........',
+      '........333222221.......',
+      '.......3Ii22212221......',
+      '......3IijI22222111.....',
+      '......2iJjI21222111.....',
+      '......2iJji2222111......',
+      '.......1iii111111.......',
+      '.....3331113333333......',
+      '...3332223332222221.....',
+      '..3Ii22223Ii22212221....',
+      '.3IijI212IijI22222111...',
+      '.2iJjI222iJjI21222111...',
+      '.2iJji212iJji22221111...',
+      '.1iIii111iIii2211111....',
+      '..1JJJ1111JJJ111111.....',
+      '...111111111111111......',
+      '....0000000000000.......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.wood,
-    MATS,
+    PMAT.wood,
+    PMATS,
   ),
 
-  // 16x16 Crisp planar stone boulders (top plane lit, front flat, bottom shadowed)
-  stone: cluster16(
+  // 24x24 Faceted grey granite boulder cluster with chiseled bevel planes
+  stone: cluster24(
     [
-      '................',
-      '................',
-      '....33333.......',
-      '...33333322.....',
-      '..2222222222....',
-      '..2222222222....',
-      '..1222223332....',
-      '..11111333332...',
-      '...1111222222...',
-      '....111122211...',
-      '........1111....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '........444444..........',
+      '......4433333332........',
+      '.....433333333222.......',
+      '....33333333222221......',
+      '...3333322222222211.....',
+      '..33222222222222211.....',
+      '..22222222222222111.....',
+      '..22222222222244432.....',
+      '..222222222244333321....',
+      '..1222222223333332211...',
+      '..1122222223322222211...',
+      '...111222222222222111...',
+      '...111111122222222111...',
+      '....1111111122222111....',
+      '.....11111111111111.....',
+      '......000000000000......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.stone,
-    MATS,
+    PMAT.stone,
+    PMATS,
   ),
 
-  // 16x16 Slate ore boulders studded with chunky golden nuggets
-  ore: cluster16(
+  // 24x24 Dark basalt ore boulder studded with gleaming gold & amber ore chunks
+  ore: cluster24(
     [
-      '................',
-      '................',
-      '....33333.......',
-      '...3Yy3332..33..',
-      '..2Yyg2222.3Yy2.',
-      '..22gg2222.2yg1.',
-      '..2222Yy21.111..',
-      '..122YygG1......',
-      '...111ggG1......',
-      '....11111.......',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '........333333..........',
+      '......3332222221........',
+      '.....322Yyy222221.......',
+      '....322YyygG222211......',
+      '...32222ggG22222111.....',
+      '..32222222222Ff2211.....',
+      '..222Ff22222FfaA211.....',
+      '..22FfaA22222aaA332.....',
+      '..222aaA22Yyy223Yyg1....',
+      '..1222222YyygG22ygg11...',
+      '..11222222ggG22222111...',
+      '...11122222222Ff22111...',
+      '...1111111222FfaA111....',
+      '....1111111111aa111.....',
+      '.....1111111111111......',
+      '......00000000000.......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.darkIron,
-    MATS,
+    PMAT.iron,
+    PMATS,
   ),
 
-  // 16x16 Flat-planed isometric spellbook grimoire (clean cover + cream pages + cyan rune)
-  knowledge: cluster16(
+  // 24x24 Leather-bound grimoire tome with gold corner clasps, parchment pages & cyan rune
+  knowledge: cluster24(
     [
-      '................',
-      '.......Yy222....',
-      '.....22yg2222...',
-      '....2222CC222...',
-      '...2222Ccc222...',
-      '..Yyg222uu22y...',
-      '.YygG1111111Ii..',
-      '.Iii111111IIij..',
-      '.IIiij11IIiijJ..',
-      '..IIiijjIijjjJ..',
-      '...IIiijjjrjJ...',
-      '....JJjjjRrJ....',
-      '.....JJJrqJ.....',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '...........Yy33333......',
+      '.........33Yyg33332.....',
+      '.......33332gg222222....',
+      '......332222222222221...',
+      '.....322222CCc2222221...',
+      '....322222Cccu2222221...',
+      '...Yyg2222ccuu2222Yyg...',
+      '..Yyyg22222uuU2222ygg...',
+      '..yggG111111111111gGIi..',
+      '..Iiii111111111111IIij..',
+      '..IIiiij11111111IIiiij..',
+      '...IIiiijjj111IIiiijjJ..',
+      '....IIiiijjjjIIiijjjJ...',
+      '.....IIiijjjjjjjrRjjJ...',
+      '......JJiijjjjjrRqJJ....',
+      '.......JJJjjjjjRrqJ.....',
+      '........JJJJjjjrqJ......',
+      '.........JJJJJJqJ.......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.arcane,
-    MATS,
+    PMAT.crimson,
+    PMATS,
   ),
 
-  // 16x16 Classic RPG corked mana flask (glass streak on rim, solid vivid azure body, pool shadow)
-  energy: cluster16(
+  // 24x24 Brass-capped cyan energy coil cell with glowing lightning core
+  energy: cluster24(
     [
-      '................',
-      '..........Bb....',
-      '.........Bbk....',
-      '........Sskk....',
-      '.......Ss2sM....',
-      '......Ss22sM....',
-      '.....SsS22uM....',
-      '....SsS22222M...',
-      '...SsS222222M...',
-      '...sS222222UM...',
-      '...s222222UUM...',
-      '...s12222UUM....',
-      '....s1111UM.....',
-      '.....MMMMM......',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........YYYYYYYY........',
+      '.......YyyyyyggGY.......',
+      '.......XxxxxxxxxV.......',
+      '......XXvvvvvvvvVV......',
+      '......S^CccccccuMS......',
+      '......S^Cc^~ccuuMS......',
+      '......S^C^~^ccuuMS......',
+      '......S^c^~^cuuuMS......',
+      '......S^cc^~^uuuMS......',
+      '......S^ccc^~uuUMS......',
+      '......S^cc^~^uuUMS......',
+      '......S^c^~^uuuUMS......',
+      '......S^cc^~uuuUMS......',
+      '......S^cuuuuuUUMS......',
+      '......SmuuuuUUUUMS......',
+      '......XXvvvvvvvvVV......',
+      '.......XxxxxxxxxV.......',
+      '.......YyyyyyggGY.......',
+      '........GGGGGGGG........',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.azure,
-    MATS,
+    PMAT.water,
+    PMATS,
   ),
 
-  // 16x16 Clean 3-plane isometric steel bar (flat bright top, clean mid front, dark end)
-  alloy: cluster16(
+  // 24x24 Beveled 3-plane isometric steel ingot bar with bright specular chamfer
+  alloy: cluster24(
     [
-      '................',
-      '................',
-      '.......333......',
-      '.....3333311....',
-      '...3333333111...',
-      '..333333331111..',
-      '..244433311111..',
-      '..222244411111..',
-      '..22222221111...',
-      '...222221111....',
-      '....2221111.....',
-      '.....11111......',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '...........4444.........',
+      '.........44333344.......',
+      '.......443333333311.....',
+      '.....443333333333111....',
+      '...443333333333331111...',
+      '..43333333333333311111..',
+      '..24444433333333111111..',
+      '..22222244444431111111..',
+      '..22222222222221111111..',
+      '..2222222222222111111...',
+      '...22222222222111111....',
+      '....222222222111111.....',
+      '.....2222222111111......',
+      '......11111111111.......',
+      '.......000000000........',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.steel,
-    MATS,
+    PMAT.steel,
+    PMATS,
   ),
 
-  // 16x16 Symmetrical golden sunburst emblem with sapphire core
-  faith: cluster16(
+  // 24x24 Radiant antique gold sunburst chalice reliquary with luminous pearl core
+  faith: cluster24(
     [
-      '................',
-      '.......33.......',
-      '..33...22...33..',
-      '...22.2222.22...',
-      '....22CCcc22....',
-      '..322CCccuu221..',
-      '..222ccuuuU111..',
-      '....22uUUU21....',
-      '...21.2221.12...',
-      '..21...11...12..',
-      '.......11.......',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '...........44...........',
+      '..........4334..........',
+      '....44....3223....44....',
+      '....332...3223...233....',
+      '.....222.332233.222.....',
+      '......2233^~~^3322......',
+      '.......33^~~~~^33.......',
+      '..443332^~~==~~^233344..',
+      '.4332222^~====~^2222334.',
+      '..222112^~====~^211222..',
+      '.......22~====~22.......',
+      '......2212~--~2122......',
+      '.....221.221122.122.....',
+      '....211...2221...112....',
+      '....11....2221....11....',
+      '..........2221..........',
+      '.........322221.........',
+      '.......3322222211.......',
+      '......222111111111......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.gold,
-    MATS,
+    PMAT.gold,
+    PMATS,
   ),
 };
 
 export const TAB_SPRITES: Record<ToolCategory, CompiledSprite> = {
-  // 16x16 Diagonal oak staff holding glowing cyan star gem
-  powers: cluster16(
+  // 24x24 Divine golden-amber lightning crest (god powers)
+  powers: cluster24(
     [
-      '................',
-      '.........333....',
-      '........3CCc2...',
-      '........Cccu2...',
-      '........cuuu1...',
-      '.......22uU11...',
-      '......B22222....',
-      '.....Bbk11......',
-      '....BbkK........',
-      '...BbkK.........',
-      '..BbkK..........',
-      '.3bkK...........',
-      '.21.............',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '............4444........',
+      '...........44333........',
+      '..........433322........',
+      '.........433222.........',
+      '........433222..........',
+      '.......433222...........',
+      '......43322224444.......',
+      '.....433222223333.......',
+      '.....332222222221.......',
+      '......1111332221........',
+      '.........332221.........',
+      '........332221..........',
+      '.......332221...........',
+      '......332221............',
+      '.....332221.............',
+      '....332211..............',
+      '....2211................',
+      '....11..................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.gold,
-    MATS,
+    PMAT.amber,
+    PMATS,
   ),
 
-  // 16x16 Flat-planed 2:1 isometric grass tile with snow-peaked mountain
-  terrain: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 13, 4);
+  // 24x24 Sculpted isometric moss-earth block topped with a snow-capped mountain & pine
+  terrain: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
     c.stamp(
       4,
       2,
       [
-        '...SS...',
-        '..SSss..',
-        '.222211.',
-        '22222111',
+        '......^^........',
+        '.....^~~^.......',
+        '....^~==~^......',
+        '...NNnnhhH......',
+        '..NNnnnhhhH..e..',
+        '.NNnnnnhhhhHeel.',
+        '.NnnnnhhhhhHell.',
+        'NnnnnhhhhhhhHll.',
+        'nnnnnhhhhhhhH.k.',
       ],
-      MAT.stone,
-      MATS,
+      PMAT.stone,
+      PMATS,
     );
   }),
 
-
-  // 16x16 Symmetrical RPG adventurer bust (top hair crown, clean face, symmetrical tunic)
-  spawn: cluster16(
+  // 24x24 Grounded RPG villager/monarch bust with crown, hair, tunic & leather belt
+  spawn: cluster24(
     [
-      '................',
-      '.....BBBBb......',
-      '....bbbbbbk.....',
-      '....b22222k.....',
-      '....b3o33o2.....',
-      '.....33332......',
-      '....yY222yg.....',
-      '...yYcuuucgg....',
-      '...2ccuuuuc21...',
-      '...2cuYYuuc11...',
-      '....bkkkkK......',
-      '....KK..KK......',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........Yy..Yy..Yy......',
+      '........YyyyyyggGg......',
+      '.......BBBBBBBBbK.......',
+      '......BbbbbbbbbbbK......',
+      '......bb444333332k......',
+      '......b4333333332k......',
+      '......b33o3333o32k......',
+      '......b3333333322k......',
+      '.......3333223322.......',
+      '........22222221........',
+      '.......Yyy3333gG........',
+      '.....YyCccccccuuGg......',
+      '....YyCcccuuuuuuUGg.....',
+      '....2CcccuuuuuuuUU1.....',
+      '....2CcccuYyyguuUU1.....',
+      '....2cccuuYggGuuUU1.....',
+      '.....BbbbbbbbbbbbK......',
+      '.....KkkkkkkkkkkkK......',
+      '......Kkkk...kkkK.......',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.skin,
-    MATS,
+    PMAT.skin,
+    PMATS,
   ),
 
-  // 16x16 Terrestrial globe in symmetric brass meridian cradle
-  zones: cluster16(
+  // 24x24 Unrolled parchment world map with miniature continents & crimson territory flag
+  zones: cluster24(
     [
-      '................',
-      '.....SSSS.......',
-      '...22Ee222y.....',
-      '..22Eeel222g....',
-      '..222eel2ee1g...',
-      '..222222eel1g...',
-      '...2ee22ll1g....',
-      '....1ell22y.....',
-      '.....yggggg.....',
-      '.......gG.......',
-      '....yyyyyyy.....',
-      '....GGGGGGG.....',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '..............Y.........',
+      '..............BRRRR.....',
+      '..............Brrrrq....',
+      '..333333333333BqqqQ.....',
+      '.3444444444443B33333....',
+      '.34CCccEeE3333B333322...',
+      '.34CccEeeel333B333322...',
+      '.33ccEeeelll33B3CCc22...',
+      '.33ccceellL333BCccu22...',
+      '.33Cccceel33333ccuu22...',
+      '.33Ccc333333EeE3uuU22...',
+      '.3333333333Eeeel33322...',
+      '.333EeE3333eellL33321...',
+      '.23Eeeel3333llL333221...',
+      '.222ell33333333333211...',
+      '..222222222222222211....',
+      '...1111111111111111.....',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.azure,
-    MATS,
+    PMAT.parchment,
+    PMATS,
   ),
 
-  // 16x16 Centered parchment scroll with symmetric wooden rollers & crimson wax seal (shared by rules tab & log HUD icon)
-  rules: cluster16(
+  // 24x24 Parchment decree scroll with turned oak rollers, gold finials & crimson wax seal
+  rules: cluster24(
     [
-      '................',
-      '................',
-      '.yBBBBBBBBBBBBy.',
-      '.gKKKKKKKKKKKKg.',
-      '...3333333333...',
-      '...2JJJJJ2222...',
-      '...2222222222...',
-      '...2JJJJ22Rr2...',
-      '...222222Rrq2...',
-      '...2JJJ222rq2...',
-      '...2222222222...',
-      '...2222222221...',
-      '.yBBBBBBBBBBBBy.',
-      '.gKKKKKKKKKKKKg.',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '.YyBBBBBBBBBBBBBBBBBBgG.',
+      '.YgbbbbbbbbbbbbbbbbbbGG.',
+      '.GGKKKKKKKKKKKKKKKKKKGG.',
+      '....4444444444444443....',
+      '....3333333333333332....',
+      '....33JJJJJJJJJ33332....',
+      '....3333333333333332....',
+      '....33JJJJJJJ3333332....',
+      '....3333333333333332....',
+      '....33JJJJJJ333Rr332....',
+      '....3333333333Rrrq32....',
+      '....33JJJJJ333RrqQ32....',
+      '....33333333333qq332....',
+      '....3333333333333321....',
+      '....2222222222222211....',
+      '.YyBBBBBBBBBBBBBBBBBBgG.',
+      '.YgbbbbbbbbbbbbbbbbbbGG.',
+      '.GGKKKKKKKKKKKKKKKKKKGG.',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.parchment,
-    MATS,
+    PMAT.parchment,
+    PMATS,
   ),
 
-  // 16x16 Symmetrical brass hourglass pouring gold sand
-  epochs: cluster16(
+  // 24x24 Ornate antique brass hourglass with clear ice glass & trickling golden sand
+  epochs: cluster24(
     [
-      '................',
-      '..3333333333....',
-      '..2222222221....',
-      '...bScccCSk.....',
-      '...bScYYcSk.....',
-      '....bScySk......',
-      '.....bSYk.......',
-      '.....bSYk.......',
-      '....bScYSk......',
-      '...bScYYYcSk....',
-      '..3333333333....',
-      '..1111111111....',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '....4444444444444444....',
+      '....3333333333333332....',
+      '.....22222222222221.....',
+      '......B^~~~~~~~~=K......',
+      '......B^~YYYYYY~=K......',
+      '......B^~~Yyyy~~=K......',
+      '.......B^~~yy~~=K.......',
+      '........B^~yg~=K........',
+      '.........B^~y=K.........',
+      '..........B^yK..........',
+      '..........B^yK..........',
+      '.........B^~y=K.........',
+      '........B^~Yy~=K........',
+      '.......B^~Yyyg~=K.......',
+      '......B^~Yyyygg~=K......',
+      '......B^YYYYgggg=K......',
+      '.....33333333333332.....',
+      '....4444444444444444....',
+      '....1111111111111111....',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.gold,
-    MATS,
+    PMAT.gold,
+    PMATS,
   ),
 
-  // 16x16 Brass magnifying glass with clean sky-blue lens & diagonal glass streak
-  inspect: cluster16(
+  // 24x24 Antique brass magnifying glass with ice-blue glass lens & turned oak handle
+  inspect: cluster24(
     [
-      '................',
-      '...33333........',
-      '..32CCcc22......',
-      '.32CCccuu22.....',
-      '.32Cccuuu22.....',
-      '.22ccuuuu12.....',
-      '.21uuuuuu1b.....',
-      '..1111111Bbk....',
-      '.........BbkK...',
-      '..........bkK...',
-      '...........kK...',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '......4444444...........',
+      '....44333333322.........',
+      '...433^~~~===322........',
+      '..433^^~~~====221.......',
+      '..33^^~~~=====221.......',
+      '..33^~~~======211.......',
+      '..33~~~=======111.......',
+      '..32~~========111.......',
+      '..22=========111........',
+      '...221======111.........',
+      '....2111111111Bb........',
+      '......1111111Bbbk.......',
+      '.............BbbkK......',
+      '..............BbkK......',
+      '...............BbkK.....',
+      '................BbkK....',
+      '.................BbkK...',
+      '..................ygg...',
+      '...................gG...',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.gold,
-    MATS,
+    PMAT.gold,
+    PMATS,
   ),
 };
 
 export const ZONE_SPRITES: Record<ZoneOverlayType, CompiledSprite> = {
-  // 16x16 Gold-trimmed heraldic kingdom nameplate banner with text lines
-  kingdomLabels: cluster16(
+  // 24x24 Gold-framed heraldic kingdom nameplate banner with crimson crest & title bars
+  kingdomLabels: cluster24(
     [
-      '................',
-      '................',
-      '......YYYY......',
-      '.YYYYYYYYYYYYYY.',
-      '.Y111111111111y.',
-      '.Y1RR133333311y.',
-      '.Y1rq111111111y.',
-      '.Y111122222111y.',
-      '.Y111111111111y.',
-      '.yyyyyyyyyyyyyy.',
-      '......gG........',
-      '......gG........',
-      '.....ggGG.......',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '.........YYYYYY.........',
+      '........YyggggGY........',
+      '..YYYYYYYYYYYYYYYYYYYY..',
+      '.Yy111111111111111111gG.',
+      '.Yg1RRRR1144444444411gG.',
+      '.Yg1Rrrq1111111111111gG.',
+      '.Yg1rrqQ1133333331111gG.',
+      '.Yg11qq11111111111111gG.',
+      '.Yg111111122222222111gG.',
+      '.Yg111111111111111111gG.',
+      '..gggggggggggggggggggg..',
+      '..........BbkK..........',
+      '..........BbkK..........',
+      '..........BbkK..........',
+      '..........BbkK..........',
+      '........BBbkkKbb........',
+      '.......KkkkkkkkkK.......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.stone,
-    MATS,
+    PMAT.stone,
+    PMATS,
   ),
 
-  // 16x16 Symmetrical fortified castle keep with top battlements & recessed oak gate
-  kingdoms: cluster16(
+  // 24x24 Fortified stone castle keep with twin crenellated towers, pennants & oak gate
+  kingdoms: cluster24(
     [
-      '................',
-      '................',
-      '..Rr.......Rr...',
-      '..qq.......qq...',
-      '..33..333..33...',
-      '.2221222212221..',
-      '.2221222212221..',
-      '.2222222222221..',
-      '.2222bkkb22221..',
-      '.2221bBbk12221..',
-      '.1111bBbk11111..',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '....Rr............Rr....',
+      '....Rrq...........Rrq...',
+      '....B.............B.....',
+      '...44.44.......44.44....',
+      '...33333..44.4.33333....',
+      '...32221.33333.32221....',
+      '...32D21.32221.32D21....',
+      '...32221332221332221....',
+      '...32222222222222221....',
+      '...32222222222222221....',
+      '...322222Bbbbb222221....',
+      '...32222BbbkbbK22221....',
+      '...22222BbkBkbK22221....',
+      '...22221BbkBkbK12221....',
+      '...22221BbkBkbK12221....',
+      '...11111KkkkkkK11111....',
+      '...00000000000000000....',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.stone,
-    MATS,
+    PMAT.stone,
+    PMATS,
   ),
 
-  // 16x16 Symmetrical royal 3-point golden crown with jewels & velvety shadow rim
-  kings: cluster16(
+  // 24x24 Royal 3-pointed antique gold crown with velvet crimson cap & inset jewels
+  kings: cluster24(
     [
-      '................',
-      '................',
-      '.......43.......',
-      '..33...33...33..',
-      '..32..3321..22..',
-      '..22R.2221.q22..',
-      '..22rq2221rq21..',
-      '..333333333322..',
-      '..22cc2RR2ee21..',
-      '..22uU2rq2lL11..',
-      '..111111111111..',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '...........44...........',
+      '..........4334..........',
+      '...44.....3322.....44...',
+      '...332....3221....233...',
+      '...322...33221...2221...',
+      '...322R..32221..q2221...',
+      '...222Rr3322211rq2211...',
+      '...222rrq22221rqQ2211...',
+      '...2222qq22221qQ22211...',
+      '...444444444444444443...',
+      '...333333333333333322...',
+      '...222Cc22RRr22Ee2221...',
+      '...222cu22rrq22el2211...',
+      '...222uU22qqQ22lL2211...',
+      '...222222222222222111...',
+      '...111111111111111111...',
+      '....0000000000000000....',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.gold,
-    MATS,
+    PMAT.gold,
+    PMATS,
   ),
 
-  // 16x16 Gold-trimmed emerald heraldic shield (flat emerald center + golden trim)
-  territories: cluster16(
+  // 24x24 Gold-trimmed heraldic heater shield quartered in moss & crimson
+  territories: cluster24(
     [
-      '................',
-      '................',
-      '..YYYYyyyygggg..',
-      '.Yy2222222221g..',
-      '.Yg22Yy222221g..',
-      '.Yg2Yyyg22211G..',
-      '.Yg22ggG2b211G..',
-      '..Yg22222b11G...',
-      '..Yg12222b11G...',
-      '...Yg111111G....',
-      '....Yg1111G.....',
-      '.....YgggG......',
-      '......gGG.......',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '....YYYYYYYYyyyygggg....',
+      '...Yy3333333YYrrrrrqG...',
+      '...Yg3333333YYrrrrqqG...',
+      '...Yg3333333YYrrrqqQG...',
+      '...Yg3333333YYrrqqQQG...',
+      '...Yg2222222YYrqqQQQG...',
+      '...YgYYYYYYYYYYYYYYYG...',
+      '...YgYYYYYYYYYYYYYYYG...',
+      '....YgRRRRrrYY22222G....',
+      '....YgRrrrqqYY22221G....',
+      '.....YgqqqQQYY2221G.....',
+      '.....YgqqQQQYY2211G.....',
+      '......YgQQQQYY111G......',
+      '.......YgQQQYY11G.......',
+      '........YgQQYY1G........',
+      '.........YggggG.........',
+      '..........YggG..........',
+      '...........GG...........',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.leaf,
-    MATS,
+    PMAT.moss,
+    PMATS,
   ),
 
-  // 16x16 Clean 4-quadrant isometric earth tile
-  biomes: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 12, 4, (x, y, cx, cy) => {
-      if (x <= cx && y < cy) return { ramp: MAT.steel, tone: 3 };
-      if (x > cx && y < cy) return { ramp: MAT.gold, tone: 3 };
-      if (x <= cx && y >= cy) return { ramp: MAT.leaf, tone: 3 };
-      return { ramp: MAT.azure, tone: 3 };
+  // 24x24 Four-quadrant isometric world biome block (ice, desert, moss, ocean)
+  biomes: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4, (x, y, cx, cy) => {
+      if (x <= cx && y < cy) return { ramp: PMAT.ice, tone: (x + y) % 5 === 0 ? 4 : 3 };
+      if (x > cx && y < cy) return { ramp: PMAT.sand, tone: (x + y) % 5 === 0 ? 4 : 3 };
+      if (x <= cx && y >= cy) return { ramp: PMAT.moss, tone: (x + y) % 5 === 0 ? 4 : 3 };
+      return { ramp: PMAT.water, tone: (x + y) % 5 === 0 ? 4 : 3 };
     });
   }),
 
-  // 16x16 Crossed azure & crimson faction banners bound by golden pact clasp
-  alliances: cluster16(
+  // 24x24 Crossed azure & crimson faction banners bound by a gleaming golden pact ring
+  alliances: cluster24(
     [
-      '................',
-      '.Y............Y.',
-      '.BCCCC....RRRRb.',
-      '.Bcccu....RrrrK.',
-      '.BuuuU....qqqqK.',
-      '..Bbk......Bbk..',
-      '...Bbk....Bbk...',
-      '....Bbk..Bbk....',
-      '......YYYY......',
-      '.....bggggk.....',
-      '....bk....bk....',
-      '...kK......Kk...',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '..Y..................Y..',
+      '..BCCCCCC......RRRRRRB..',
+      '..BCccccu......RrrrrqK..',
+      '..Bcccuuu......rrrqqqK..',
+      '..BuuuuUU......qqqQQQK..',
+      '...Bbk............bkK...',
+      '....Bbk..........bkK....',
+      '.....Bbk........bkK.....',
+      '......Bbk..YY..bkK......',
+      '.......BbYyyyygbK.......',
+      '........YyyggGgK........',
+      '........Yyg44gGK........',
+      '........YggGGgGK........',
+      '.......bkKggggBbk.......',
+      '......bkK......Bbk......',
+      '.....bkK........Bbk.....',
+      '....bkK..........Bbk....',
+      '...kKK............KKk...',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.gold,
-    MATS,
+    PMAT.gold,
+    PMATS,
   ),
 
-  // 16x16 Symmetrical glass thermometer (steel rim left & right, clear glass center, red bulb)
-  temperature: cluster16(
+  // 24x24 Graduated steel & glass thermometer with ice upper tube & crimson mercury bulb
+  temperature: cluster24(
     [
-      '................',
-      '......3333......',
-      '.....3CCcc2.....',
-      '.....3ccuu2.....',
-      '.....2uuuu1.....',
-      '.....2RRRR1.....',
-      '.....2rrrr1.....',
-      '....32Rrrr21....',
-      '...32Rrrrrq21...',
-      '...22rrrrqq11...',
-      '...11qqqqQQ11...',
-      '....11111111....',
-      '................',
-      '................',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '.........444444.........',
+      '........43^~~=32........',
+      '........3^~~==22.33.....',
+      '........3^~===21........',
+      '........3^====21.22.....',
+      '........3====-21........',
+      '........3RRRRr21.33.....',
+      '........3Rrrrq21........',
+      '........3Rrrrq21.22.....',
+      '........2Rrrrq11........',
+      '.......32Rrrrrq21.......',
+      '......32RRrrrrqq21......',
+      '.....32RRrrrrrqqq21.....',
+      '.....22Rrrrrrqqqq11.....',
+      '.....22rrrrrqqqqQ11.....',
+      '.....12rrrrqqqqQQ11.....',
+      '......11qqqqqQQQ11......',
+      '.......1111111111.......',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.steel,
-    MATS,
+    PMAT.steel,
+    PMATS,
   ),
 };
 
 export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
-  raise: cluster16(
-    [
-      '.......YY.......',
-      '......YyyY......',
-      '.....YyyggY.....',
-      '....YygggggY....',
-      '......yggG......',
-      '......yggG......',
-      '.....EEeeEE.....',
-      '....EeelleeE....',
-      '...EeeelleeeE...',
-      '..EllbBbbBblLE..',
-      '..llbbkBkkbbll..',
-      '.lbkkBkkkkBkkbl.',
-      '.bkkKkkkkkkKkkb.',
-      '.kkKKkKKKKkKKkk.',
-      '..KKKKKKKKKKKK..',
-      '................',
-    ],
-    MAT.leaf,
-    MATS,
-  ),
-
-  lower: cluster16(
-    [
-      '......FffF......',
-      '......FffA......',
-      '......faaA......',
-      '....FffaaaAF....',
-      '.....faaaAA.....',
-      '......aaAA......',
-      '.EEee..AA..eeEE.',
-      '.EelLE....ELleE.',
-      '.bbkL......Lkbb.',
-      '.bkkK.uUUu.Kkkb.',
-      '.kkK.CuuuuC.Kkk.',
-      '.kkK.uuuuUU.Kkk.',
-      '.kKKKUUUUUUKKKk.',
-      '..KKKKKKKKKKKK..',
-      '................',
-      '................',
-    ],
-    MAT.flame,
-    MATS,
-  ),
-
-  flatten: cluster16(
-    [
-      '................',
-      '......yYYy......',
-      '.....YgGGgY.....',
-      '..YYYYYYYYYYYY..',
-      '.YyyIICCIIyygGY.',
-      '.YggGGGGGGGGGGY.',
-      '..GGGGGGGGGGGG..',
-      '................',
-      '.NNNNNNNNNNNNNN.',
-      '.NnnnnhhhhnnnNN.',
-      '.nhhHHhhhhHHhhn.',
-      '.hhHHHhHHhHHHhh.',
-      '.kHHkHHHHHHkHHk.',
-      '..HHHHHHHHHHHH..',
-      '................',
-      '................',
-    ],
-    MAT.stone,
-    MATS,
-  ),
-
-  fertile_meadow: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+  // 24x24 Isometric grass block with raised hillock & bold upward gold-amber arrow
+  raise: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
     c.stamp(
-      3,
-      3,
+      4,
+      1,
       [
-        '.Yy....Rr.',
-        'YgG...Rrq.',
-        '.l.....l..',
-        '.l.....L..',
+        '.......YY.......',
+        '......YyyY......',
+        '.....YyyggY.....',
+        '....YyygggGY....',
+        '...YyyggggGGY...',
+        '......yggG......',
+        '......yggG......',
+        '.....EEeeEE.....',
+        '...EEeeelleeE...',
+        '..EeellllllleE..',
+        '.EllbbkkkkbbllE.',
       ],
-      MAT.leaf,
-      MATS,
+      PMAT.gold,
+      PMATS,
     );
   }),
 
-  plant_forest: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+  // 24x24 Isometric grass block with sunken water basin & bold downward crimson-amber arrow
+  lower: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4, (x, y, cx, cy) => {
+      const dx = (x - cx) / 5.2;
+      const dy = (y - cy) / 2.6;
+      const d = dx * dx + dy * dy;
+      if (d <= 0.45) return { ramp: PMAT.water, tone: 1 };
+      if (d <= 0.85) return { ramp: PMAT.water, tone: 2 };
+      if (d <= 1.15) return { ramp: PMAT.darkWood, tone: 2 };
+      return null;
+    });
     c.stamp(
-      2,
+      4,
+      1,
+      [
+        '......FffF......',
+        '......FfaA......',
+        '......faaA......',
+        '...FffaaaaAAF...',
+        '....FfaaaAAA....',
+        '.....faaAAA.....',
+        '......aAAA......',
+        '.......AA.......',
+      ],
+      PMAT.amber,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Flat isometric stone terrace with brass spirit-level bar & cyan bubble
+  flatten: icon24((c) => {
+    c.isoBlock(PMAT.stone, PMAT.stone, PMAT.iron, 17, 4);
+    c.stamp(
+      3,
       2,
       [
-        '..332.....',
-        '.33221.32.',
-        '.222212221',
-        '..111.1111',
-        '...k...k..',
+        '........YY........',
+        '.......YggY.......',
+        '.YYYYYYYYYYYYYYYY.',
+        'YyggIICCccIIggGGyY',
+        'YgggGGccccGGggggGY',
+        '.GGGGGGGGGGGGGGGG.',
       ],
-      MAT.leaf,
-      MATS,
+      PMAT.gold,
+      PMATS,
     );
   }),
 
-  seed_ore: icon16((c) => {
-    c.isoTile(MAT.darkIron, MAT.stone, MAT.darkIron, 14, 3);
+  // 24x24 Lush isometric meadow dotted with crimson, gold & rose wildflowers
+  fertile_meadow: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      4,
+      4,
+      [
+        '..Yy......Rr....',
+        '.YygG....Rrq....',
+        '..el......el....',
+        '..lL..@#..lL.Yy.',
+        '.....@#Y#...Yyg.',
+        '......el.....el.',
+        '......lL.....lL.',
+      ],
+      PMAT.moss,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric moss block topped with layered oak & pine trees
+  plant_forest: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
     c.stamp(
       3,
-      3,
+      2,
       [
-        '.33...32.',
-        '3322.3321',
-        '2211.2211',
+        '....EEe...........',
+        '...Eeeel....Ee....',
+        '..EeeellL..Eeel...',
+        '..eelllLL.EeellL..',
+        '...llLL..EeellllL.',
+        '....bk...eelllLL..',
+        '....bk..Eee.bk....',
+        '....kK.Eeel.bk....',
+        '.......ellL.kK....',
+        '........bk........',
       ],
-      MAT.gold,
-      MATS,
+      PMAT.moss,
+      PMATS,
     );
   }),
 
-  carve_river: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 12, 4, (x, y) => {
-      const band = Math.abs(x - 7.5 + (y - 6) * 1.4);
-      if (band <= 1.5) return { ramp: MAT.azure, tone: 3 };
-      if (band <= 2.4) return { ramp: MAT.azure, tone: 2 };
+  // 24x24 Isometric dark-iron & stone block studded with chunky gold & amber ore veins
+  seed_ore: icon24((c) => {
+    c.isoBlock(PMAT.iron, PMAT.stone, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      4,
+      [
+        '..Yyy.....Ff....',
+        '.YyygG...FfaA...',
+        '.yggGG...faaA...',
+        '....GG..Yyy.....',
+        '..Ff...YyygG....',
+        '.FfaA..yggGG....',
+        '..aaA...........',
+      ],
+      PMAT.gold,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric moss block with winding blue river channel
+  carve_river: icon24((c) => {
+    drawIsoRiver24(c, PMAT.moss, PMAT.wood, PMAT.darkWood, PMAT.water, PMAT.ice);
+  }),
+
+  // 24x24 Isometric moss block with winding chiseled cobblestone road across the top
+  stone_road: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4, (x, y) => {
+      const band = Math.abs(x - 11.5 + (y - 13) * 1.15);
+      if (band <= 2.7) {
+        const paver = (Math.floor(x / 2) + Math.floor(y / 2)) % 2 === 0;
+        const seam = x % 3 === 0 && y % 2 === 0;
+        return { ramp: PMAT.stone, tone: seam ? 1 : paver ? 3 : 2 };
+      }
+      if (band <= 3.3) return { ramp: PMAT.stone, tone: 1 };
       return null;
     });
   }),
 
-  stone_road: cluster16(
-    [
-      '................',
-      '......EeNN......',
-      '.....EelNnh.....',
-      '....EelNnnH.....',
-      '....elNnnHnE....',
-      '...EelNnhNnle...',
-      '...elNnnHnnle...',
-      '..EelNnhNnhnle..',
-      '..elNnnHnnnHle..',
-      '..elNnhHnnnhle..',
-      '.EelNnnHNnnHle..',
-      '.elNnnHHnnnhHle.',
-      '.elNnhHHnnnhHle.',
-      '.LLNnnHHnnnhHLL.',
-      '..LHHHHHHHHHHLL.',
-      '................',
-    ],
-    MAT.stone,
-    MATS,
-  ),
-
-  rail_track: cluster16(
-    [
-      '................',
-      '.....S....S.....',
-      '....SsbkkbsS....',
-      '....SsmkkmsS....',
-      '....Ss....sS....',
-      '...SsbBkkBbsS...',
-      '...SsmkkkkmsS...',
-      '...Ss......sS...',
-      '..SsbBkkkkBbsS..',
-      '..SsmkKKKKkmsS..',
-      '..Ss........sS..',
-      '.SsbBkkkkkkBbsS.',
-      '.SsmkKKKKKKkmsS.',
-      '.Ssm........msS.',
-      '.MM..........MM.',
-      '................',
-    ],
-    MAT.steel,
-    MATS,
-  ),
-
-  crystal_shower: icon16((c) => {
-    c.isoTile(MAT.arcane, MAT.stone, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..P....C..',
-        '.PpP..CcC.',
-        '.Pzp..CuC.',
-        '..z....u..',
-        '....Pp....',
-        '...Ppzp...',
-      ],
-      MAT.arcane,
-      MATS,
-    );
-  }),
-
-  boulder_rain: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.wood, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '.Nnh......',
-        'NnhH..Nnh.',
-        'nHH..NnhH.',
-        '.....nhHH.',
-        '..Nnh.....',
-        '.NnhHH....',
-      ],
-      MAT.stone,
-      MATS,
-    );
-  }),
-
-  blossom_rain: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '.Rr...rR..',
-        'RrY...RrY.',
-        '..q....q..',
-        '...Rrq....',
-        '..RrYr..R.',
-        '...qq..rY.',
-      ],
-      MAT.ruby,
-      MATS,
-    );
-  }),
-
-  jungle_bloom: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..EE.EE...',
-        '.EeEeEeE..',
-        '.elLkkLl..',
-        '...kBbk...',
-        '...kBk....',
-        '...kK.....',
-      ],
-      MAT.leaf,
-      MATS,
-    );
-  }),
-
-  soil_enrich: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      3,
-      1,
-      [
-        '.C...Y..C.',
-        '.c...y..c.',
-        '..Ee..Ee..',
-        '.EeLeEeLe.',
-        '..ll..ll..',
-      ],
-      MAT.azure,
-      MATS,
-    );
-  }),
-
-  desert_dunes: icon16((c) => {
-    c.isoTile(MAT.gold, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        '....YYY...',
-        '..YYyyyY..',
-        '.YyygggY..',
-        'YYYYggggGG',
-      ],
-      MAT.gold,
-      MATS,
-    );
-  }),
-
-  coral_reef_rain: icon16((c) => {
-    c.isoTile(MAT.azure, MAT.azure, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '.Rr...FF..',
-        '.rq..FfF..',
-        '..q..fFa..',
-        '...C..a...',
-        '..Rrq.Ff..',
-      ],
-      MAT.ruby,
-      MATS,
-    );
-  }),
-
-  salvage_drop: icon16((c) => {
-    c.isoTile(MAT.steel, MAT.stone, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..SSss....',
-        '..SYys.Yy.',
-        '..smmM.yg.',
-        '....SSss..',
-        '....smmM..',
-      ],
-      MAT.steel,
-      MATS,
-    );
-  }),
-
-  volcanic_obsidian: icon16((c) => {
-    c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..Dd...F..',
-        '.DFd..DFd.',
-        '.dFd..dfD.',
-        '..d....D..',
-        '...DdFd...',
-      ],
-      MAT.flame,
-      MATS,
-    );
-  }),
-
-  atlantis_rise: icon16((c) => {
-    c.isoTile(MAT.azure, MAT.azure, MAT.darkIron, 14, 3);
-    c.stamp(
-      3,
-      1,
-      [
-        '.YYYYYYYY.',
-        '.CC.CC.CC.',
-        '.cu.cu.cu.',
-        '.cu.cu.cu.',
-        'CccCccCccC',
-      ],
-      MAT.gold,
-      MATS,
-    );
-  }),
-
-  alpine_glacier: cluster16(
-    [
-      '.......II.......',
-      '......IIiI......',
-      '.....IIiiCC.....',
-      '....IIiiCccC....',
-      '...IIiICcucCI...',
-      '..IIiCCcuuuCIi..',
-      '..IiCCcuuuCCiI..',
-      '.IiCCcuuNnhCCcC.',
-      '.ICccuuNnnnhCcu.',
-      '.CcuuuNnnnhHcuU.',
-      '.cuuUNnnnhHHuUU.',
-      '.uUUNnnnhHHHuUU.',
-      '.UUNnnnhHHHHHUU.',
-      '..NHHHHHHHHHHH..',
-      '................',
-      '................',
-    ],
-    MAT.azure,
-    MATS,
-  ),
-
-  abyssal_trench: icon16((c) => {
-    c.isoTile(MAT.azure, MAT.darkIron, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        'CcDDDDDDcC',
-        '.uDDDDDDu.',
-        '..UDddDU..',
-        '...DDDD...',
-      ],
-      MAT.darkIron,
-      MATS,
-    );
-  }),
-
-  swamp_mire: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.darkWood, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        '.ll..eE...',
-        'Llk..ll.k.',
-        '.k.EeL.lL.',
-        '..eLll..k.',
-      ],
-      MAT.leaf,
-      MATS,
-    );
-  }),
-
-  volcanic_wasteland: icon16((c) => {
-    c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '...FYYf...',
-        '..DFYYfD..',
-        '.DdFffFdD.',
-        '..dF..Fd..',
-        '.Ff....fF.',
-      ],
-      MAT.flame,
-      MATS,
-    );
-  }),
-
-  blighted_mire: icon16((c) => {
-    c.isoTile(MAT.arcane, MAT.darkIron, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..D....D..',
-        '.DpD..DpD.',
-        '..pE..Ep..',
-        '...EeEe...',
-        '..p.ll.p..',
-      ],
-      MAT.arcane,
-      MATS,
-    );
-  }),
-
-  floral_plains: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '.Rr.YY.Pp.',
-        'RrY.yg.PpY',
-        '.l..E...l.',
-        '..Ee.Cc...',
-        '.el..cu...',
-      ],
-      MAT.ruby,
-      MATS,
-    );
-  }),
-
-  savanna_biome: icon16((c) => {
-    c.isoTile(MAT.gold, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..LLLLLL..',
-        '.LlLLLLlL.',
-        '....Bb....',
-        '....bB....',
-      ],
-      MAT.gold,
-      MATS,
-    );
-  }),
-
-  forest_biome: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..ll..ll..',
-        '.lLLllLLl.',
-        '..lLllLl..',
-        '...B..B...',
-      ],
-      MAT.leaf,
-      MATS,
-    );
-  }),
-
-  taiga_biome: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.stone, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '....w.....',
-        '...lLl....',
-        '..lLLLl...',
-        '.lLLLLLl..',
-        '....B.....',
-      ],
-      MAT.leaf,
-      MATS,
-    );
-  }),
-
-  tundra_biome: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.darkWood, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        '.ww...Ww..',
-        'wW..ss..w.',
-        '..ssWWss..',
-      ],
-      MAT.ice,
-      MATS,
-    );
-  }),
-
-  snow_biome: icon16((c) => {
-    c.isoTile(MAT.ice, MAT.stone, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..w...W...',
-        '.wWw.wWw..',
-        '..w...W...',
-      ],
-      MAT.ice,
-      MATS,
-    );
-  }),
-
-  badlands_biome: icon16((c) => {
-    c.isoTile(MAT.flame, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        '..fffff...',
-        '.fFFFFff..',
-        'dDDDDDDdd.',
-      ],
-      MAT.flame,
-      MATS,
-    );
-  }),
-
-  blossom_biome: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '..pPPp....',
-        '.pPPwPp...',
-        '..pPPp.p..',
-        '....B.....',
-      ],
-      MAT.arcane,
-      MATS,
-    );
-  }),
-
-  highland_biome: icon16((c) => {
-    c.isoTile(MAT.stone, MAT.darkWood, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '...ss.....',
-        '..sSSs.s..',
-        '.sSDDssSs.',
-      ],
-      MAT.stone,
-      MATS,
-    );
-  }),
-
-  crystal_biome: icon16((c) => {
-    c.isoTile(MAT.ice, MAT.arcane, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      1,
-      [
-        '....w.....',
-        '...wCw.w..',
-        '..cCCcwCw.',
-        '..cCCccCc.',
-      ],
-      MAT.ice,
-      MATS,
-    );
-  }),
-
-  scorched_biome: icon16((c) => {
-    c.isoTile(MAT.darkIron, MAT.darkIron, MAT.darkIron, 14, 3);
-    c.stamp(
-      2,
-      2,
-      [
-        '.dD..f..D.',
-        'dDd.fFf.d.',
-        '..dd..dd..',
-      ],
-      MAT.flame,
-      MATS,
-    );
-  }),
-
-  lava_river: icon16((c) => {
-    c.isoTile(MAT.darkIron, MAT.flame, MAT.darkIron, 12, 4, (x, y) => {
-      const band = Math.abs(x - 7.5 + (y - 6) * 1.4);
-      if (band <= 1.2) return { ramp: MAT.gold, tone: 4 };
-      if (band <= 2.4) return { ramp: MAT.flame, tone: 3 };
+  // 24x24 Isometric gravel/earth block with wooden sleepers & twin steel rails
+  rail_track: icon24((c) => {
+    c.isoBlock(PMAT.stone, PMAT.wood, PMAT.darkWood, 17, 4, (x, y) => {
+      const d = x - 11.5 + (y - 13) * 1.15;
+      const ad = Math.abs(d);
+      if (Math.abs(ad - 1.7) <= 0.65) {
+        return { ramp: PMAT.steel, tone: y % 2 === 0 ? 4 : 3 };
+      }
+      if (ad <= 3.0 && (y + Math.floor(x * 0.5)) % 2 === 0) {
+        return { ramp: PMAT.darkWood, tone: 2 };
+      }
       return null;
     });
   }),
 
-  poison_river: icon16((c) => {
-    c.isoTile(MAT.arcane, MAT.darkIron, MAT.darkIron, 12, 4, (x, y) => {
-      const band = Math.abs(x - 7.5 + (y - 6) * 1.4);
-      if (band <= 1.4) return { ramp: MAT.leaf, tone: 4 };
-      if (band <= 2.5) return { ramp: MAT.leaf, tone: 3 };
+  // 24x24 Isometric arcane/stone block with violet & ice-blue crystals raining down
+  crystal_shower: icon24((c) => {
+    c.isoBlock(PMAT.arcane, PMAT.stone, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      1,
+      [
+        '...P........^...',
+        '..PpP......^~^..',
+        '..Pzp.....^~=^..',
+        '...z.......=-...',
+        '.......P........',
+        '......PpP....P..',
+        '.....Ppzp...PpP.',
+        '..^..PzzZ...Pzp.',
+        '.^~^..zZ.....Z..',
+        '.^~=^...........',
+      ],
+      PMAT.arcane,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric earth/stone block with faceted granite boulders raining down
+  boulder_rain: icon24((c) => {
+    c.isoBlock(PMAT.stone, PMAT.wood, PMAT.iron, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '..Nnn.......Nnn...',
+        '.Nnnnh.....Nnnnh..',
+        '.nnhHH.....nnhHH..',
+        '..HHH...Nnn.HHH...',
+        '.......Nnnnh......',
+        '..Nnn..nnhHH..Nn..',
+        '.Nnnnh..HHH..Nnnh.',
+        '.nnhHH.......nhHH.',
+      ],
+      PMAT.stone,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric moss block with rose cherry-blossom petals drifting from above
+  blossom_rain: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '..@#........@#....',
+        '.@#Y#......@#Y#...',
+        '..#?!.......#?!...',
+        '.......@#.........',
+        '......@#Y#....@#..',
+        '..@#...#?!...@#Y#.',
+        '.@#Y#.........#?!.',
+        '..?!....@#........',
+        '.......@#Y#.......',
+      ],
+      PMAT.rose,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric lush moss block with dense tropical palm & exotic blooms
+  jungle_bloom: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '....EEe..EEe......',
+        '..EEeeelEeeelEE...',
+        '.EeeellLllleeeel..',
+        '..ellLLbkLLllle...',
+        '...LL.Bbbk.LL.....',
+        '......Bbk...Rr....',
+        '..Ee..Bbk..Rrq....',
+        '.Eeel.bkK...el....',
+        '..llL.kK....lL....',
+      ],
+      PMAT.moss,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric fertile soil block with water droplets, gold motes & fresh sprouts
+  soil_enrich: icon24((c) => {
+    c.isoBlock(PMAT.darkWood, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      4,
+      1,
+      [
+        '..C.....Y....C..',
+        '.Ccu...Yyg..Ccu.',
+        '..u.....g....u..',
+        '................',
+        '...Ee......Ee...',
+        '..Eeel....Eeel..',
+        '...llL.Ee..llL..',
+        '....l.Eeel..l...',
+        '.......llL......',
+      ],
+      PMAT.water,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric golden sand block with sweeping sunlit dune ridges & desert cactus
+  desert_dunes: icon24((c) => {
+    c.isoBlock(PMAT.sand, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      4,
+      [
+        '......::::........',
+        '....:::;;;::......',
+        '...::;;;;,,;;..e..',
+        '..:;;;;,,,,__e.e..',
+        '.::;,,,,,,,,_ele..',
+        '.;;,,,,_____..l...',
+        '..............L...',
+      ],
+      PMAT.sand,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric ocean block with branching crimson coral & amber sea-fans
+  coral_reef_rain: icon24((c) => {
+    c.isoBlock(PMAT.water, PMAT.water, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      1,
+      [
+        '..R...R....F..F.',
+        '..Rr.Rr...Ff.Ff.',
+        '...Rrq.....Ffa..',
+        '...rqQ..^...aA..',
+        '....q..^~...aA..',
+        '..Rrq......Ffa..',
+        '..rqQ..R...faA..',
+        '...Q..Rrq...A...',
+      ],
+      PMAT.crimson,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric steel/stone block with riveted scrap plates & brass gear dropping
+  salvage_drop: icon24((c) => {
+    c.isoBlock(PMAT.steel, PMAT.stone, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      1,
+      [
+        '..SSss......Yy..',
+        '.SsmmMM....YygG.',
+        '.smDmmM....gYGG.',
+        '..mMMM...SSss...',
+        '........SsmmMM..',
+        '...Bbk..smDmmM..',
+        '..BbbkK..MMMM...',
+        '..kkKK..........',
+      ],
+      PMAT.steel,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric basalt block with jagged obsidian spires & thin glowing magma cracks
+  volcanic_obsidian: icon24((c) => {
+    c.isoBlock(PMAT.iron, PMAT.amber, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      2,
+      [
+        '....D.......D...',
+        '...DSD.....DSD..',
+        '...DdD..D..DdD..',
+        '..DdFD.DSD.DdD..',
+        '..dFFd.DdD.dFd..',
+        '..dFad.dFd.dad..',
+        '...dd..dad..d...',
+        '....D..dDd..D...',
+      ],
+      PMAT.iron,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric ocean block with rising marble & gold sunken temple colonnade
+  atlantis_rise: icon24((c) => {
+    c.isoBlock(PMAT.water, PMAT.water, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      2,
+      [
+        '......YYYY......',
+        '....YYyyyyGG....',
+        '..YYYYggggGGGG..',
+        '...II..II..II...',
+        '...ij..ij..ij...',
+        '...ij..ij..ij...',
+        '...ij..ij..ij...',
+        '..^~~^~~^~~^~~..',
+        '.^~===~===~===~.',
+      ],
+      PMAT.gold,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Towering jagged snow-and-ice alpine glacier peak with stone base
+  alpine_glacier: cluster24(
+    [
+      '........................',
+      '...........^^...........',
+      '..........^~~^..........',
+      '.........^~~~==.........',
+      '........^~~~====........',
+      '.......^~~^~====-.......',
+      '......^~~^~~=====-......',
+      '.....^~~^~~~===Nnn-.....',
+      '....^~~^~~~===NnnhH-....',
+      '...^~~^~~~===NnnnhHH....',
+      '..^~~^~~~===NnnnhHH==...',
+      '..^~^~~~===NnnnhHHH==...',
+      '.^~~===NnnNnnnhHHHH==-..',
+      '.^~===NnnhHnnnhHHHHH=-..',
+      '.~===NnnnhHnnnhHHHHHH-..',
+      '.===NnnnhHHnnnhHHHHHH-..',
+      '.==NnnnhHHHnnnhHHHHHH-..',
+      '..=NnnnhHHHnnnhHHHHH-...',
+      '..NnnnnhHHHnnnhHHHHHH...',
+      '...HHHHHHHHHHHHHHHHHH...',
+      '....0000000000000000....',
+      '........................',
+      '........................',
+      '........................',
+    ],
+    PMAT.ice,
+    PMATS,
+  ),
+
+  // 24x24 Isometric deep ocean block split by a yawning pitch-dark abyssal trench
+  abyssal_trench: icon24((c) => {
+    c.isoBlock(PMAT.water, PMAT.iron, PMAT.iron, 17, 4, (x, y) => {
+      const band = Math.abs(x - 11.5 + (y - 13) * 0.9);
+      if (band <= 1.5) return { ramp: PMAT.iron, tone: 0 };
+      if (band <= 2.6) return { ramp: PMAT.iron, tone: 1 };
+      if (band <= 3.3) return { ramp: PMAT.water, tone: 1 };
       return null;
     });
   }),
 
-  floral_rain: icon16((c) => {
-    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3);
+  // 24x24 Isometric murky moss & dark-wood bog with stagnant pools & cattail reeds
+  swamp_mire: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.darkWood, PMAT.iron, 17, 4, (x, y, cx, cy) => {
+      const d1 = (x - (cx - 2.5)) ** 2 / 7 + (y - (cy + 0.5)) ** 2 / 2.5;
+      const d2 = (x - (cx + 3)) ** 2 / 5 + (y - (cy - 1)) ** 2 / 2;
+      if (d1 <= 1 || d2 <= 1) return { ramp: PMAT.darkWood, tone: 1 };
+      return null;
+    });
     c.stamp(
-      2,
-      1,
+      4,
+      3,
       [
-        '.Rr..Y..P.',
-        'RrY.YyY.pY',
-        '.q...y..z.',
-        '..Cc..Rr..',
-        '.cYu.RrY..',
+        '..K..........K..',
+        '..k...Ee.....k..',
+        '..l..Eeel....l..',
+        '..l...llL.K..l..',
+        '..L.......k..L..',
+        '..........l.....',
       ],
-      MAT.ruby,
-      MATS,
+      PMAT.moss,
+      PMATS,
     );
   }),
 
-  water_drop: cluster16(
+  // 24x24 Isometric basalt block with smoking fissures & glowing molten ember pools
+  volcanic_wasteland: icon24((c) => {
+    c.isoBlock(PMAT.iron, PMAT.amber, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      2,
+      [
+        '.....Nn.........',
+        '....NnhH........',
+        '.....FFf........',
+        '...DFYYfD.......',
+        '..DdFffadD..D...',
+        '..dDFaadDd.DFd..',
+        '...dF..ad..dad..',
+        '..Ff....aF..d...',
+      ],
+      PMAT.amber,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric blighted arcane/iron block with eerie toxic pools & dead thorns
+  blighted_mire: icon24((c) => {
+    c.isoBlock(PMAT.arcane, PMAT.iron, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      2,
+      [
+        '..D.........D...',
+        '.DpD.......DpD..',
+        '..D.p....p..D...',
+        '...Dp+*+*pD.....',
+        '...p+*%*%+p.....',
+        '....+%&&%+......',
+        '..p..&&&&..p....',
+      ],
+      PMAT.arcane,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric lush meadow carpeted with crimson, gold, arcane & sky wildflowers
+  floral_plains: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      4,
+      3,
+      [
+        '.Rr...Yy...Pp...',
+        'RrY..Yyg..PpY...',
+        '.el...el...el...',
+        '.lL.Cc.Rr..lL...',
+        '...Ccu.RrY..Yy..',
+        '....el..el.Yyg..',
+        '....lL..lL..el..',
+      ],
+      PMAT.moss,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric golden savanna block topped with an iconic flat-topped acacia tree
+  savanna_biome: icon24((c) => {
+    c.isoBlock(PMAT.sand, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      2,
+      [
+        '...EEeeeeEE.......',
+        '.EEeeellleeeE.....',
+        '..eellLLLLllE.....',
+        '......B..bk.......',
+        '.......Bbk........',
+        '.......Bbk........',
+        '.......bkK........',
+        '......bbkK........',
+      ],
+      PMAT.moss,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric moss block topped with a dense cluster of rounded oak trees
+  forest_biome: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      2,
+      [
+        '..EEe....EEe......',
+        '.Eeeel..Eeeel.....',
+        'EeeellLEeeellL....',
+        '.eellLL.eellLL....',
+        '..llbk...llbk.....',
+        '....bk.EEe.bk.....',
+        '....kKEeel.kK.....',
+        '......ellL........',
+        '.......bk.........',
+      ],
+      PMAT.moss,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric cool moss/stone block topped with snow-dusted spruce pines
+  taiga_biome: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.stone, PMAT.iron, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '......^...........',
+        '.....^e^..........',
+        '....^eel^....^....',
+        '...EeeellL..^e^...',
+        '..EeeellllL^eel^..',
+        '.EeeellllLLeeellL.',
+        '..lllLLLLL.lllLL..',
+        '......bk.....bk...',
+        '......kK.....kK...',
+      ],
+      PMAT.moss,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric permafrost stone block with snow patches & exposed grey boulders
+  tundra_biome: icon24((c) => {
+    c.isoBlock(PMAT.stone, PMAT.darkWood, PMAT.iron, 17, 4, (x, y) => {
+      if ((x * 3 + y * 5) % 7 <= 1) return { ramp: PMAT.ice, tone: 3 };
+      return null;
+    });
+    c.stamp(
+      4,
+      4,
+      [
+        '..^^......Nnn...',
+        '.^~~^....Nnnnh..',
+        '..==..Nn.nnhHH..',
+        '.....Nnnh..HH...',
+        '.....nhHH.......',
+      ],
+      PMAT.ice,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric snow/ice block with soft snowdrifts & crisp crystalline snowflakes
+  snow_biome: icon24((c) => {
+    c.isoBlock(PMAT.ice, PMAT.stone, PMAT.iron, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '...^.........^....',
+        '..^~^.......^~^...',
+        '...^.........^....',
+        '........^.........',
+        '.......^~^........',
+        '........^.........',
+        '..^^^^.....^^^^...',
+        '.^~~~~^...^~~~~^..',
+      ],
+      PMAT.ice,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric terracotta/bronze red-rock block with stratified desert ridges
+  badlands_biome: icon24((c) => {
+    c.isoBlock(PMAT.bronze, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      4,
+      3,
+      [
+        '....XXXXXX......',
+        '...XxxxxxxV.....',
+        '..XxxvvvvvvV....',
+        '.::;;;,,,,;;:...',
+        '.XxxvvVVVVvvx...',
+        '.xxvvVVVVVVvv...',
+      ],
+      PMAT.bronze,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric moss block topped with a gnarled wooden sakura tree in full pink bloom
+  blossom_biome: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '....@@##..........',
+        '..@@####!@@.......',
+        '.@###@####!#......',
+        '.@##!!###!!?......',
+        '..#!!?Bbk!!?......',
+        '......Bbk.........',
+        '.....Bbbk...@#....',
+        '.....bkK...#?!....',
+        '....bbkK..........',
+      ],
+      PMAT.rose,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric highland stone block topped with craggy twin peaks & heather
+  highland_biome: icon24((c) => {
+    c.isoBlock(PMAT.stone, PMAT.darkWood, PMAT.iron, 17, 4);
+    c.stamp(
+      3,
+      2,
+      [
+        '.....NN...........',
+        '....NNnh....NN....',
+        '...NNnnhH..NNnh...',
+        '..NNnnnhHHNNnnhH..',
+        '.NNnnnnhHHnnnnhHH.',
+        '.NnnnnhHHHnnnhHHH.',
+        '.eelnhHHHHnnhHeel.',
+      ],
+      PMAT.stone,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric ice/arcane block topped with towering faceted crystal spires
+  crystal_biome: icon24((c) => {
+    c.isoBlock(PMAT.ice, PMAT.arcane, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      1,
+      [
+        '......^.........',
+        '.....^~^........',
+        '....^~~=^...P...',
+        '..P.^~==^..PpP..',
+        '.PpP^~==-..Pzp..',
+        '.Pzp^===-..PzZ..',
+        '.PzZ~===-..zZZ..',
+        '..zZ====-...Z...',
+      ],
+      PMAT.ice,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric blackened ash/iron block with charred stump & smoldering embers
+  scorched_biome: icon24((c) => {
+    c.isoBlock(PMAT.iron, PMAT.iron, PMAT.iron, 17, 4);
+    c.stamp(
+      4,
+      3,
+      [
+        '......F.........',
+        '.....FfF........',
+        '..D..faa...D....',
+        '.DdD..a...DdD...',
+        '.dDd..F...dDd...',
+        '.dDd.FfF..dDd...',
+        '..dd..a....dd...',
+      ],
+      PMAT.amber,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Isometric basalt block with glowing molten amber-gold lava river
+  lava_river: icon24((c) => {
+    drawIsoRiver24(c, PMAT.iron, PMAT.amber, PMAT.iron, PMAT.amber, PMAT.gold);
+  }),
+
+  // 24x24 Isometric dark arcane block with bubbling toxic-green acid river
+  poison_river: icon24((c) => {
+    drawIsoRiver24(c, PMAT.arcane, PMAT.iron, PMAT.iron, PMAT.toxic, PMAT.toxic);
+  }),
+
+  // 24x24 Isometric moss block with colorful flower buds showering from above
+  floral_rain: icon24((c) => {
+    c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
+    c.stamp(
+      3,
+      1,
+      [
+        '.Rr.....Yy....Pp..',
+        'RrY....Yyg...PpY..',
+        '.q......g.....z...',
+        '....Cc......Rr....',
+        '...Ccu.....RrY....',
+        '....u..@#...q.....',
+        '......@#Y#........',
+      ],
+      PMAT.crimson,
+      PMATS,
+    );
+  }),
+
+  // 24x24 Beveled steel bucket brimming with shimmering blue water & falling droplet
+  water_drop: cluster24(
     [
-      '................',
-      '.....sSSSSs.....',
-      '....sM....Ms....',
-      '...sM..CC..Ms...',
-      '..sSCcICccCcsM..',
-      '..sMCcuuucCMsM..',
-      '..sMMuuuuMMMsM..',
-      '...sSmmmmMMMD...',
-      '...sSsmmmMMMD...',
-      '...sSsmmCCMMD...',
-      '....sSsmcuMD....',
-      '....sSsmmMMD....',
-      '....sSsmmMMD....',
-      '.....sMMMMD.....',
-      '......DDDD......',
-      '................',
+      '........................',
+      '........................',
+      '.......sSSSSSSs.........',
+      '.....sSM......MSs.......',
+      '....sM...^CC^...Ms......',
+      '...sSS^CCccccCC^SSs.....',
+      '...sMCcccuuuucccCMs.....',
+      '...sMMcuuuuuuuucMMs.....',
+      '....sSSmmmmmmmMMMd......',
+      '....sSsmmm^CmmMMMd......',
+      '....sSsmm^CcuMMMd.......',
+      '.....sSsmCcuuMMMd.......',
+      '.....sSsmcuuUMMMd.......',
+      '.....sSsmmuuUMMMd.......',
+      '......sSsmmmmMMd........',
+      '......sSsmmmmMMd........',
+      '.......sMMMMMMd.........',
+      '........dddddd..........',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.azure,
-    MATS,
+    PMAT.water,
+    PMATS,
   ),
 
-  lava_drop: cluster16(
+  // 24x24 Dark-iron bucket brimming with glowing molten amber-gold lava & falling ember drop
+  lava_drop: cluster24(
     [
-      '................',
-      '.....sSSSSs.....',
-      '....sM....Ms....',
-      '...sM..FF..Ms...',
-      '..sSFfYFffFfsM..',
-      '..sMFfaaafFMsM..',
-      '..sMMaaaaMMMsM..',
-      '...sSmmmmMMMD...',
-      '...sSsmmmMMMD...',
-      '...sSsmmFFMMD...',
-      '....sSsmfaMD....',
-      '....sSsmmMMD....',
-      '....sSsmmMMD....',
-      '.....sMMMMD.....',
-      '......DDDD......',
-      '................',
+      '........................',
+      '........................',
+      '.......sSSSSSSs.........',
+      '.....sSM......MSs.......',
+      '....sM...YFFY...Ms......',
+      '...sSSYFFffffFFYSSs.....',
+      '...sMFfffaaaafffFMs.....',
+      '...sMMfaaaaaaaafMMs.....',
+      '....sSSmmmmmmmMMMd......',
+      '....sSsmmmYFmmMMMd......',
+      '....sSsmmYFfaMMMd.......',
+      '.....sSsmFfaaMMMd.......',
+      '.....sSsmfaaAMMMd.......',
+      '.....sSsmmaaAMMMd.......',
+      '......sSsmmmmMMd........',
+      '......sSsmmmmMMd........',
+      '.......sMMMMMMd.........',
+      '........dddddd..........',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.flame,
-    MATS,
+    PMAT.amber,
+    PMATS,
   ),
 
-  poison_drop: cluster16(
+  // 24x24 Dark-iron bucket brimming with bubbling toxic green ooze & falling acid drop
+  poison_drop: cluster24(
     [
-      '................',
-      '.....sSSSSs.....',
-      '....sM....Ms....',
-      '...sM..EE..Ms...',
-      '..sSEeYEeeEesM..',
-      '..sMEellleEMsM..',
-      '..sMMllllMMMsM..',
-      '...sSmmmmMMMD...',
-      '...sSsmmmMMMD...',
-      '...sSsmmEEMMD...',
-      '....sSsmelMD....',
-      '....sSsmmMMD....',
-      '....sSsmmMMD....',
-      '.....sMMMMD.....',
-      '......DDDD......',
-      '................',
+      '........................',
+      '........................',
+      '.......sSSSSSSs.........',
+      '.....sSM......MSs.......',
+      '....sM...++++...Ms......',
+      '...sSS++******++SSs.....',
+      '...sM+**%%%%%%**+Ms.....',
+      '...sMM*%%%%%%%%*MMs.....',
+      '....sSSmmmmmmmMMMd......',
+      '....sSsmmm+*mmMMMd......',
+      '....sSsmm+*%*MMMd.......',
+      '.....sSsm*%&%MMMd.......',
+      '.....sSsm%&&&MMMd.......',
+      '.....sSsmm&&&MMMd.......',
+      '......sSsmmmmMMd........',
+      '......sSsmmmmMMd........',
+      '.......sMMMMMMd.........',
+      '........dddddd..........',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.leaf,
-    MATS,
+    PMAT.toxic,
+    PMATS,
   ),
 
-  canyon_carve: cluster16(
+  // 24x24 Deep stratified red-ochre canyon walls dropping into a shadowed gorge & river
+  canyon_carve: cluster24(
     [
-      '................',
-      '.XXXxx....xxXXX.',
-      '.Xxxvv....vvxxX.',
-      '.xvvvV....Vvvvx.',
-      '.vvVVk....kVVvv.',
-      '.XXxxk....kxxXX.',
-      '.XxxvK.dd.KvxxX.',
-      '.xvvVK.dd.KVvvx.',
-      '.vvVVk.dd.kVVvv.',
-      '.xxvvK.dd.Kvvxx.',
-      '.vvVVk.dd.kVVvv.',
-      '.vVVKk.dd.kKVVv.',
-      '.VVKKk.DD.kKKVV.',
-      '..KKKKDDDDKKKK..',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '..XXXXxx........xxXXXX..',
+      '..Xxxxvv........vvxxxX..',
+      '..xxvvvV........Vvvvxx..',
+      '..vvvVVk........kVVvvv..',
+      '..::;;,k........k,;;::..',
+      '..XXxxxK...dd...KxxxXX..',
+      '..XxxvvK...dd...KvvxxX..',
+      '..xvvvVK..dddd..KVvvvx..',
+      '..vvVVVK..dddd..KVVVvv..',
+      '..::;;,K..dddd..K,;;::..',
+      '..xxvvvK..dCcd..Kvvvxx..',
+      '..vvVVVK..dCcd..KVVVvv..',
+      '..vVVVKk..dCud..kKVVVv..',
+      '..VVVKKk..duUd..kKKVVV..',
+      '..VKKKKk..dUUd..kKKKKV..',
+      '...KKKKKddUUUUddKKKKK...',
+      '....KKKKKKKKKKKKKKKK....',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.copper,
-    MATS,
+    PMAT.bronze,
+    PMATS,
   ),
 
-  mesa_plateau: cluster16(
+  // 24x24 Dramatic flat-topped red-bronze desert mesa with sedimentary strata bands
+  mesa_plateau: cluster24(
     [
-      '................',
-      '................',
-      '...XXXXXXXXXX...',
-      '..XxxxxxxxxxxX..',
-      '..XxxvvvvvvxxX..',
-      '..vvvvVVVVvvvv..',
-      '..YyyggVVggyyY..',
-      '..vvvVVVVVVvvv..',
-      '.XxxvvVVVVvvxxX.',
-      '.xvvVVVVVVVVvvx.',
-      '.vVVKKVVVVKKVVv.',
-      '.YyygggVVgggyyY.',
-      '.yggggGGGGggggy.',
-      '..GGGGGGGGGGGG..',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '.....XXXXXXXXXXXXXX.....',
+      '....XxxxxxxxxxxxxxxX....',
+      '....XxxxvvvvvvvvxxxX....',
+      '....vvvvVVVVVVVVvvvv....',
+      '....::;;;,,VV,,;;;::....',
+      '....vvvvVVVVVVVVvvvv....',
+      '...XxxxvvVVVVVVvvxxxX...',
+      '...xxxvvVVVVVVVVvvxxx...',
+      '...vvVVVKKVVVVKKVVVvv...',
+      '..::;;;,,,VVVV,,,;;;::..',
+      '..XxxvvvVVVVVVVVvvvxxX..',
+      '..xvvVVVVVVVVVVVVVVvvx..',
+      '..vVVVKKVVVVVVVVKKVVVv..',
+      '..::;;,,,,VVVV,,,,;;::..',
+      '..;;,,,,________,,,,;;..',
+      '...__________________...',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.copper,
-    MATS,
+    PMAT.bronze,
+    PMATS,
   ),
 
-  volcanic_crater: cluster16(
+  // 24x24 Dark basalt volcanic caldera rim with glowing molten amber-gold lava bowl
+  volcanic_crater: cluster24(
     [
-      '................',
-      '................',
-      '....NNNNNNNN....',
-      '..NNnnhhhhnNNN..',
-      '.NNnhHddddHhnN..',
-      '.NnhHddFFddHhnN.',
-      '.nhHdDFYYFDdHhn.',
-      '.nhHdDFfaFDdHhn.',
-      '.nhHHddaaDdHHhn.',
-      '.nnhHHddddHHhnn.',
-      '.nnhhHHHHHHhhnn.',
-      '.hhHHHHHHHHHHhh.',
-      '..HHHHHHHHHHHH..',
-      '..DDHHHHHHHHDD..',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '......NNNNNNNNNNNN......',
+      '....NNnnnhhhhhhnnnNN....',
+      '...NNnnhHHddddHHhnNN....',
+      '..NNnhHHddFFFFddHHhnN...',
+      '..NnhHddFFYYYYFFddHhnN..',
+      '..nhHddFFYffffYFFddHhn..',
+      '..nhHddFFfaaaafFFddHhn..',
+      '..nhHHddFfaaaafFddHHhn..',
+      '..nnhHHdddaaaadddHHhnn..',
+      '..nnhhHHddddddddHHhhnn..',
+      '..nnhhhHHHHHHHHHHhhhnn..',
+      '..hhhHHHHHHHHHHHHHHhhh..',
+      '...hhHHHHHHHHHHHHHHhh...',
+      '...DDHHHHHHHHHHHHHHDD...',
+      '....DDDDHHHHHHHHDDDD....',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.stone,
-    MATS,
+    PMAT.stone,
+    PMATS,
   ),
 
-  smooth_terrain: cluster16(
+  // 24x24 Smoothly terraced rolling green hill with gentle ice-blue smoothing arcs above
+  smooth_terrain: cluster24(
     [
-      '................',
-      '................',
-      '....CCCCCCCC....',
-      '..CCcc....ccCC..',
-      '.Cc..........cC.',
-      '................',
-      '.....EEeeEE.....',
-      '...EEeeelleeE...',
-      '..EeellllllleE..',
-      '.EelllllllllLLE.',
-      '.elllllLLLLLLle.',
-      '.bBbbLLLLLLbbBb.',
-      '.bbkkbBBBBbkkbb.',
-      '..kkkkKKKKkkkk..',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '......^^^^^^^^^^........',
+      '....^^~~~....~~~^^......',
+      '...^~~..........~~^.....',
+      '........................',
+      '........EEeeeeEE........',
+      '......EEeeellleeeE......',
+      '....EEeeellllllleeeE....',
+      '...EeellllllllllllleE...',
+      '..EelllllllllllllLLLLE..',
+      '..elllllllLLLLLLLLLLle..',
+      '..BbbbLLLLLLLLLLLLbbbB..',
+      '..bbkkkbBBBBBBBBbkkkbb..',
+      '..bkkkkkKbbbbbbKkkkkkb..',
+      '...kkkkkKKKKKKKKkkkkk...',
+      '....KKKKKKKKKKKKKKKK....',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.leaf,
-    MATS,
+    PMAT.moss,
+    PMATS,
   ),
 
-  island_bridge: cluster16(
+  // 24x24 Arched cobblestone & timber bridge spanning rippling blue water between mossy banks
+  island_bridge: cluster24(
     [
-      '................',
-      '................',
-      '................',
-      '.....NNNNNN.....',
-      '...NNnnNNnnNN...',
-      '..NnnBbbbbBnnN..',
-      '.EEeBbbkkbbBeEE.',
-      '.EelBkH..HkBleE.',
-      '.llkKH.CC.HKkll.',
-      '.kKHCccuucCCHKk.',
-      '.KHCcuuuuuucCHK.',
-      '.CCcuuuuuuuucCC.',
-      '.cuuUUuuuuUUuuc.',
-      '..UUUUUUUUUUUU..',
-      '................',
-      '................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........NNNNNNNN........',
+      '.....NNNnnNNNNnnNNN.....',
+      '....NnnnBbbbbbbBnnnN....',
+      '..EEeeBbbbkkkkbbbBeeEE..',
+      '..EellBbkH....HkbBllEE..',
+      '..llkkKH..^CC^..HKkkll..',
+      '..kKKH^CCccuuccCC^HKKk..',
+      '..KKH^CccuuuuuuccC^HKK..',
+      '..^CCccuuuuuuuuuuccCC^..',
+      '..CccuuuUUuuuuUUuuuccC..',
+      '..ccuuUUUUuuuuUUUUuucc..',
+      '..uuUUUUUUUUUUUUUUUUuu..',
+      '...UUUUUUUUUUUUUUUUUU...',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
     ],
-    MAT.azure,
-    MATS,
+    PMAT.water,
+    PMATS,
   ),
 };
 

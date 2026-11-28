@@ -1,2121 +1,2351 @@
 import type { UnitRole } from '../../game/types';
-import { type CompiledSprite, Icon16, MAT, type MatLegend, MatRamp, cluster16, icon16 } from './pixelEngine';
+import {
+  type CompiledSprite,
+  Icon24,
+  type MatLegend,
+  type MatRamp,
+  PMAT,
+  cluster24,
+  icon24,
+} from './pixelEngine';
 
-const UNIT_MATS: MatLegend = {
+// Grounded 24x24 PMAT legend for crisp multi-material pixel clusters
+const BMAT: MatLegend = {
   // Gold
-  Y: { ramp: MAT.gold, tone: 4 },
-  y: { ramp: MAT.gold, tone: 3 },
-  g: { ramp: MAT.gold, tone: 2 },
-  G: { ramp: MAT.gold, tone: 1 },
+  Y: { ramp: PMAT.gold, tone: 4 },
+  y: { ramp: PMAT.gold, tone: 3 },
+  g: { ramp: PMAT.gold, tone: 2 },
+  G: { ramp: PMAT.gold, tone: 1 },
   // Wood / Leather
-  B: { ramp: MAT.wood, tone: 4 },
-  b: { ramp: MAT.wood, tone: 3 },
-  k: { ramp: MAT.wood, tone: 2 },
-  K: { ramp: MAT.wood, tone: 1 },
-  // Leaf / Emerald
-  E: { ramp: MAT.leaf, tone: 4 },
-  e: { ramp: MAT.leaf, tone: 3 },
-  l: { ramp: MAT.leaf, tone: 2 },
-  L: { ramp: MAT.leaf, tone: 1 },
-  // Azure / Cyan
-  C: { ramp: MAT.azure, tone: 4 },
-  c: { ramp: MAT.azure, tone: 3 },
-  u: { ramp: MAT.azure, tone: 2 },
-  U: { ramp: MAT.azure, tone: 1 },
+  B: { ramp: PMAT.wood, tone: 4 },
+  b: { ramp: PMAT.wood, tone: 3 },
+  k: { ramp: PMAT.wood, tone: 2 },
+  K: { ramp: PMAT.wood, tone: 1 },
+  // Moss / Leaf
+  E: { ramp: PMAT.moss, tone: 4 },
+  e: { ramp: PMAT.moss, tone: 3 },
+  l: { ramp: PMAT.moss, tone: 2 },
+  L: { ramp: PMAT.moss, tone: 1 },
+  // Toxic
+  T: { ramp: PMAT.toxic, tone: 4 },
+  t: { ramp: PMAT.toxic, tone: 3 },
+  v: { ramp: PMAT.toxic, tone: 2 },
+  V: { ramp: PMAT.toxic, tone: 1 },
+  // Water / Ice
+  C: { ramp: PMAT.ice, tone: 4 },
+  c: { ramp: PMAT.ice, tone: 3 },
+  u: { ramp: PMAT.water, tone: 2 },
+  U: { ramp: PMAT.water, tone: 1 },
   // Steel / Silver
-  S: { ramp: MAT.steel, tone: 4 },
-  s: { ramp: MAT.steel, tone: 3 },
-  m: { ramp: MAT.steel, tone: 2 },
-  M: { ramp: MAT.steel, tone: 1 },
-  // Ruby / Crimson
-  R: { ramp: MAT.ruby, tone: 4 },
-  r: { ramp: MAT.ruby, tone: 3 },
-  q: { ramp: MAT.ruby, tone: 2 },
-  Q: { ramp: MAT.ruby, tone: 1 },
+  S: { ramp: PMAT.steel, tone: 4 },
+  s: { ramp: PMAT.steel, tone: 3 },
+  m: { ramp: PMAT.steel, tone: 2 },
+  M: { ramp: PMAT.steel, tone: 1 },
+  // Crimson
+  R: { ramp: PMAT.crimson, tone: 4 },
+  r: { ramp: PMAT.crimson, tone: 3 },
+  q: { ramp: PMAT.crimson, tone: 2 },
+  Q: { ramp: PMAT.crimson, tone: 1 },
   // Parchment / Ivory
-  I: { ramp: MAT.parchment, tone: 4 },
-  i: { ramp: MAT.parchment, tone: 3 },
-  j: { ramp: MAT.parchment, tone: 2 },
-  J: { ramp: MAT.parchment, tone: 1 },
-  // Flame
-  F: { ramp: MAT.flame, tone: 4 },
-  f: { ramp: MAT.flame, tone: 3 },
-  a: { ramp: MAT.flame, tone: 2 },
-  A: { ramp: MAT.flame, tone: 1 },
+  I: { ramp: PMAT.parchment, tone: 4 },
+  i: { ramp: PMAT.parchment, tone: 3 },
+  j: { ramp: PMAT.parchment, tone: 2 },
+  J: { ramp: PMAT.parchment, tone: 1 },
+  // Bone / White
+  W: { ramp: PMAT.bone, tone: 4 },
+  w: { ramp: PMAT.bone, tone: 3 },
+  // Amber / Flame
+  F: { ramp: PMAT.amber, tone: 4 },
+  f: { ramp: PMAT.amber, tone: 3 },
+  a: { ramp: PMAT.amber, tone: 2 },
+  A: { ramp: PMAT.amber, tone: 1 },
   // Arcane
-  P: { ramp: MAT.arcane, tone: 4 },
-  p: { ramp: MAT.arcane, tone: 3 },
-  z: { ramp: MAT.arcane, tone: 2 },
-  Z: { ramp: MAT.arcane, tone: 1 },
-  // Pink
-  W: { ramp: MAT.pink, tone: 4 },
-  w: { ramp: MAT.pink, tone: 3 },
-  x: { ramp: MAT.pink, tone: 2 },
-  X: { ramp: MAT.pink, tone: 1 },
-  // Dark Iron (for eyes/spots/noses)
-  D: { ramp: MAT.darkIron, tone: 1 },
-  d: { ramp: MAT.darkIron, tone: 0 },
+  P: { ramp: PMAT.arcane, tone: 4 },
+  p: { ramp: PMAT.arcane, tone: 3 },
+  z: { ramp: PMAT.arcane, tone: 2 },
+  Z: { ramp: PMAT.arcane, tone: 1 },
+  // Iron / Dark Ink
+  D: { ramp: PMAT.iron, tone: 2 },
+  d: { ramp: PMAT.iron, tone: 1 },
+  x: { ramp: PMAT.iron, tone: 0 },
+  // Rose
+  N: { ramp: PMAT.rose, tone: 3 },
+  n: { ramp: PMAT.rose, tone: 2 },
 };
 
-function draw16Unit(
-  c: Icon16,
-  opts: {
-    tunic: MatRamp;
-    skin?: MatRamp;
-    hair?: MatRamp;
-    hat?: 'hair' | 'hood' | 'straw' | 'hardhat' | 'helm' | 'wizard' | 'visor' | 'horns' | 'miter' | 'beret' | 'cap' | 'warhelm';
-    hatRamp?: MatRamp;
-    ears?: boolean;
-    tusks?: boolean;
-    beard?: MatRamp;
-    bandana?: boolean;
-    shield?: boolean;
-    stole?: boolean;
-    pauldrons?: boolean;
-    tool?: 'staff' | 'bow' | 'axe' | 'basket' | 'pick' | 'hammer' | 'sword' | 'ankh' | 'book' | 'wrench' | 'dagger' | 'herb';
-  },
-) {
-  const skin = opts.skin ?? MAT.skin;
-  const hair = opts.hair ?? MAT.wood;
-  const hatR = opts.hatRamp ?? hair;
+// ---------------------------------------------------------------------------
+// Shared 24x24 Half-Body Bust Helpers
+// ---------------------------------------------------------------------------
 
-  // 1. RPG Tunic & Boots (y=9..14)
-  c.stamp(
-    2,
-    9,
-    [
-      '.3333333.',
-      '222222222',
-      '.22Yg222.',
-      '.1111111.',
-      '.kK...kK.',
-      '.KK...KK.',
-    ],
-    opts.tunic,
-    UNIT_MATS,
-  );
+/** Draws a top-left-lit 3D shaded oval with grounded pixel-art tone planes. */
+function shadedOval(
+  c: Icon24,
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  ramp: MatRamp,
+  hiSpot = true,
+): void {
+  const x0 = Math.max(1, Math.floor(cx - rx));
+  const x1 = Math.min(22, Math.ceil(cx + rx));
+  const y0 = Math.max(1, Math.floor(cy - ry));
+  const y1 = Math.min(22, Math.ceil(cy + ry));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const nx = (x - cx) / rx;
+      const ny = (y - cy) / ry;
+      const d = nx * nx + ny * ny;
+      if (d > 1.0) continue;
+      let tone = 2;
+      if (nx + ny < -0.45) tone = 3;
+      if (nx + ny > 0.55 || ny > 0.7) tone = 1;
+      if (hiSpot && nx < -0.25 && ny < -0.35 && d > 0.25 && d < 0.85) tone = 4;
+      c.set(x, y, ramp, tone);
+    }
+  }
+}
+
+/** Draws broad half-body bust shoulders & upper chest down to y=21. */
+function drawShoulders(
+  c: Icon24,
+  cx: number,
+  topY: number,
+  rx: number,
+  ramp: MatRamp,
+  chestRamp?: MatRamp,
+): void {
+  for (let y = topY; y <= 21; y++) {
+    const t = Math.min(1, (y - topY) / Math.max(1, 21 - topY));
+    const span = Math.round(rx * (0.55 + 0.45 * Math.sin((t * 0.75 + 0.25) * (Math.PI / 2))));
+    for (let x = cx - span; x <= cx + span; x++) {
+      if (x < 2 || x > 21) continue;
+      const relX = (x - cx) / Math.max(1, span);
+      let tone = 2;
+      if (y <= topY + 1 && relX < 0.35) tone = 3;
+      else if (relX < -0.45 && y <= topY + 3) tone = 3;
+      else if (relX > 0.45 || y === 21) tone = 1;
+      c.set(x, y, ramp, tone);
+    }
+  }
+  if (chestRamp) {
+    for (let y = topY + 1; y <= 21; y++) {
+      const half = Math.max(1, Math.round(rx * 0.36 - (y - topY) * 0.08));
+      for (let x = cx - half; x <= cx + half; x++) {
+        c.set(x, y, chestRamp, x <= cx ? 3 : 2);
+      }
+    }
+  }
+}
+
+/** Crisp expressive eye with optional colored iris & specular glint. */
+function drawEye(
+  c: Icon24,
+  x: number,
+  y: number,
+  irisRamp?: MatRamp,
+  glint = true,
+): void {
+  if (irisRamp) {
+    c.set(x, y, irisRamp, 4);
+    c.set(x, y + 1, irisRamp, 3);
+  } else {
+    c.set(x, y, PMAT.iron, 0);
+    c.set(x, y + 1, PMAT.iron, 0);
+    if (glint) c.set(x, y, PMAT.bone, 4);
+  }
+}
+
+/** Draws a curved horn or tusk from (x0,y0) through (xm,ym) to (x1,y1). */
+function drawHorn(
+  c: Icon24,
+  x0: number,
+  y0: number,
+  xm: number,
+  ym: number,
+  x1: number,
+  y1: number,
+  ramp: MatRamp,
+): void {
+  c.line(x0, y0, xm, ym, ramp, 2);
+  c.line(xm, ym, x1, y1, ramp, 3);
+  c.set(x1, y1, ramp, 4);
+  c.set(x0, y0, ramp, 1);
+}
+
+// ---------------------------------------------------------------------------
+// 16 Humanoid & Race Half-Body Bust Portrait Builder (24x24)
+// ---------------------------------------------------------------------------
+
+interface BustOpts {
+  tunic: MatRamp;
+  trim?: MatRamp;
+  skin?: MatRamp;
+  hair?: MatRamp;
+  hat?:
+    | 'hair'
+    | 'hood'
+    | 'straw'
+    | 'beret'
+    | 'hardhat'
+    | 'cap'
+    | 'helm'
+    | 'miter'
+    | 'wizard'
+    | 'visor'
+    | 'horns'
+    | 'warhelm'
+    | 'crest';
+  hatRamp?: MatRamp;
+  ears?: boolean;
+  tusks?: boolean;
+  lizard?: boolean;
+  beard?: MatRamp;
+  bandana?: boolean;
+  shield?: boolean;
+  stole?: boolean;
+  pauldrons?: MatRamp;
+  eyeRamp?: MatRamp;
+  tool?:
+    | 'staff'
+    | 'bow'
+    | 'axe'
+    | 'basket'
+    | 'herb'
+    | 'pick'
+    | 'hammer'
+    | 'sword'
+    | 'ankh'
+    | 'book'
+    | 'wrench'
+    | 'dagger'
+    | 'spear';
+}
+
+function drawBust24(c: Icon24, opts: BustOpts): void {
+  const skin = opts.skin ?? PMAT.skin;
+  const hair = opts.hair ?? PMAT.wood;
+  const hatR = opts.hatRamp ?? hair;
+  const trim = opts.trim ?? PMAT.gold;
+  const cx = 10;
+
+  // 1. Broad Shoulders & Upper Torso (y=15..21, x=3..17)
+  drawShoulders(c, cx, 15, 7, opts.tunic);
+
+  // Tunic collar / chest detail
+  c.line(cx - 2, 15, cx, 17, trim, 3);
+  c.line(cx + 2, 15, cx, 17, trim, 2);
+  c.line(cx, 17, cx, 21, opts.tunic, 1);
 
   if (opts.stole) {
-    c.stamp(5, 9, ['Yy', 'Yg', 'gG'], MAT.gold, UNIT_MATS);
+    for (let y = 15; y <= 21; y++) {
+      c.set(cx - 2, y, PMAT.gold, 3);
+      c.set(cx - 1, y, PMAT.gold, 2);
+      c.set(cx + 1, y, PMAT.gold, 3);
+      c.set(cx + 2, y, PMAT.gold, 2);
+    }
+    c.set(cx, 18, PMAT.gold, 4);
   }
 
+  // Armor pauldrons
   if (opts.pauldrons) {
-    c.stamp(1, 9, ['SS.', '.m.'], MAT.steel, UNIT_MATS);
-    c.stamp(9, 9, ['.SS', '.m.'], MAT.steel, UNIT_MATS);
-  }
-
-  // Hands
-  c.set(1, 10, skin, 3);
-  c.set(10, 10, skin, 3);
-
-  if (opts.shield) {
-    c.stamp(
-      0,
-      9,
-      [
-        'SSS',
-        'SuS',
-        'sYs',
-        '.m.',
-      ],
-      MAT.steel,
-      UNIT_MATS,
-    );
-  }
-
-  // 2. Expressive Chibi Head (y=4..8)
-  c.stamp(
-    2,
-    4,
-    [
-      '.2222222.',
-      '233333332',
-      '33o333o33',
-      '33o333o33',
-      '.2222222.',
-    ],
-    skin,
-    UNIT_MATS,
-  );
-
-  if (opts.bandana) {
+    const p = opts.pauldrons;
     c.stamp(
       2,
-      7,
+      14,
       [
-        'RrrrrrR',
-        '.qqqqq.',
+        '.343.',
+        '33221',
+        '22110',
+        '.110.',
       ],
-      MAT.ruby,
-      UNIT_MATS,
+      p,
+    );
+    c.stamp(
+      14,
+      14,
+      [
+        '.343.',
+        '22331',
+        '11220',
+        '.110.',
+      ],
+      p,
     );
   }
 
+  // Neck (y=13..15)
+  c.rect(cx - 1, 13, 3, 3, skin, 1);
+  c.set(cx - 1, 14, skin, 2);
+  c.set(cx, 14, skin, 2);
+
+  // 2. Large Expressive Head (10px wide: x=6..14, y=6..14)
+  if (opts.lizard) {
+    // Reptilian snout & scaled cranium
+    shadedOval(c, cx, 10, 4.4, 4.2, skin, false);
+    c.rect(cx - 2, 11, 5, 3, skin, 3);
+    c.set(cx - 1, 12, skin, 1);
+    c.set(cx + 1, 12, skin, 1);
+    c.line(cx - 2, 13, cx + 2, 13, skin, 0);
+    // Golden slit eyes
+    c.set(cx - 2, 9, PMAT.amber, 4);
+    c.set(cx - 2, 10, PMAT.iron, 0);
+    c.set(cx + 2, 9, PMAT.amber, 4);
+    c.set(cx + 2, 10, PMAT.iron, 0);
+  } else {
+    shadedOval(c, cx, 10, 4.4, 4.3, skin, false);
+    // Jaw & cheek highlight
+    c.set(cx - 3, 10, skin, 3);
+    c.set(cx - 2, 7, skin, 3);
+    c.set(cx - 1, 7, skin, 3);
+    // Nose bridge & mouth
+    c.set(cx, 11, skin, 1);
+    c.line(cx - 1, 12, cx + 1, 12, skin, 0);
+
+    // Expressive 2px eyes at y=9..10
+    if (opts.eyeRamp) {
+      c.set(cx - 2, 9, opts.eyeRamp, 4);
+      c.set(cx - 2, 10, opts.eyeRamp, 3);
+      c.set(cx + 2, 9, opts.eyeRamp, 4);
+      c.set(cx + 2, 10, opts.eyeRamp, 3);
+    } else {
+      c.set(cx - 2, 9, PMAT.iron, 0);
+      c.set(cx - 2, 10, PMAT.iron, 0);
+      c.set(cx - 3, 9, PMAT.bone, 4);
+      c.set(cx + 2, 9, PMAT.iron, 0);
+      c.set(cx + 2, 10, PMAT.iron, 0);
+      c.set(cx + 1, 9, PMAT.bone, 4);
+    }
+    // Brows
+    c.line(cx - 3, 8, cx - 2, 8, hair, 1);
+    c.line(cx + 1, 8, cx + 2, 8, hair, 1);
+  }
+
+  // Pointed elf ears
   if (opts.ears) {
-    c.stamp(0, 6, ['33'], skin, UNIT_MATS);
-    c.stamp(11, 6, ['33'], skin, UNIT_MATS);
+    c.stamp(2, 8, ['432', '.21'], skin);
+    c.stamp(15, 8, ['234', '12.'], skin);
   }
 
+  // Orc tusks
   if (opts.tusks) {
-    c.set(4, 8, MAT.parchment, 4);
-    c.set(8, 8, MAT.parchment, 4);
+    c.set(cx - 2, 12, PMAT.parchment, 4);
+    c.set(cx - 2, 13, PMAT.parchment, 3);
+    c.set(cx + 2, 12, PMAT.parchment, 4);
+    c.set(cx + 2, 13, PMAT.parchment, 3);
   }
 
+  // Raider bandana over lower face
+  if (opts.bandana) {
+    c.stamp(
+      6,
+      11,
+      [
+        '333222211',
+        '.2222211.',
+        '..11111..',
+      ],
+      PMAT.crimson,
+    );
+  }
+
+  // Sculpted beard
   if (opts.beard) {
     c.stamp(
-      3,
-      8,
+      6,
+      12,
       [
-        '2222222',
-        '.11111.',
+        '322222211',
+        '232322121',
+        '.2222211.',
+        '..22121..',
+        '...111...',
       ],
       opts.beard,
-      UNIT_MATS,
     );
   }
 
-  // 3. Iconic Role Headgear (distinct silhouettes!)
+  // 3. Detailed Role Headgear (y=1..9)
   const hat = opts.hat ?? 'hair';
   if (hat === 'hair') {
     c.stamp(
-      2,
-      2,
+      5,
+      4,
       [
-        '..33333..',
-        '.2222222.',
-        '12.....21',
+        '..334332...',
+        '.33322221..',
+        '2222222111.',
+        '21......11.',
+        '1........1.',
       ],
       hair,
-      UNIT_MATS,
-    );
-  } else if (hat === 'straw') {
-    c.stamp(
-      1,
-      2,
-      [
-        '...33333...',
-        '.322222223.',
-        '22222222222',
-      ],
-      MAT.gold,
-      UNIT_MATS,
-    );
-  } else if (hat === 'beret') {
-    c.stamp(
-      1,
-      2,
-      [
-        '..EE.....',
-        '.3333333.',
-        '222222222',
-      ],
-      hatR,
-      UNIT_MATS,
-    );
-  } else if (hat === 'cap') {
-    c.stamp(
-      2,
-      2,
-      [
-        '..33333..',
-        '.2222222.',
-        '1111111111',
-      ],
-      hatR,
-      UNIT_MATS,
     );
   } else if (hat === 'hood') {
     c.stamp(
-      2,
-      2,
+      4,
+      3,
       [
-        '..33333..',
-        '.2222222.',
-        '21.....12',
-        '11.....11',
+        '....3332....',
+        '..33322211..',
+        '.3222221111.',
+        '221......110',
+        '21........10',
+        '21........10',
+        '11........10',
+        '.11......10.',
       ],
       hatR,
-      UNIT_MATS,
     );
-  } else if (hat === 'hardhat') {
-    c.stamp(
-      2,
-      2,
-      [
-        '..33333..',
-        '.22CCc22.',
-        '222222222',
-      ],
-      MAT.gold,
-      UNIT_MATS,
-    );
-  } else if (hat === 'helm') {
-    c.stamp(
-      2,
-      1,
-      [
-        '...Rrr...',
-        '...rqq...',
-        '..33333..',
-        '.2222222.',
-        '1111o1111',
-      ],
-      MAT.steel,
-      UNIT_MATS,
-    );
-  } else if (hat === 'warhelm') {
-    c.stamp(
-      1,
-      1,
-      [
-        'I.........I',
-        'Ii.33333.iI',
-        '.i22RRR22i.',
-        '..1111111..',
-      ],
-      hatR,
-      UNIT_MATS,
-    );
-  } else if (hat === 'wizard') {
-    c.stamp(
-      1,
-      1,
-      [
-        '.....33....',
-        '....322....',
-        '...22222...',
-        '..YYYYYYY..',
-        '22222222222',
-      ],
-      hatR,
-      UNIT_MATS,
-    );
-  } else if (hat === 'miter') {
-    c.stamp(
-      2,
-      1,
-      [
-        '...444...',
-        '..4YYy4..',
-        '.33Yg333.',
-        '.YYYYYYY.',
-      ],
-      MAT.steel,
-      UNIT_MATS,
-    );
-  } else if (hat === 'visor') {
+  } else if (hat === 'straw') {
     c.stamp(
       2,
       3,
       [
-        '.3333333.',
-        '2CCCCCCc2',
-        '2CCuuuuU2',
-        '.1111111.',
+        '.....34332......',
+        '....3322221.....',
+        '...rrqqqqqqr....',
+        '.3332222222211..',
+        '222222222222111.',
       ],
-      MAT.steel,
-      UNIT_MATS,
+      PMAT.sand,
+      BMAT,
     );
-  } else if (hat === 'horns') {
+  } else if (hat === 'beret') {
     c.stamp(
-      1,
-      2,
+      4,
+      3,
       [
-        'I.........I',
-        'Ii.33333.iI',
-        '.i1111111i.',
+        '..3343322....',
+        '.332222211E..',
+        '2222222111e..',
+        '.111111111...',
       ],
       hatR,
-      UNIT_MATS,
+      BMAT,
+    );
+  } else if (hat === 'hardhat') {
+    c.stamp(
+      5,
+      3,
+      [
+        '...34332...',
+        '..33YY221..',
+        '.322YY2111.',
+        '22222221111',
+      ],
+      PMAT.amber,
+      BMAT,
+    );
+  } else if (hat === 'cap') {
+    c.stamp(
+      5,
+      3,
+      [
+        '..334332...',
+        '.32222211..',
+        '22cC22cC11.',
+        '11111111111',
+      ],
+      hatR,
+      BMAT,
+    );
+  } else if (hat === 'helm') {
+    // Knight great-helm with crimson plume crest
+    c.stamp(
+      5,
+      1,
+      [
+        '....rRRr...',
+        '...rRrqQ...',
+        '..334332...',
+        '.33222211..',
+        '2222222111.',
+        '22xxxxxx11.',
+        '2211221110.',
+        '.21.11.10..',
+      ],
+      PMAT.steel,
+      BMAT,
+    );
+  } else if (hat === 'miter') {
+    c.stamp(
+      5,
+      1,
+      [
+        '....343....',
+        '...33Y32...',
+        '..32YYY21..',
+        '..322Y211..',
+        '.3222Y2111.',
+        '.YYYYYYYYY.',
+      ],
+      PMAT.parchment,
+      BMAT,
+    );
+  } else if (hat === 'wizard') {
+    c.stamp(
+      2,
+      1,
+      [
+        '.......343......',
+        '......3322......',
+        '.....32221......',
+        '....322211......',
+        '...YYYYYYYY.....',
+        '.332222222111...',
+        '22222222221111..',
+      ],
+      hatR,
+      BMAT,
+    );
+  } else if (hat === 'visor') {
+    // Sleek astro helmet + glowing cyan panoramic visor + antenna
+    c.line(5, 2, 5, 6, PMAT.steel, 3);
+    c.set(5, 2, PMAT.amber, 4);
+    c.stamp(
+      5,
+      4,
+      [
+        '..334332...',
+        '.33222211..',
+        '3222222111.',
+        '22CCCCCC11.',
+        '22CcCCcc11.',
+        '21cccccc10.',
+        '.21111110..',
+      ],
+      PMAT.steel,
+      BMAT,
+    );
+  } else if (hat === 'horns') {
+    // Curved ivory horns + armored war-helm
+    drawHorn(c, 5, 6, 3, 4, 3, 2, PMAT.parchment);
+    drawHorn(c, 15, 6, 17, 4, 17, 2, PMAT.parchment);
+    c.stamp(
+      5,
+      4,
+      [
+        '..334332...',
+        '.33222211..',
+        '2222Y22111.',
+        '21..Y...10.',
+      ],
+      hatR,
+      BMAT,
+    );
+  } else if (hat === 'warhelm') {
+    c.set(10, 2, PMAT.steel, 4);
+    c.set(10, 3, PMAT.steel, 3);
+    c.stamp(
+      5,
+      4,
+      [
+        '..334332...',
+        '.33222211..',
+        '2222222111.',
+        '21.1111.10.',
+      ],
+      hatR,
+    );
+  } else if (hat === 'crest') {
+    // Lizardfolk feathered sun-crest
+    c.stamp(
+      4,
+      2,
+      [
+        '....R.Y.R....',
+        '...RrYFYrR...',
+        '..333YFY222..',
+        '.322YYYYY211.',
+      ],
+      PMAT.gold,
+      BMAT,
     );
   }
 
-  // 4. Held Weapon / Prop (bold, readable shapes at x=10..14!)
+  // 4. Optional Left-Side Shield (x=1..6, y=13..21)
+  if (opts.shield) {
+    c.stamp(
+      1,
+      13,
+      [
+        'SSSSSS',
+        'SrrYrS',
+        'SrYYrM',
+        'SrrYrM',
+        'SqqYqM',
+        '.SqqM.',
+        '..SM..',
+      ],
+      PMAT.steel,
+      BMAT,
+    );
+  }
+
+  // 5. Iconic Tool / Weapon rising beside right shoulder (x=17..22, y=2..21)
   switch (opts.tool) {
     case 'staff':
-      c.stamp(11, 2, ['Cc', 'uU', 'bK', 'bK', 'bK', 'bK', 'bK', 'bK', 'bK', 'bK'], MAT.wood, UNIT_MATS);
+      c.line(19, 6, 19, 21, PMAT.wood, 2);
+      c.line(18, 6, 18, 21, PMAT.wood, 3);
+      c.stamp(17, 2, ['.FF.', 'FYYF', 'FafF', '.kk.'], PMAT.amber, BMAT);
       break;
     case 'bow':
-      c.stamp(
-        11,
-        3,
-        [
-          'Bb.',
-          'I.b',
-          'I.b',
-          'I.b',
-          'I.b',
-          'I.b',
-          'Bb.',
-        ],
-        MAT.wood,
-        UNIT_MATS,
-      );
+      c.line(18, 3, 21, 7, PMAT.wood, 3);
+      c.line(21, 7, 21, 14, PMAT.wood, 2);
+      c.line(21, 14, 18, 19, PMAT.wood, 1);
+      c.line(18, 4, 18, 18, PMAT.parchment, 3);
+      c.line(16, 11, 22, 11, PMAT.wood, 3);
+      c.set(22, 11, PMAT.steel, 4);
       break;
     case 'axe':
+      c.line(19, 4, 19, 21, PMAT.wood, 2);
+      c.line(18, 4, 18, 21, PMAT.wood, 3);
       c.stamp(
-        10,
-        2,
+        16,
+        3,
         [
-          '.SSs',
-          'SSsm',
-          '.SmM',
-          '.bK.',
-          '.bK.',
-          '.bK.',
-          '.bK.',
-          '.bK.',
+          '.SSss.',
+          'SSsmmM',
+          'SSsmM.',
+          '.SsM..',
         ],
-        MAT.wood,
-        UNIT_MATS,
-      );
-      break;
-    case 'basket':
-      c.stamp(
-        10,
-        7,
-        [
-          '.Bb.',
-          'RrEe',
-          'BbbK',
-          'bkkK',
-        ],
-        MAT.wood,
-        UNIT_MATS,
-      );
-      break;
-    case 'herb':
-      c.stamp(
-        10,
-        6,
-        [
-          '.Rrr.',
-          'RRIRr',
-          '.IIi.',
-          '.bKk.',
-          '.bK..',
-        ],
-        MAT.wood,
-        UNIT_MATS,
-      );
-      break;
-    case 'pick':
-      c.stamp(
-        10,
-        2,
-        [
-          'SSsm',
-          's.bK',
-          '..bK',
-          '..bK',
-          '..bK',
-          '..bK',
-          '..bK',
-        ],
-        MAT.wood,
-        UNIT_MATS,
+        PMAT.steel,
+        BMAT,
       );
       break;
     case 'hammer':
+      c.line(19, 8, 19, 21, PMAT.wood, 2);
+      c.line(18, 8, 18, 21, PMAT.wood, 3);
       c.stamp(
-        10,
-        2,
+        16,
+        4,
         [
-          'SSss',
-          'mmMM',
-          '.bK.',
-          '.bK.',
-          '.bK.',
-          '.bK.',
-          '.bK.',
+          'SSSSss',
+          'ssmmmM',
+          'mmMMM.',
         ],
-        MAT.wood,
-        UNIT_MATS,
+        PMAT.steel,
+        BMAT,
+      );
+      break;
+    case 'pick':
+      c.line(19, 6, 19, 21, PMAT.wood, 2);
+      c.line(18, 6, 18, 21, PMAT.wood, 3);
+      c.stamp(
+        15,
+        3,
+        [
+          '..SSss.',
+          'SSsbbmM',
+          's....mM',
+        ],
+        PMAT.steel,
+        BMAT,
       );
       break;
     case 'sword':
       c.stamp(
-        11,
+        18,
         2,
         [
-          'SS',
-          'Ss',
-          'sm',
-          'sm',
-          'mM',
-          'Yg',
-          'bK',
+          '.S.',
+          'SSs',
+          'SSs',
+          'Ssm',
+          'Ssm',
+          'Ssm',
+          'smM',
+          'smM',
+          'smM',
+          'smM',
+          'YYg',
+          'bKk',
+          'bKk',
+          '.Y.',
         ],
-        MAT.steel,
-        UNIT_MATS,
+        PMAT.steel,
+        BMAT,
       );
       break;
     case 'ankh':
       c.stamp(
-        11,
+        17,
         2,
         [
-          '.Yy.',
-          'YYyg',
-          '.gG.',
-          'YggG',
-          '.gG.',
-          '.gG.',
-          '.gG.',
+          '.YYY.',
+          'YY.Yg',
+          'Yy.gG',
+          '.YgG.',
+          'YYYYg',
+          '.YgG.',
+          '.YgG.',
+          '.YgG.',
+          '.YgG.',
+          '.YgG.',
+          '.gG..',
         ],
-        MAT.gold,
-        UNIT_MATS,
+        PMAT.gold,
+        BMAT,
       );
       break;
     case 'book':
       c.stamp(
-        10,
-        7,
+        15,
+        13,
         [
-          'IIoII',
-          'IioIi',
-          'ijojJ',
-          '.bKb.',
+          'IIiIIiI',
+          'IiPiIiI',
+          'ijPijjJ',
+          'jjjjjjJ',
+          'bbbbbbK',
+          '.kkkkK.',
         ],
-        MAT.parchment,
-        UNIT_MATS,
+        PMAT.parchment,
+        BMAT,
       );
       break;
     case 'wrench':
       c.stamp(
-        11,
-        2,
+        17,
+        3,
         [
-          'S.S',
-          'SsS',
-          '.m.',
-          '.m.',
-          '.m.',
-          '.m.',
+          'S..S',
+          'SSsS',
+          'SsmM',
+          '.Sm.',
+          '.Sm.',
+          '.Sm.',
+          '.Sm.',
+          '.Sm.',
+          '.Sm.',
+          '.mM.',
         ],
-        MAT.steel,
-        UNIT_MATS,
+        PMAT.steel,
+        BMAT,
       );
       break;
     case 'dagger':
       c.stamp(
-        11,
-        4,
+        18,
+        6,
         [
-          '.R',
-          'SR',
-          'sr',
-          'mM',
-          'Yg',
-          'bK',
+          '..R',
+          '.SR',
+          'SSr',
+          'Ssm',
+          'smM',
+          'YYg',
+          'bKk',
+          'bK.',
         ],
-        MAT.steel,
-        UNIT_MATS,
+        PMAT.steel,
+        BMAT,
       );
+      break;
+    case 'basket':
+      c.stamp(
+        15,
+        13,
+        [
+          '..BBb..',
+          '.RrEeY.',
+          'BBbbbbK',
+          'bbkkkkK',
+          'bkkkkK.',
+          '.KKKK..',
+        ],
+        PMAT.wood,
+        BMAT,
+      );
+      break;
+    case 'herb':
+      c.stamp(
+        16,
+        11,
+        [
+          '..RRr..',
+          '.RIRrQ.',
+          'RRIrrQQ',
+          '..IIi..',
+          '.EeiiE.',
+          '..ebk..',
+          '..bkK..',
+        ],
+        PMAT.wood,
+        BMAT,
+      );
+      break;
+    case 'spear':
+      c.line(19, 7, 19, 21, PMAT.wood, 2);
+      c.line(18, 7, 18, 21, PMAT.wood, 3);
+      c.stamp(17, 2, ['.Y.', 'YYg', 'Yyg', 'rYq', '.g.'], PMAT.gold, BMAT);
       break;
   }
 }
 
+// ---------------------------------------------------------------------------
+// ALL 82 UNIT_SPRITES (24x24 Grounded Half-Body Bust Portraits)
+// ---------------------------------------------------------------------------
+
 export const UNIT_SPRITES: Record<UnitRole, CompiledSprite> = {
-  human: icon16((c) => draw16Unit(c, { tunic: MAT.azure, hair: MAT.wood, hat: 'hair', tool: 'staff' })),
-  elf: icon16((c) => draw16Unit(c, { tunic: MAT.leaf, hair: MAT.gold, hat: 'hood', hatRamp: MAT.leaf, ears: true, tool: 'bow' })),
-  orc: icon16((c) => draw16Unit(c, { tunic: MAT.ruby, skin: MAT.orcSkin, hair: MAT.darkIron, hat: 'hair', tusks: true, tool: 'axe' })),
-  dwarf: icon16((c) => draw16Unit(c, { tunic: MAT.copper, skin: MAT.wood, beard: MAT.gold, hat: 'horns', hatRamp: MAT.copper, pauldrons: true, tool: 'hammer' })),
-  lizardfolk: icon16((c) => draw16Unit(c, { tunic: MAT.gold, skin: MAT.leaf, hair: MAT.gold, hat: 'miter', hatRamp: MAT.gold, tool: 'staff' })),
-  villager: icon16((c) => draw16Unit(c, { tunic: MAT.azure, hat: 'straw', tool: 'basket' })),
-  forager: icon16((c) => draw16Unit(c, { tunic: MAT.wood, hat: 'beret', hatRamp: MAT.leaf, tool: 'herb' })),
-  miner: icon16((c) => draw16Unit(c, { tunic: MAT.stone, beard: MAT.darkWood, hat: 'hardhat', tool: 'pick' })),
-  builder: icon16((c) => draw16Unit(c, { tunic: MAT.copper, hat: 'cap', hatRamp: MAT.azure, tool: 'hammer' })),
-  warrior: icon16((c) => draw16Unit(c, { tunic: MAT.ruby, hat: 'helm', shield: true, tool: 'sword' })),
-  priest: icon16((c) => draw16Unit(c, { tunic: MAT.steel, hat: 'miter', stole: true, tool: 'ankh' })),
-  scholar: icon16((c) => draw16Unit(c, { tunic: MAT.arcane, beard: MAT.steel, hat: 'wizard', hatRamp: MAT.arcane, tool: 'book' })),
-  astro_engineer: icon16((c) => draw16Unit(c, { tunic: MAT.steel, hat: 'visor', tool: 'wrench' })),
-  raider_swarmer: icon16((c) => draw16Unit(c, { tunic: MAT.ruby, skin: MAT.orcSkin, hat: 'warhelm', hatRamp: MAT.darkIron, bandana: true, tool: 'dagger' })),
-  raider_ranged: icon16((c) => draw16Unit(c, { tunic: MAT.darkWood, skin: MAT.parchment, hat: 'hood', hatRamp: MAT.darkIron, bandana: true, tool: 'bow' })),
-  raider_behemoth: icon16((c) => draw16Unit(c, { tunic: MAT.darkIron, skin: MAT.wood, hat: 'horns', hatRamp: MAT.darkIron, pauldrons: true, tool: 'hammer' })),
-
-  // 16x16 Cute chubby pink piglet (distinct darker pink oval snout, floppy ear, curly tail)
-  pig: cluster16(
-    [
-      '................',
-      '................',
-      '.....333333.....',
-      '...3313333333...',
-      '..33o33333333.3.',
-      '.Www3333333332.3',
-      '.wox33333333223.',
-      '..ww222222221...',
-      '...1222222211...',
-      '...111111111....',
-      '....22...22.....',
-      '....11...11.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.pink,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Gleaming white dairy cow (black spots, curved ivory horns, bright pink muzzle, gold bell)
-  cow: cluster16(
-    [
-      '................',
-      '................',
-      '.I............I.',
-      '..I.4444DD44....',
-      '..44444DDD443...',
-      '..4o4444444334..',
-      '.Www333DD3333.3.',
-      '.Wox3Y3DD3332...',
-      '..2233333322....',
-      '...22222222.....',
-      '...33....33.....',
-      '...DD....DD.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Stocky grizzly bear with arched shoulders, round ears, separated eye & tan muzzle
-  bear: cluster16(
-    [
-      '................',
-      '................',
-      '..33...33.......',
-      '..223333222.....',
-      '..23222222222...',
-      '.23o3222222222..',
-      '.dIiI222222221..',
-      '.dIi2222222211..',
-      '..11222222211...',
-      '...111111111....',
-      '...22....22.....',
-      '...11....11.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Sharp-eared silver-and-white wolf with bright chest ruff, dark nose & bushy tail
-  wolf: cluster16(
-    [
-      '................',
-      '................',
-      '..3..33.........',
-      '..223322........',
-      '.do3222222...44.',
-      '.3333222222.432.',
-      '..4443222222221.',
-      '....4432222111..',
-      '....22111111....',
-      '....22....22....',
-      '....11....11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Bright white hen with red comb, red wattle, yellow beak & feet
-  chicken: cluster16(
-    [
-      '................',
-      '................',
-      '....Rrr.........',
-      '.....rq.........',
-      '...44443........',
-      '..4o444Yyg......',
-      '...Rr44333333...',
-      '....4433333334..',
-      '....333333332...',
-      '.....2333322....',
-      '......g..G......',
-      '.....Yy..yg.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 UNMISTAKABLE Capybara: blocky rectangular snout, chill squinty eye, ear, plump body & round tangerine on head
-  capybara: cluster16(
-    [
-      '................',
-      '.....Ee.........',
-      '...FFff.........',
-      '...ffaa.........',
-      '..3333333k......',
-      '.333oo33322.....',
-      '.d333333222222..',
-      '..222222222222..',
-      '...22222222221..',
-      '...1122222211...',
-      '....11111111....',
-      '....22....22....',
-      '....DD....DD....',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Emerald T-Rex dinosaur with open toothy jaw, tiny arms, cream belly & tail
-  dinosaur: cluster16(
-    [
-      '................',
-      '................',
-      '.....333332.....',
-      '....33o33322....',
-      '....222IIII.....',
-      '....222111......',
-      '..3.222244......',
-      '..2222IIi.......',
-      '...222Iij.......',
-      '....221j1.......',
-      '.....1111.......',
-      '.....22.22......',
-      '.....11.11......',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Unmistakable horned crimson dragon breathing horizontal fire jet with high spread wing, gold belly & tail
-  dragon: cluster16(
-    [
-      '................',
-      '.........333....',
-      '.....I..33222...',
-      '....332.222221..',
-      '.FFf3Y2.22221...',
-      '.ffaa.222222..2.',
-      '......2Y2222.21.',
-      '......2Yg22221..',
-      '......2222221...',
-      '.......22..22...',
-      '.......11..11...',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.ruby,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Gleaming snow-white unicorn with golden spiral horn, pink/purple mane & gold hooves
-  unicorn: cluster16(
-    [
-      '................',
-      '..Y.............',
-      '...y..44P.......',
-      '..44443PPp......',
-      '.4o4433Ppp......',
-      '.3333333333p....',
-      '...333333333pp..',
-      '....33333332.P..',
-      '.....33..33.....',
-      '.....33..33.....',
-      '.....Yy..Yy.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Arching cobalt Leviathan sea serpent rising from bright white ocean waves
-  leviathan: cluster16(
-    [
-      '................',
-      '.....Cc.3332....',
-      '....Ccu33Y222...',
-      '....cu.222222...',
-      '....Cc222III1...',
-      '...Ccu221111....',
-      '....222211......',
-      '...222111.C.....',
-      '..SS22111SSs....',
-      '.SSss3222SssS...',
-      '.222221111111...',
-      '.111111111111...',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.azure,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Graceful woodland stag deer with branching antlers, spotted fawn coat & white tail
-  deer: cluster16(
-    [
-      '................',
-      '.I.I..I.I.......',
-      '..Ii..iI........',
-      '...i33i.........',
-      '..33o33.........',
-      '.d3333..........',
-      '...333333333I...',
-      '....33I33I33II..',
-      '....222222221...',
-      '.....22...22....',
-      '.....2....2.....',
-      '.....D....D.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Fluffy ivory sheep with cloud-like wool fleece, dark face & legs
-  sheep: cluster16(
-    [
-      '................',
-      '................',
-      '.....44444......',
-      '...444444443....',
-      '..DD344444433...',
-      '.DoD4444444333..',
-      '.DDD3444444332..',
-      '..33333333322...',
-      '...222222222....',
-      '....DD...DD.....',
-      '....dd...dd.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.parchment,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Cute hopping rabbit with tall pink-lined ears, bright eye & fluffy cotton tail
-  rabbit: cluster16(
-    [
-      '................',
-      '....3W..3W......',
-      '....3w..3w......',
-      '....33..33......',
-      '...333333.......',
-      '..33o3333.......',
-      '.W333333333.....',
-      '..22333333344...',
-      '...2222222244...',
-      '....22...22.....',
-      '...111..111.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.parchment,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Sly russet woodland fox with black-tipped ears, white chest & huge white-tipped tail
-  fox: cluster16(
-    [
-      '................',
-      '................',
-      '..D...D.........',
-      '..33.33.........',
-      '..333333.....II.',
-      '.d3o33333...33I.',
-      '..II333333.3332.',
-      '...II222222221..',
-      '....222222211...',
-      '....D2...D2.....',
-      '....dd...dd.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.flame,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Bristled wild boar with dark mohawk ridge, curved ivory tusks & sturdy hooves
-  boar: cluster16(
-    [
-      '................',
-      '................',
-      '....DDDDDD......',
-      '...333333332....',
-      '..33o33333332...',
-      '.I233333333221..',
-      '.Ii2222222221.1.',
-      '..22222222211...',
-      '...111111111....',
-      '....22...22.....',
-      '....DD...DD.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Regal savanna lion with shaggy dark-amber mane, golden coat & tufted tail
-  lion: cluster16(
-    [
-      '................',
-      '................',
-      '..kBBk..........',
-      '.kB33Bk.........',
-      '.k3o33Bk.....k..',
-      '.kB333B3333..Bk.',
-      '..kBBk333332..B.',
-      '...kB333333222..',
-      '....222222221...',
-      '....22....22....',
-      '....11....11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.gold,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Colossal slate-gray elephant with broad ears, curved ivory tusk & long trunk
-  elephant: cluster16(
-    [
-      '................',
-      '................',
-      '...333333332....',
-      '..33332233332...',
-      '.33o3212333332..',
-      '.33332123333221.',
-      '.32II222222221..',
-      '.3.I2222222211..',
-      '.2..222222221...',
-      '.2..22....22....',
-      '....11....11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Twin-humped desert camel with curved neck & warm sandy gold coat
-  camel: cluster16(
-    [
-      '................',
-      '................',
-      '.333............',
-      '.3o3....33..33..',
-      '..33...3332333..',
-      '..33..33333332..',
-      '...33333333322..',
-      '....222222221...',
-      '.....22...22....',
-      '.....2....2.....',
-      '.....11...11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.gold,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Tuxedo polar penguin with glossy black back, snow-white belly, golden beak & webbed feet
-  penguin: cluster16(
-    [
-      '................',
-      '................',
-      '......DDDD......',
-      '.....DD4oDD.....',
-      '....YyD44DD.....',
-      '.....D4444DD....',
-      '....DD4444DDD...',
-      '....DD4444DDD...',
-      '.....D4444DD....',
-      '.....DD33DD.....',
-      '.....Yy..Yy.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Low-slung armored emerald crocodile with toothy jaws, dorsal ridge & sweeping tail
-  crocodile: cluster16(
-    [
-      '................',
-      '................',
-      '................',
-      '................',
-      '......e.e.e.....',
-      '..3333333332....',
-      '.33o333333322...',
-      '.2I2I2222222221.',
-      '..11111111111221',
-      '...22....22.....',
-      '..111...111.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Blazing Mythical Phoenix with golden crown, sweeping crimson-flame wings & radiant tail
-  phoenix: cluster16(
-    [
-      '................',
-      '..Y..Y....FF....',
-      '...Yy....FFfF...',
-      '...333..FFf33f..',
-      '..Y3o33FFf3322..',
-      '...3333333322...',
-      '....33YY3322fF..',
-      '.....2YY22FFfY..',
-      '......22.ffYY...',
-      '.....Y..Y.fY....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.ruby,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Regal Mythical Griffin with snowy eagle head, golden beak, spread wings & lion body
-  griffin: cluster16(
-    [
-      '................',
-      '........444.....',
-      '..444..44333....',
-      '.Y4o44.433322...',
-      '.g4444333322....',
-      '...4433YY332..B.',
-      '....33YYYY32.bB.',
-      '.....YYYYY222...',
-      '.....YY..YY.....',
-      '.....gG..gG.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Hulking Frost Yeti with snow-white shoulders, ice-blue face, cyan eyes & curling horns
-  yeti: cluster16(
-    [
-      '................',
-      '..C........C....',
-      '..Cc.4444.cC....',
-      '...44444444.....',
-      '..44uCuCu444....',
-      '.444uuuuu4443...',
-      '.443333333343...',
-      '.333333333332...',
-      '..3333333332....',
-      '..333....333....',
-      '..CC......CC....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Towering Ancient Stone Golem with mossy boulder shoulders & glowing amber rune core
-  golem: cluster16(
-    [
-      '................',
-      '.....EE333......',
-      '....3333332.....',
-      '..EE3YYoYY2EE...',
-      '.3332222222332..',
-      '.32222FFf22221..',
-      '.22222FfY22221..',
-      '.221.22222.121..',
-      '..1..22.22..1...',
-      '.....22.22......',
-      '....111.111.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Radiant Mythical Kitsune spirit fox with crimson-tipped ears, shrine bell & fanned spirit tails
-  kitsune: cluster16(
-    [
-      '................',
-      '...........R.P..',
-      '..R..R....44R4..',
-      '..44.44..44444P.',
-      '..4o444..444444.',
-      '.444444R444433R.',
-      '...444RY444333..',
-      '....444444332...',
-      '....33...33.....',
-      '....RR...RR.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Galloping chestnut horse with dark mane, white blaze & hooves
-  horse: cluster16(
-    [
-      '................',
-      '................',
-      '...3D...........',
-      '..I33D..........',
-      '.I3o33D.........',
-      '..3333D33333....',
-      '....333333332D..',
-      '....222222221D..',
-      '.....22...22.d..',
-      '.....2....2.....',
-      '.....D....D.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Mountain goat with curved horns, white shaggy coat & chin beard
-  goat: cluster16(
-    [
-      '................',
-      '................',
-      '....mm..........',
-      '...m33m.........',
-      '..33o33.........',
-      '.3333333333.....',
-      '..3.33333334....',
-      '....33333322....',
-      '....22222221....',
-      '.....22..22.....',
-      '.....DD..DD.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Playful jungle monkey with tan face, big ears & curled tail
-  monkey: cluster16(
-    [
-      '................',
-      '................',
-      '....3333........',
-      '...i3II3i.......',
-      '...iIoIoI....3..',
-      '....3III3....3..',
-      '....33I33...32..',
-      '...333II33.22...',
-      '...2.2222222....',
-      '.....22.22......',
-      '.....11.11......',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Round black-and-white panda with dark ears, eye patches & bamboo paws
-  panda: cluster16(
-    [
-      '................',
-      '................',
-      '..DD..DD........',
-      '..444444........',
-      '.4D444D4444.....',
-      '.4o444o4DD444...',
-      '..44D44DD4444...',
-      '...4444DD4443...',
-      '....DDDD3333D...',
-      '....DDD..DDD....',
-      '....dd....dd....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Heavy snow-white polar bear with black muzzle & broad paws
-  polar_bear: cluster16(
-    [
-      '................',
-      '................',
-      '...44.44........',
-      '..444444444.....',
-      '.D4o444444443...',
-      '.4444444444433..',
-      '..444444444432..',
-      '...3333333332...',
-      '...333...333....',
-      '...222...222....',
-      '...111...111....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Barrel-bodied river hippo with wide square snout & tusks
-  hippo: cluster16(
-    [
-      '................',
-      '................',
-      '................',
-      '...3.3.33333....',
-      '..33333333332...',
-      '.33o3333333332..',
-      '.2222222222221..',
-      '.2I2I222222211..',
-      '...222222221....',
-      '...22....22.....',
-      '...11....11.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.arcane,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Armored gray rhino with prominent curved ivory nose horn
-  rhino: cluster16(
-    [
-      '................',
-      '................',
-      '.I..............',
-      '.II..3.3333.....',
-      '.33I333333332...',
-      '.33o3223333332..',
-      '..222222222221..',
-      '...22222222211..',
-      '...22....22.....',
-      '...11....11.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Green-shelled coastal turtle with domed carapace & short legs
-  turtle: cluster16(
-    [
-      '................',
-      '................',
-      '................',
-      '................',
-      '......3333......',
-      '....33233233....',
-      '..EE333223332...',
-      '.EoE222222221...',
-      '..E.bbbbbbbb1...',
-      '....EE...EE.....',
-      '....ll...ll.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Bright green swamp frog with big golden eyes & springy hind legs
-  frog: cluster16(
-    [
-      '................',
-      '................',
-      '................',
-      '.....Yo..Yo.....',
-      '....3333333.....',
-      '...333333333....',
-      '...334444433....',
-      '..32222222223...',
-      '..22.22222.22...',
-      '.111.1...1.111..',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Red beach crab with raised orange pincers & stalked eyes
-  crab: cluster16(
-    [
-      '................',
-      '................',
-      '..FF........FF..',
-      '.FFf..o..o..fFF.',
-      '..FF..3..3..FF..',
-      '...f.333333.f...',
-      '....33333333....',
-      '...3222222223...',
-      '..2..222222..2..',
-      '.1..1.1..1.1..1.',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.ruby,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Five-headed coiled Hydra sea-serpent with glowing green bio-laser throats
-  hydra: cluster16(
-    [
-      '................',
-      '..E...33...E....',
-      '.3o3.3Yo3.3o3...',
-      '..3E..3E..E3....',
-      '3o3.333E333.3o3.',
-      '.3E..33333..E3..',
-      '..33333333333...',
-      '....22333322....',
-      '...2333333332...',
-      '..233222222332..',
-      '..122222222221..',
-      '...1112222111...',
-      '.....111111.....',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Hulking bull-headed Minotaur warrior with ivory horns & steel battle-axe
-  minotaur: cluster16(
-    [
-      '................',
-      '.I......I.......',
-      '.II.33.II....SS.',
-      '..I3YoY3I...SSs.',
-      '...33333....Smm.',
-      '..Y33333Y..bB...',
-      '.Y2233322Y.b....',
-      '.22.222.22b.....',
-      '....YYY.........',
-      '....22.22.......',
-      '....DD.DD.......',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Winged snow-white Pegasus with sky-blue mane, golden hooves & feathered wings
-  pegasus: cluster16(
-    [
-      '................',
-      '.......4444.....',
-      '..44..444CC3....',
-      '.4o4C.44CCC2....',
-      '..44C4444442....',
-      '...444444443CC..',
-      '....44444433C...',
-      '....33333332....',
-      '.....33..33.....',
-      '.....YY..YY.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Three-headed obsidian Cerberus hellhound with fiery eyes & glowing magma collar
-  cerberus: cluster16(
-    [
-      '................',
-      '.DD..DD..DD.....',
-      'DRoD.DRoDDRoD...',
-      '.DD..DD..DD.....',
-      '..FFFFFFFF......',
-      '...DDDDDDDD2....',
-      '...DD2222222F...',
-      '....22222221....',
-      '....DD...DD.....',
-      '....FF...FF.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.darkIron,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Ancient walking Treant with lush leaf crown, glowing green eyes & bark limbs
-  ent: cluster16(
-    [
-      '................',
-      '....EEEEEE......',
-      '...EEEEeeEE.....',
-      '..EEe3333eEE....',
-      '...e3E33E3e.....',
-      '..3.333333.3....',
-      '.33.332233.33...',
-      '.E..322223..E...',
-      '....222222......',
-      '....22..22......',
-      '...111..111.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Tall spotted savanna Giraffe with ossicones & long graceful neck
-  giraffe: cluster16(
-    [
-      '................',
-      '....b.b.........',
-      '...3333.........',
-      '..3o333.........',
-      '....3b3.........',
-      '....33b.........',
-      '....b33.........',
-      '....33b3333.....',
-      '....3b33b33b....',
-      '....333b3332....',
-      '....22....22....',
-      '....22....22....',
-      '....22....22....',
-      '....KK....KK....',
-      '................',
-      '................',
-    ],
-    MAT.gold,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Striped black-and-white savanna Zebra with upright striped mane
-  zebra: cluster16(
-    [
-      '................',
-      '................',
-      '...D4D..........',
-      '..4o4D4.........',
-      '...D4D4.........',
-      '....4D44D4D4....',
-      '....D4D4D4D4D...',
-      '....4D44D4D4.D..',
-      '....3D33D3D3....',
-      '....4D....4D....',
-      '....D4....D4....',
-      '....DD....DD....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Striped orange jungle Tiger with white chin & bold black stripes
-  tiger: cluster16(
-    [
-      '................',
-      '................',
-      '................',
-      '..3..3..........',
-      '.3o33o3.........',
-      '.3I33I33D3D3D...',
-      '..3333D33D33D3..',
-      '...3333D33D33.D.',
-      '...2222222222.3.',
-      '...22......22...',
-      '...II......II...',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.flame,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Broad-shouldered silverback Gorilla on strong knuckles
-  gorilla: cluster16(
-    [
-      '................',
-      '................',
-      '.....2222.......',
-      '....233332......',
-      '....2o22o2......',
-      '...22SSSS22.....',
-      '..22SSSSSS22....',
-      '.2222SSSS2222...',
-      '.222.2222.222...',
-      '.22..2222..22...',
-      '.11..22.22.11...',
-      '.....11.11......',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.darkIron,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Spring-loaded sandy Kangaroo with tall ears, pouch & balancing tail
-  kangaroo: cluster16(
-    [
-      '................',
-      '....3.3.........',
-      '....333.........',
-      '...3o33.........',
-      '.....33.........',
-      '....3333........',
-      '...33II33.......',
-      '....33II33......',
-      '.....333333.....',
-      '.....222..222...',
-      '....22......22..',
-      '...1111.........',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Towering northern Moose with broad palmate antlers
-  moose: cluster16(
-    [
-      '................',
-      '.I.I...I.I......',
-      'IIIII.IIIII.....',
-      '..II333II.......',
-      '..3o3333........',
-      '...33333333.....',
-      '....333333332...',
-      '....222222222...',
-      '.....22...22....',
-      '.....22...22....',
-      '.....11...11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Shaggy dark-brown plains Bison with massive hunched shoulders & curved horns
-  bison: cluster16(
-    [
-      '................',
-      '................',
-      '..I..2222.......',
-      '.I22222222......',
-      '.2o222222233....',
-      '..222222223332..',
-      '..222222222222..',
-      '...1111111111...',
-      '....22....22....',
-      '....11....11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.wood,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Tall pink wading Flamingo with curved neck & black-tipped beak
-  flamingo: cluster16(
-    [
-      '................',
-      '....333.........',
-      '...Do33.........',
-      '.....33.........',
-      '.....33.........',
-      '....333333......',
-      '...333443332....',
-      '....2222222.....',
-      '......3.........',
-      '......33........',
-      '......3.3.......',
-      '......3.........',
-      '.....222........',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.pink,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Fast-sprinting Ostrich with long pale neck, black body & white tail plumes
-  ostrich: cluster16(
-    [
-      '................',
-      '....II..........',
-      '...YoI..........',
-      '.....I..........',
-      '.....I..........',
-      '....222222......',
-      '...2222222SS....',
-      '....2222222S....',
-      '.....11111......',
-      '......I..I......',
-      '......I..I......',
-      '.....II..II.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.darkIron,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Sleek silver-grey Arctic Seal with dark whiskers & flippers
-  seal: cluster16(
-    [
-      '................',
-      '................',
-      '................',
-      '................',
-      '...333..........',
-      '..3o333.........',
-      '..3D333333......',
-      '...333333333....',
-      '....2222222222..',
-      '...222.2222.221.',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Crowned desert Basilisk serpent with glowing lime petrifying eyes
-  basilisk: cluster16(
-    [
-      '................',
-      '....Y.Y.Y.......',
-      '...333333.......',
-      '..3Eo33Eo3......',
-      '...333333.......',
-      '....233322......',
-      '.....233332.....',
-      '...22333332.....',
-      '..2333222232....',
-      '..2332....232...',
-      '...1222222211...',
-      '.....11111......',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Electric sky Thunderbird eagle crackling with cyan lightning arcs
-  thunderbird: cluster16(
-    [
-      '................',
-      '..C....YY....C..',
-      '.CC3..3Yo3..3CC.',
-      'C3333.3333.3333C',
-      '.33333333333333.',
-      '..2233CCCC3322..',
-      '...2233333322...',
-      '.....233332.....',
-      '....C.2222.C....',
-      '.....YY..YY.....',
-      '.....C....C.....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.azure,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Deep-sea violet Kraken squid with glowing golden eyes & writhing tentacles
-  kraken: cluster16(
-    [
-      '................',
-      '.....3333.......',
-      '....334433......',
-      '...33333333.....',
-      '...33333333.....',
-      '...3Yo33Yo3.....',
-      '....222222......',
-      '..3.223322.3....',
-      '.32.2.22.2.23...',
-      '.2..2.22.2..2...',
-      '..2.1.11.1.2....',
-      '...1..11..1.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.arcane,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Winged crimson Manticore lion with arched green-tipped scorpion tail
-  manticore: cluster16(
-    [
-      '................',
-      '...........EE...',
-      '....DD....E33...',
-      '..33DD33....3...',
-      '.3o33333D...3...',
-      '..333333DD..3...',
-      '...3333333333...',
-      '....22222222....',
-      '....22....22....',
-      '....11....11....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.ruby,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Horned stone Gargoyle sentinel with bat wings & glowing amber eyes
-  gargoyle: cluster16(
-    [
-      '................',
-      '..2........2....',
-      '.222.2..2.222...',
-      '2233.3333.3322..',
-      '2333.3Yo3.3332..',
-      '.223333333322...',
-      '..2.233332.2....',
-      '....223322......',
-      '....22..22......',
-      '...111..111.....',
-      '..1111111111....',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Necrotic Skeleton Warrior with glowing purple eyes, ribcage & rusty sword
-  skeleton: cluster16(
-    [
-      '................',
-      '.....33332......',
-      '....3333322.....',
-      '....3P33P21.....',
-      '....332o221..S..',
-      '.....23231...S..',
-      '....333321..Ss..',
-      '...2.3221..sm...',
-      '.....2321.Yg....',
-      '.....2.2.bK.....',
-      '.....2.2........',
-      '.....1.1........',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.parchment,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Xeno Shock Trooper with sleek dark visor helmet & glowing plasma rifle
-  alien_trooper: cluster16(
-    [
-      '................',
-      '.....33332......',
-      '....3333322.....',
-      '....3CCCC21.....',
-      '....2Cuuu11.....',
-      '....222221......',
-      '...3332221.RRr..',
-      '...2222211MmmMM.',
-      '....22.22..mM...',
-      '....22.22.......',
-      '....11.11.......',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.arcane,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Metallic Xeno Flying Saucer UFO with translucent cyan dome & underside thruster lights
-  alien_ufo: cluster16(
-    [
-      '................',
-      '................',
-      '......CCcc......',
-      '.....CcuuuC.....',
-      '....CCuuuuUC....',
-      '..33333333332...',
-      '.3332222222211..',
-      '.2R2C2R2C2R2C1..',
-      '..11111111111...',
-      '.....DDDDD......',
-      '......cUc.......',
-      '.......u........',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Towering 4-legged Star-Wars-style armored AT-AT Assault Walker mech
-  alien_walker: cluster16(
-    [
-      '................',
-      '..33333332......',
-      '..32222221.3332.',
-      '..2222222122RR1.',
-      '..111111111111..',
-      '...22..22...mm..',
-      '...22..22.......',
-      '...mm..mm.......',
-      '...22..22.......',
-      '...22..22.......',
-      '..mMM..mMM......',
-      '................',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.steel,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Dark-purple Blight Giant Spider with glowing toxic green eyes, markings & 8 legs
-  giant_spider: cluster16(
-    [
-      '................',
-      '..3....33....3..',
-      '.32...3EE3...23.',
-      '.2...333333...2.',
-      '..23.33EE33.32..',
-      '...2332222332...',
-      '..32.233332.23..',
-      '.32..3EoEE3..23.',
-      '.2..32333323..2.',
-      '..23..E..E..32..',
-      '.32..........23.',
-      '.1............1.',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.arcane,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Golden-lime glowing Firefly
-  firefly: cluster16(
-    [
-      '................',
-      '................',
-      '....ee....ee....',
-      '...e44e..e44e...',
-      '...e44e..e44e...',
-      '....ee2222ee....',
-      '.....233332.....',
-      '.....2GGGG2.....',
-      '....GGGGGGGG....',
-      '....GG4444GG....',
-      '.....GGGGGG.....',
-      '......GGGG......',
-      '.......GG.......',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.gold,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Cyan-mint luminescent Luna Moth
-  glow_moth: cluster16(
-    [
-      '................',
-      '.....4....4.....',
-      '..CC..4..4..CC..',
-      '.C44C.2332.C44C.',
-      '.C44CC3333CC44C.',
-      '.CC4443333444CC.',
-      '..CCC433334CCC..',
-      '...CC333333CC...',
-      '...C4C2332C4C...',
-      '..C44C.22.C44C..',
-      '..CC4C....C4CC..',
-      '...CC......CC...',
-      '....C......C....',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.azure,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Bioluminescent Lantern Jelly
-  lantern_jelly: cluster16(
-    [
-      '................',
-      '......CCCC......',
-      '....CC4444CC....',
-      '...C44GGGG44C...',
-      '...C4GGGGGG4C...',
-      '..CC44444444CC..',
-      '..CCCCCCCCCCCC..',
-      '...C..C..C..C...',
-      '...4..C..4..C...',
-      '..C...4..C...4..',
-      '..4...C..4...C..',
-      '...C..4...C..4..',
-      '...4..C...4..C..',
-      '......4......4..',
-      '................',
-      '................',
-    ],
-    MAT.azure,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Radiant Pink-Gold Fairy
-  fairy: cluster16(
-    [
-      '................',
-      '.......GG.......',
-      '..PP..G44G..PP..',
-      '.P44P.4444.P44P.',
-      '.P44PP2332PP44P.',
-      '..PPP244442PPP..',
-      '...PP.4GG4.PP...',
-      '..P4P.GGGG.P4P..',
-      '..PP..4GG4..PP..',
-      '......4444......',
-      '.....4P..P4.....',
-      '.....4....4.....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.pink,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Emerald-Violet Fae Spirit
-  fae: cluster16(
-    [
-      '................',
-      '......EEEE......',
-      '..EE..E44E..EE..',
-      '.E44E.3443.E44E.',
-      '.E44EE3333EE44E.',
-      '..EEEE3EE3EEEE..',
-      '...EE.EEEE.EE...',
-      '..E4E.3EE3.E4E..',
-      '..EE..3333..EE..',
-      '.....3E..E3.....',
-      '.....E....E.....',
-      '....4......4....',
-      '................',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.leaf,
-    UNIT_MATS,
-  ),
-
-  // 16x16 Floating Ethereal Blue-Cyan Will-o'-Wisp
-  will_o_wisp: cluster16(
-    [
-      '................',
-      '.......C........',
-      '......CCC.......',
-      '.....C444C......',
-      '....CC444CC.....',
-      '...C4444444C....',
-      '...C4444444C....',
-      '...C4444444C....',
-      '....CC444CC.....',
-      '.....CCCCC......',
-      '....C..C..C.....',
-      '.......C........',
-      '......C.........',
-      '................',
-      '................',
-      '................',
-    ],
-    MAT.azure,
-    UNIT_MATS,
+  // =========================================================================
+  // 16 HUMANOIDS & RACES
+  // =========================================================================
+  human: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.water,
+      trim: PMAT.wood,
+      hair: PMAT.wood,
+      hat: 'hair',
+      tool: 'staff',
+    }),
+  ),
+  elf: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.moss,
+      trim: PMAT.gold,
+      hair: PMAT.gold,
+      hat: 'hood',
+      hatRamp: PMAT.moss,
+      ears: true,
+      tool: 'bow',
+    }),
+  ),
+  orc: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.crimson,
+      trim: PMAT.bone,
+      skin: PMAT.orc,
+      hair: PMAT.iron,
+      hat: 'hair',
+      tusks: true,
+      eyeRamp: PMAT.amber,
+      tool: 'axe',
+    }),
+  ),
+  dwarf: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.bronze,
+      trim: PMAT.gold,
+      skin: PMAT.skin,
+      beard: PMAT.amber,
+      hat: 'horns',
+      hatRamp: PMAT.bronze,
+      pauldrons: PMAT.steel,
+      tool: 'hammer',
+    }),
+  ),
+  lizardfolk: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.bronze,
+      trim: PMAT.gold,
+      skin: PMAT.moss,
+      lizard: true,
+      hat: 'crest',
+      tool: 'spear',
+    }),
+  ),
+  villager: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.water,
+      trim: PMAT.parchment,
+      hat: 'straw',
+      tool: 'basket',
+    }),
+  ),
+  forager: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.wood,
+      trim: PMAT.moss,
+      hat: 'beret',
+      hatRamp: PMAT.moss,
+      tool: 'herb',
+    }),
+  ),
+  miner: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.stone,
+      trim: PMAT.wood,
+      beard: PMAT.darkWood,
+      hat: 'hardhat',
+      tool: 'pick',
+    }),
+  ),
+  builder: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.bronze,
+      trim: PMAT.sand,
+      hat: 'cap',
+      hatRamp: PMAT.water,
+      tool: 'hammer',
+    }),
+  ),
+  warrior: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.crimson,
+      trim: PMAT.gold,
+      hat: 'helm',
+      pauldrons: PMAT.steel,
+      shield: true,
+      tool: 'sword',
+    }),
+  ),
+  priest: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.parchment,
+      trim: PMAT.gold,
+      hat: 'miter',
+      stole: true,
+      tool: 'ankh',
+    }),
+  ),
+  scholar: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.arcane,
+      trim: PMAT.gold,
+      beard: PMAT.bone,
+      hat: 'wizard',
+      hatRamp: PMAT.arcane,
+      tool: 'book',
+    }),
+  ),
+  astro_engineer: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.bone,
+      trim: PMAT.amber,
+      hat: 'visor',
+      pauldrons: PMAT.steel,
+      tool: 'wrench',
+    }),
+  ),
+  raider_swarmer: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.crimson,
+      trim: PMAT.iron,
+      skin: PMAT.orc,
+      hat: 'warhelm',
+      hatRamp: PMAT.iron,
+      bandana: true,
+      eyeRamp: PMAT.amber,
+      tool: 'dagger',
+    }),
+  ),
+  raider_ranged: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.darkWood,
+      trim: PMAT.iron,
+      skin: PMAT.parchment,
+      hat: 'hood',
+      hatRamp: PMAT.iron,
+      bandana: true,
+      tool: 'bow',
+    }),
+  ),
+  raider_behemoth: icon24((c) =>
+    drawBust24(c, {
+      tunic: PMAT.iron,
+      trim: PMAT.crimson,
+      skin: PMAT.wood,
+      hat: 'horns',
+      hatRamp: PMAT.iron,
+      pauldrons: PMAT.iron,
+      eyeRamp: PMAT.crimson,
+      tool: 'hammer',
+    }),
+  ),
+
+  // =========================================================================
+  // 38 ANIMALS (24x24 Grounded Half-Body Bust Portraits)
+  // =========================================================================
+  pig: icon24((c) => {
+    drawShoulders(c, 12, 15, 7, PMAT.rose);
+    // Floppy ears
+    c.stamp(4, 4, ['.332', '3221', '211.'], PMAT.rose);
+    c.stamp(16, 4, ['233.', '1223', '.112'], PMAT.rose);
+    // Round head
+    shadedOval(c, 12, 10, 5.5, 5, PMAT.rose);
+    // Eyes
+    drawEye(c, 9, 8);
+    drawEye(c, 15, 8);
+    // Big prominent oval snout
+    shadedOval(c, 12, 12.5, 3.2, 2.2, PMAT.rose);
+    c.set(10, 12, PMAT.rose, 0);
+    c.set(11, 12, PMAT.rose, 0);
+    c.set(13, 12, PMAT.rose, 0);
+    c.set(14, 12, PMAT.rose, 0);
+  }),
+
+  cow: icon24((c) => {
+    drawShoulders(c, 12, 15, 7, PMAT.parchment);
+    // Black/brown dairy patches on shoulders & brow
+    c.ellipse(7, 18, 2.5, 2.2, PMAT.darkWood, 1);
+    c.ellipse(17, 19, 2.2, 1.8, PMAT.darkWood, 1);
+    // Curved horns & side ears
+    drawHorn(c, 7, 5, 5, 3, 6, 2, PMAT.sand);
+    drawHorn(c, 17, 5, 19, 3, 18, 2, PMAT.sand);
+    c.stamp(3, 6, ['221', '110'], PMAT.darkWood);
+    c.stamp(18, 6, ['122', '011'], PMAT.darkWood);
+    // Head
+    shadedOval(c, 12, 10, 5.2, 5, PMAT.parchment);
+    c.ellipse(14.5, 8, 2.2, 2, PMAT.darkWood, 1);
+    drawEye(c, 9, 8);
+    drawEye(c, 15, 8);
+    // Broad pink muzzle
+    shadedOval(c, 12, 13.5, 4.2, 2.5, PMAT.rose);
+    c.set(10, 13, PMAT.rose, 0);
+    c.set(14, 13, PMAT.rose, 0);
+  }),
+
+  bear: icon24((c) => {
+    drawShoulders(c, 12, 14, 8.5, PMAT.wood);
+    // Round fuzzy ears
+    shadedOval(c, 6, 5, 2.2, 2.2, PMAT.wood);
+    shadedOval(c, 18, 5, 2.2, 2.2, PMAT.wood);
+    c.set(6, 5, PMAT.darkWood, 1);
+    c.set(18, 5, PMAT.darkWood, 1);
+    // Broad grizzly head
+    shadedOval(c, 12, 10, 6, 5.2, PMAT.wood);
+    drawEye(c, 9, 8);
+    drawEye(c, 15, 8);
+    // Tan muzzle & dark nose
+    shadedOval(c, 12, 12.5, 3.2, 2.5, PMAT.sand);
+    c.rect(11, 11, 3, 2, PMAT.iron, 1);
+    c.set(11, 11, PMAT.iron, 3);
+    c.line(11, 14, 13, 14, PMAT.darkWood, 0);
+  }),
+
+  wolf: icon24((c) => {
+    drawShoulders(c, 12, 15, 7.5, PMAT.stone, PMAT.bone);
+    // Tall pointed ears
+    c.stamp(5, 2, ['..3.', '.32.', '321.', '2110'], PMAT.stone);
+    c.stamp(15, 2, ['.3..', '.23.', '.123', '0112'], PMAT.stone);
+    // Cheek ruffs & head
+    shadedOval(c, 12, 10, 5.4, 4.6, PMAT.stone);
+    c.stamp(5, 10, ['32', '21', '.1'], PMAT.bone);
+    c.stamp(17, 10, ['23', '12', '1.'], PMAT.bone);
+    // Fierce amber eyes
+    drawEye(c, 9, 8, PMAT.amber);
+    drawEye(c, 15, 8, PMAT.amber);
+    // Tapering snout
+    shadedOval(c, 12, 13, 2.8, 2.6, PMAT.bone);
+    c.rect(11, 12, 3, 2, PMAT.iron, 0);
+    c.set(11, 12, PMAT.steel, 3);
+    c.line(10, 15, 14, 15, PMAT.iron, 0);
+  }),
+
+  chicken: icon24((c) => {
+    drawShoulders(c, 12, 14, 7, PMAT.parchment);
+    // Tall crimson comb on crown
+    c.stamp(
+      8,
+      2,
+      [
+        '.34.34..',
+        '3323323.',
+        '2222221.',
+      ],
+      PMAT.crimson,
+    );
+    // Round head & neck
+    shadedOval(c, 12, 9.5, 4.6, 4.4, PMAT.parchment);
+    drawEye(c, 9, 8);
+    drawEye(c, 15, 8);
+    // Sharp golden beak
+    c.stamp(
+      10,
+      10,
+      [
+        '.343.',
+        '32221',
+        '.111.',
+      ],
+      PMAT.gold,
+    );
+    // Red wattle under beak
+    c.stamp(10, 13, ['32.32', '21.21'], PMAT.crimson);
+  }),
+
+  capybara: icon24((c) => {
+    drawShoulders(c, 12, 15, 7.5, PMAT.fur);
+    // Small high rounded ears
+    c.ellipse(6, 6, 1.5, 1.6, PMAT.darkWood, 2);
+    c.ellipse(18, 6, 1.5, 1.6, PMAT.darkWood, 2);
+    // Boxy chill head
+    shadedOval(c, 12, 10.5, 5.8, 4.8, PMAT.fur);
+    c.rect(7, 6, 10, 3, PMAT.fur, 3);
+    // Sleepy serene eyes
+    c.line(8, 9, 10, 9, PMAT.darkWood, 0);
+    c.line(14, 9, 16, 9, PMAT.darkWood, 0);
+    c.set(9, 10, PMAT.darkWood, 1);
+    c.set(15, 10, PMAT.darkWood, 1);
+    // Broad dark blunt nose
+    shadedOval(c, 12, 13, 3.2, 2.2, PMAT.darkWood);
+    c.set(10, 12, PMAT.iron, 0);
+    c.set(14, 12, PMAT.iron, 0);
+  }),
+
+  dinosaur: icon24((c) => {
+    // Muscular scaly T-Rex neck & chest
+    drawShoulders(c, 9, 14, 6.5, PMAT.moss, PMAT.sand);
+    // Dorsal ridge spikes
+    c.set(4, 8, PMAT.amber, 3);
+    c.set(4, 11, PMAT.amber, 3);
+    c.set(5, 14, PMAT.amber, 2);
+    // Massive blocky theropod head facing right
+    shadedOval(c, 11, 8.5, 5.5, 4.2, PMAT.moss);
+    c.rect(11, 6, 9, 4, PMAT.moss, 2);
+    c.line(11, 6, 19, 6, PMAT.moss, 3);
+    // Lower jaw
+    c.rect(11, 12, 8, 2, PMAT.moss, 1);
+    // Snarling mouth & white teeth
+    c.rect(13, 10, 7, 2, PMAT.crimson, 1);
+    c.set(14, 10, PMAT.bone, 4);
+    c.set(16, 10, PMAT.bone, 4);
+    c.set(18, 10, PMAT.bone, 4);
+    c.set(15, 11, PMAT.bone, 3);
+    c.set(17, 11, PMAT.bone, 3);
+    // Fierce eye & nostril
+    drawEye(c, 11, 7, PMAT.amber);
+    c.set(18, 7, PMAT.moss, 0);
+  }),
+
+  deer: icon24((c) => {
+    drawShoulders(c, 12, 16, 6.5, PMAT.fur, PMAT.parchment);
+    // Branching noble antlers (y=1..7)
+    c.line(9, 7, 5, 2, PMAT.wood, 2);
+    c.line(7, 5, 3, 4, PMAT.wood, 3);
+    c.line(6, 3, 7, 1, PMAT.wood, 4);
+    c.line(15, 7, 19, 2, PMAT.wood, 2);
+    c.line(17, 5, 21, 4, PMAT.wood, 3);
+    c.line(18, 3, 17, 1, PMAT.wood, 4);
+    // Large alert ears
+    c.stamp(4, 7, ['332', '210'], PMAT.fur);
+    c.stamp(17, 7, ['233', '012'], PMAT.fur);
+    // Slender stag head & neck
+    c.rect(10, 12, 4, 5, PMAT.fur, 2);
+    shadedOval(c, 12, 10.5, 4.2, 4.2, PMAT.fur);
+    drawEye(c, 10, 9);
+    drawEye(c, 14, 9);
+    // Dark nose & white chin
+    shadedOval(c, 12, 13.5, 2, 1.4, PMAT.parchment);
+    c.rect(11, 12, 3, 2, PMAT.iron, 0);
+  }),
+
+  sheep: icon24((c) => {
+    // Fluffy scalloped wool shoulders
+    drawShoulders(c, 12, 14, 8, PMAT.parchment);
+    shadedOval(c, 6, 16, 2.5, 2.5, PMAT.parchment);
+    shadedOval(c, 18, 16, 2.5, 2.5, PMAT.parchment);
+    // Floppy dark ears
+    c.stamp(4, 9, ['221', '10.'], PMAT.iron);
+    c.stamp(17, 9, ['122', '.01'], PMAT.iron);
+    // Dark face
+    shadedOval(c, 12, 11.5, 4.2, 4.2, PMAT.iron);
+    // Fluffy wool crown on top of head
+    shadedOval(c, 12, 6, 4.5, 2.8, PMAT.parchment);
+    shadedOval(c, 9, 7, 2.4, 2, PMAT.parchment);
+    shadedOval(c, 15, 7, 2.4, 2, PMAT.parchment);
+    // Expressive eyes & nose
+    drawEye(c, 10, 10, PMAT.gold);
+    drawEye(c, 14, 10, PMAT.gold);
+    c.set(12, 13, PMAT.rose, 2);
+  }),
+
+  rabbit: icon24((c) => {
+    drawShoulders(c, 12, 16, 6.5, PMAT.parchment, PMAT.bone);
+    // Tall upright bunny ears with pink interior
+    c.ellipse(8.5, 5, 1.8, 4.2, PMAT.parchment, 3);
+    c.ellipse(15.5, 5, 1.8, 4.2, PMAT.parchment, 2);
+    c.line(8, 3, 8, 7, PMAT.rose, 3);
+    c.line(15, 3, 15, 7, PMAT.rose, 2);
+    // Chubby cheeks & head
+    shadedOval(c, 12, 12, 5, 4.2, PMAT.parchment);
+    drawEye(c, 9, 10);
+    drawEye(c, 15, 10);
+    // Pink twitchy nose & buck teeth
+    c.rect(11, 12, 2, 1, PMAT.rose, 3);
+    c.set(11, 14, PMAT.bone, 4);
+    c.set(12, 14, PMAT.bone, 4);
+  }),
+
+  fox: icon24((c) => {
+    drawShoulders(c, 12, 15, 7, PMAT.amber, PMAT.parchment);
+    // Tall pointed ears with dark tips
+    c.stamp(5, 2, ['..x.', '.xx.', '322.', '2210'], PMAT.amber, BMAT);
+    c.stamp(15, 2, ['.x..', '.xx.', '.223', '0122'], PMAT.amber, BMAT);
+    // Fox head + white cheek ruffs
+    shadedOval(c, 12, 10, 5.2, 4.2, PMAT.amber);
+    c.stamp(5, 10, ['332', '221'], PMAT.parchment);
+    c.stamp(16, 10, ['233', '122'], PMAT.parchment);
+    // Pointed snout
+    shadedOval(c, 12, 13, 2.5, 2.3, PMAT.parchment);
+    c.rect(11, 13, 2, 2, PMAT.iron, 0);
+    // Clever eyes
+    drawEye(c, 9, 9, PMAT.gold);
+    drawEye(c, 15, 9, PMAT.gold);
+  }),
+
+  boar: icon24((c) => {
+    // Hunched bristly shoulders & dorsal crest
+    drawShoulders(c, 12, 14, 8, PMAT.darkWood);
+    c.stamp(8, 3, ['.23232.', '2212121'], PMAT.wood);
+    // Ears
+    c.stamp(5, 5, ['22', '10'], PMAT.darkWood);
+    c.stamp(17, 5, ['22', '01'], PMAT.darkWood);
+    // Coarse head
+    shadedOval(c, 12, 10.5, 5.8, 5, PMAT.darkWood);
+    drawEye(c, 9, 8, PMAT.amber);
+    drawEye(c, 15, 8, PMAT.amber);
+    // Wide snout & curved ivory tusks
+    shadedOval(c, 12, 13.5, 3.4, 2.2, PMAT.wood);
+    c.set(11, 13, PMAT.iron, 0);
+    c.set(13, 13, PMAT.iron, 0);
+    drawHorn(c, 8, 14, 6, 13, 6, 10, PMAT.parchment);
+    drawHorn(c, 16, 14, 18, 13, 18, 10, PMAT.parchment);
+  }),
+
+  lion: icon24((c) => {
+    drawShoulders(c, 12, 16, 7, PMAT.gold);
+    // Massive thick layered mane
+    shadedOval(c, 12, 10.5, 8.5, 8, PMAT.wood);
+    shadedOval(c, 12, 10, 7.6, 7, PMAT.amber, false);
+    // Round ears peeking through mane
+    c.ellipse(6, 5, 1.6, 1.6, PMAT.gold, 3);
+    c.ellipse(18, 5, 1.6, 1.6, PMAT.gold, 2);
+    // Regal lion face
+    shadedOval(c, 12, 10.5, 4.8, 4.6, PMAT.gold);
+    drawEye(c, 9, 9, PMAT.amber);
+    drawEye(c, 15, 9, PMAT.amber);
+    // Strong squared muzzle & dark nose
+    shadedOval(c, 12, 13, 2.8, 2, PMAT.parchment);
+    c.rect(11, 11, 3, 2, PMAT.darkWood, 0);
+    c.set(12, 13, PMAT.darkWood, 0);
+  }),
+
+  elephant: icon24((c) => {
+    drawShoulders(c, 12, 15, 6.5, PMAT.stone);
+    // Huge flapping ears
+    shadedOval(c, 4.5, 10.5, 3.2, 5.2, PMAT.stone);
+    shadedOval(c, 19.5, 10.5, 3.2, 5.2, PMAT.stone);
+    c.ellipse(5, 11, 1.6, 3.2, PMAT.rose, 1);
+    c.ellipse(19, 11, 1.6, 3.2, PMAT.rose, 1);
+    // Domed head
+    shadedOval(c, 12, 9.5, 5, 5.2, PMAT.stone);
+    drawEye(c, 9, 9);
+    drawEye(c, 15, 9);
+    // Gleaming ivory tusks
+    drawHorn(c, 8, 13, 6, 15, 5, 14, PMAT.parchment);
+    drawHorn(c, 16, 13, 18, 15, 19, 14, PMAT.parchment);
+    // Long curled trunk
+    c.rect(10, 12, 4, 5, PMAT.stone, 2);
+    c.line(10, 12, 10, 16, PMAT.stone, 3);
+    c.line(11, 17, 13, 19, PMAT.stone, 2);
+    c.line(13, 19, 15, 18, PMAT.stone, 3);
+    c.set(15, 17, PMAT.stone, 4);
+  }),
+
+  camel: icon24((c) => {
+    // Hump silhouette behind & shoulders
+    shadedOval(c, 6, 17, 4, 4, PMAT.sand);
+    drawShoulders(c, 12, 16, 7, PMAT.sand);
+    // Curved neck
+    c.rect(8, 10, 5, 8, PMAT.sand, 2);
+    c.line(8, 10, 8, 17, PMAT.sand, 3);
+    // Small ears
+    c.set(9, 4, PMAT.sand, 3);
+    c.set(12, 4, PMAT.sand, 2);
+    // Regal desert head & long muzzle facing right
+    shadedOval(c, 12, 7.5, 4, 3, PMAT.sand);
+    shadedOval(c, 16.5, 8.5, 3.2, 2.2, PMAT.sand);
+    // Heavy-lidded eye & smile
+    c.line(11, 6, 13, 6, PMAT.wood, 1);
+    drawEye(c, 12, 7);
+    c.set(18, 8, PMAT.wood, 0);
+    c.line(15, 10, 18, 10, PMAT.wood, 0);
+  }),
+
+  penguin: icon24((c) => {
+    // Tuxedo black shoulders & flippers
+    drawShoulders(c, 12, 14, 7.5, PMAT.iron, PMAT.bone);
+    // Sleek black head
+    shadedOval(c, 12, 8.5, 4.8, 4.8, PMAT.iron);
+    // Warm amber/gold emperor cheek patches
+    c.ellipse(8.5, 10.5, 1.5, 1.8, PMAT.amber, 3);
+    c.ellipse(15.5, 10.5, 1.5, 1.8, PMAT.amber, 3);
+    // Crisp white eyes & sharp amber beak
+    c.set(9, 8, PMAT.bone, 4);
+    c.set(10, 8, PMAT.iron, 0);
+    c.set(14, 8, PMAT.iron, 0);
+    c.set(15, 8, PMAT.bone, 4);
+    c.stamp(
+      10,
+      9,
+      [
+        '.343.',
+        '32221',
+        '.111.',
+      ],
+      PMAT.amber,
+    );
+  }),
+
+  crocodile: icon24((c) => {
+    // Thick armored neck & shoulders
+    drawShoulders(c, 8, 15, 6.5, PMAT.moss, PMAT.sand);
+    // Raised brow & eyes on top of head
+    shadedOval(c, 9, 8, 3.5, 2.8, PMAT.moss);
+    drawEye(c, 8, 7, PMAT.amber);
+    drawEye(c, 11, 7, PMAT.amber);
+    // Long armored snout extending right
+    c.rect(7, 9, 14, 3, PMAT.moss, 2);
+    c.line(8, 9, 20, 9, PMAT.moss, 3);
+    c.rect(7, 13, 13, 2, PMAT.moss, 1);
+    // Interlocking white teeth
+    c.line(9, 12, 20, 12, PMAT.moss, 0);
+    for (let x = 10; x <= 19; x += 2) {
+      c.set(x, 12, PMAT.bone, 4);
+    }
+    // Nostril ridge at snout tip
+    c.set(19, 8, PMAT.moss, 3);
+    c.set(20, 9, PMAT.moss, 0);
+  }),
+
+  horse: icon24((c) => {
+    // Arched muscular neck & shoulders
+    drawShoulders(c, 10, 15, 7, PMAT.wood);
+    // Flowing dark mane along left crest
+    c.stamp(
+      4,
+      4,
+      [
+        '..21.',
+        '.2110',
+        '2110.',
+        '210..',
+        '110..',
+        '10...',
+        '10...',
+        '0....',
+      ],
+      PMAT.darkWood,
+    );
+    // Pointed ears
+    c.line(8, 5, 9, 2, PMAT.wood, 3);
+    c.line(11, 5, 12, 2, PMAT.wood, 2);
+    // Sculpted horse head & muzzle facing right
+    shadedOval(c, 11, 8.5, 4.2, 3.8, PMAT.wood);
+    c.line(12, 7, 18, 12, PMAT.wood, 3);
+    c.line(11, 8, 17, 13, PMAT.wood, 2);
+    c.line(10, 9, 16, 14, PMAT.wood, 2);
+    c.line(10, 10, 15, 14, PMAT.wood, 1);
+    shadedOval(c, 17, 13, 2.2, 2, PMAT.darkWood);
+    // White forehead blaze & dark eye
+    c.line(13, 7, 16, 10, PMAT.parchment, 3);
+    drawEye(c, 11, 8);
+  }),
+
+  goat: icon24((c) => {
+    drawShoulders(c, 12, 16, 6.5, PMAT.bone);
+    // Sweeping ridged horns
+    drawHorn(c, 9, 6, 6, 3, 4, 4, PMAT.darkWood);
+    drawHorn(c, 15, 6, 18, 3, 20, 4, PMAT.darkWood);
+    // Side ears
+    c.line(5, 8, 7, 8, PMAT.bone, 2);
+    c.line(17, 8, 19, 8, PMAT.bone, 2);
+    // Narrow goat head
+    shadedOval(c, 12, 10, 4, 4.4, PMAT.bone);
+    drawEye(c, 10, 9, PMAT.gold);
+    drawEye(c, 14, 9, PMAT.gold);
+    c.set(11, 13, PMAT.iron, 0);
+    c.set(13, 13, PMAT.iron, 0);
+    // Distinct billy-goat beard!
+    c.stamp(10, 14, ['32221', '.221.', '..1..'], PMAT.parchment);
+  }),
+
+  monkey: icon24((c) => {
+    drawShoulders(c, 12, 15, 7, PMAT.wood);
+    // Big round side ears
+    shadedOval(c, 4.5, 9.5, 2.2, 2.4, PMAT.skin);
+    shadedOval(c, 19.5, 9.5, 2.2, 2.4, PMAT.skin);
+    // Furry head
+    shadedOval(c, 12, 9.5, 5.4, 5, PMAT.wood);
+    // Heart-shaped skin face & muzzle
+    shadedOval(c, 10, 9, 2.3, 2.2, PMAT.skin);
+    shadedOval(c, 14, 9, 2.3, 2.2, PMAT.skin);
+    shadedOval(c, 12, 12.5, 3.6, 2.5, PMAT.skin);
+    drawEye(c, 10, 9);
+    drawEye(c, 14, 9);
+    c.set(11, 12, PMAT.darkWood, 0);
+    c.set(13, 12, PMAT.darkWood, 0);
+    c.line(10, 14, 14, 14, PMAT.darkWood, 0);
+  }),
+
+  panda: icon24((c) => {
+    // Iconic black shoulders & white chest
+    drawShoulders(c, 12, 15, 8, PMAT.iron, PMAT.bone);
+    // Round black ears
+    shadedOval(c, 6, 5, 2.2, 2.2, PMAT.iron);
+    shadedOval(c, 18, 5, 2.2, 2.2, PMAT.iron);
+    // Round white panda head
+    shadedOval(c, 12, 10.5, 5.8, 5.2, PMAT.bone);
+    // Iconic bold black eye patches
+    c.ellipse(9, 10, 2, 1.8, PMAT.iron, 0);
+    c.ellipse(15, 10, 2, 1.8, PMAT.iron, 0);
+    c.set(9, 9, PMAT.bone, 4);
+    c.set(15, 9, PMAT.bone, 4);
+    // Black nose & cute mouth
+    c.rect(11, 12, 3, 2, PMAT.iron, 0);
+    c.line(10, 14, 14, 14, PMAT.iron, 1);
+  }),
+
+  polar_bear: icon24((c) => {
+    drawShoulders(c, 12, 14, 8.5, PMAT.bone);
+    // Cool arctic ice shadow accents
+    c.line(17, 16, 19, 20, PMAT.ice, 2);
+    // Round ears
+    shadedOval(c, 6.5, 5.5, 2, 2, PMAT.bone);
+    shadedOval(c, 17.5, 5.5, 2, 2, PMAT.bone);
+    // Massive pale head
+    shadedOval(c, 12, 10, 5.8, 5.2, PMAT.bone);
+    drawEye(c, 9, 8);
+    drawEye(c, 15, 8);
+    // Prominent black nose & muzzle
+    shadedOval(c, 12, 12.8, 3, 2.2, PMAT.ice, false);
+    c.rect(11, 11, 3, 2, PMAT.iron, 0);
+    c.set(11, 11, PMAT.steel, 3);
+  }),
+
+  hippo: icon24((c) => {
+    drawShoulders(c, 12, 15, 8.5, PMAT.arcane);
+    // Tiny perched ears
+    c.ellipse(7, 5, 1.4, 1.5, PMAT.arcane, 3);
+    c.ellipse(17, 5, 1.4, 1.5, PMAT.arcane, 2);
+    // Heavy upper head
+    shadedOval(c, 12, 9.5, 5.5, 4.4, PMAT.arcane);
+    drawEye(c, 9, 8);
+    drawEye(c, 15, 8);
+    // Huge bulbous wide snout
+    shadedOval(c, 12, 13.5, 5.4, 3.2, PMAT.rose);
+    c.set(9, 12, PMAT.iron, 0);
+    c.set(15, 12, PMAT.iron, 0);
+    // Twin tusks peeking up
+    c.set(9, 15, PMAT.parchment, 4);
+    c.set(15, 15, PMAT.parchment, 4);
+  }),
+
+  rhino: icon24((c) => {
+    // Armored stone-grey shoulders
+    drawShoulders(c, 10, 14, 7.5, PMAT.stone);
+    c.line(7, 15, 7, 21, PMAT.stone, 1);
+    // Small ears
+    c.set(7, 6, PMAT.stone, 3);
+    c.set(10, 6, PMAT.stone, 2);
+    // Heavy lowered head facing right
+    shadedOval(c, 11, 10.5, 5.5, 4.4, PMAT.stone);
+    shadedOval(c, 16, 12, 3.5, 3, PMAT.stone);
+    drawEye(c, 11, 10);
+    // Iconic large front horn & smaller rear horn
+    drawHorn(c, 18, 10, 20, 7, 20, 4, PMAT.parchment);
+    drawHorn(c, 15, 9, 16, 7, 16, 6, PMAT.parchment);
+  }),
+
+  turtle: icon24((c) => {
+    // Domed patterned shell rising behind shoulders
+    shadedOval(c, 10, 15, 8, 6.5, PMAT.wood);
+    c.ellipse(10, 15, 6, 4.5, PMAT.moss, 2);
+    c.line(6, 14, 14, 14, PMAT.wood, 1);
+    c.line(10, 11, 10, 19, PMAT.wood, 1);
+    c.line(4, 19, 16, 19, PMAT.sand, 3);
+    // Scaly green neck & wise head poking right
+    c.rect(13, 10, 4, 6, PMAT.moss, 2);
+    shadedOval(c, 17, 9, 3.8, 3.2, PMAT.moss);
+    drawEye(c, 17, 8);
+    c.line(16, 11, 20, 11, PMAT.moss, 0);
+  }),
+
+  frog: icon24((c) => {
+    // Plump crouched shoulders & pale throat sac
+    drawShoulders(c, 12, 14, 7.5, PMAT.toxic, PMAT.parchment);
+    // Broad flat head
+    shadedOval(c, 12, 11, 6.2, 3.8, PMAT.toxic);
+    // Huge bulging top-mounted gold eyes
+    shadedOval(c, 8, 6.5, 2.6, 2.6, PMAT.toxic);
+    shadedOval(c, 16, 6.5, 2.6, 2.6, PMAT.toxic);
+    c.ellipse(8, 6.5, 1.5, 1.5, PMAT.gold, 4);
+    c.ellipse(16, 6.5, 1.5, 1.5, PMAT.gold, 4);
+    c.line(7, 6, 9, 6, PMAT.iron, 0);
+    c.line(15, 6, 17, 6, PMAT.iron, 0);
+    // Wide happy frog smile
+    c.line(7, 12, 17, 12, PMAT.moss, 0);
+    c.set(8, 13, PMAT.moss, 0);
+    c.set(16, 13, PMAT.moss, 0);
+  }),
+
+  crab: cluster24(
+    [
+      '........................',
+      '........................',
+      '..343..............343..',
+      '.33223............32233.',
+      '.322.2............2.223.',
+      '.22..1............1..22.',
+      '.21122............22112.',
+      '..1221...x....x...1221..',
+      '...21....3....3....12...',
+      '....21..34333343..12....',
+      '.....1.3332222233.1.....',
+      '.....33322222222113.....',
+      '....3322222222221111....',
+      '....2222222222211111....',
+      '...221222222221111211...',
+      '..21..111111111111..12..',
+      '.21...122222222221...12.',
+      '.1...21..111111..12...1.',
+      '....21...1....1...12....',
+      '...11..............11...',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+    ],
+    PMAT.crimson,
+    BMAT,
+  ),
+
+  giraffe: icon24((c) => {
+    // Tall spotted neck & shoulders
+    drawShoulders(c, 11, 16, 6, PMAT.gold);
+    c.rect(8, 9, 6, 10, PMAT.gold, 2);
+    c.line(8, 9, 8, 18, PMAT.gold, 3);
+    // Iconic brown giraffe spots
+    c.rect(9, 12, 2, 2, PMAT.wood, 2);
+    c.rect(12, 15, 2, 2, PMAT.wood, 2);
+    c.rect(8, 17, 2, 2, PMAT.wood, 1);
+    c.rect(13, 19, 2, 2, PMAT.wood, 1);
+    // Ossicones (horns) & flared ears
+    c.line(9, 5, 9, 2, PMAT.gold, 3);
+    c.set(9, 2, PMAT.darkWood, 1);
+    c.line(13, 5, 13, 2, PMAT.gold, 2);
+    c.set(13, 2, PMAT.darkWood, 1);
+    c.line(5, 6, 8, 7, PMAT.gold, 3);
+    // Head & gentle muzzle facing right
+    shadedOval(c, 12, 7.5, 3.8, 3, PMAT.gold);
+    shadedOval(c, 16.5, 8.5, 2.8, 2, PMAT.sand);
+    drawEye(c, 12, 7);
+    c.set(18, 8, PMAT.darkWood, 0);
+  }),
+
+  zebra: icon24((c) => {
+    drawShoulders(c, 10, 15, 7, PMAT.bone);
+    // Upright spiky black-and-white mane
+    for (let y = 4; y <= 14; y++) {
+      c.set(5, y, y % 2 === 0 ? PMAT.iron : PMAT.bone, y % 2 === 0 ? 0 : 3);
+      c.set(6, y, y % 2 === 0 ? PMAT.iron : PMAT.bone, y % 2 === 0 ? 1 : 2);
+    }
+    // Pointed ears
+    c.line(8, 5, 9, 2, PMAT.bone, 3);
+    c.line(11, 5, 12, 2, PMAT.bone, 2);
+    // Head & muzzle
+    shadedOval(c, 11, 8.5, 4.2, 3.8, PMAT.bone);
+    c.line(12, 7, 18, 12, PMAT.bone, 3);
+    c.line(11, 8, 17, 13, PMAT.bone, 2);
+    c.line(10, 9, 16, 14, PMAT.bone, 2);
+    shadedOval(c, 17, 13, 2.3, 2, PMAT.iron);
+    // Bold crisp black zebra stripes!
+    c.line(7, 16, 12, 16, PMAT.iron, 0);
+    c.line(6, 19, 13, 19, PMAT.iron, 0);
+    c.line(8, 11, 12, 12, PMAT.iron, 0);
+    c.line(9, 7, 12, 6, PMAT.iron, 0);
+    c.line(13, 8, 15, 10, PMAT.iron, 0);
+    drawEye(c, 11, 8);
+  }),
+
+  tiger: icon24((c) => {
+    drawShoulders(c, 12, 15, 8, PMAT.amber, PMAT.parchment);
+    // Round ears
+    shadedOval(c, 6, 5, 2, 2, PMAT.amber);
+    shadedOval(c, 18, 5, 2, 2, PMAT.amber);
+    // Broad fierce tiger head + white cheek ruffs
+    shadedOval(c, 12, 10.5, 6, 5.2, PMAT.amber);
+    c.stamp(5, 10, ['33', '22', '.1'], PMAT.parchment);
+    c.stamp(17, 10, ['33', '22', '1.'], PMAT.parchment);
+    // Bold black tiger stripes
+    c.line(12, 5, 12, 8, PMAT.iron, 0);
+    c.line(10, 6, 14, 6, PMAT.iron, 0);
+    c.line(6, 9, 8, 9, PMAT.iron, 0);
+    c.line(16, 9, 18, 9, PMAT.iron, 0);
+    c.line(6, 17, 9, 17, PMAT.iron, 0);
+    c.line(15, 17, 18, 17, PMAT.iron, 0);
+    // Piercing gold eyes & muzzle
+    drawEye(c, 9, 9, PMAT.gold);
+    drawEye(c, 15, 9, PMAT.gold);
+    shadedOval(c, 12, 13, 2.8, 2, PMAT.parchment);
+    c.rect(11, 11, 3, 2, PMAT.rose, 2);
+  }),
+
+  gorilla: icon24((c) => {
+    // Colossal silverback shoulders
+    drawShoulders(c, 12, 13, 9, PMAT.iron);
+    c.line(5, 14, 19, 14, PMAT.steel, 3);
+    c.line(6, 15, 18, 15, PMAT.steel, 2);
+    // Muscular chest
+    c.ellipse(9.5, 18, 2.2, 2, PMAT.stone, 1);
+    c.ellipse(14.5, 18, 2.2, 2, PMAT.stone, 1);
+    // Heavy sagittal-crest head
+    shadedOval(c, 12, 9, 5.2, 5.4, PMAT.iron);
+    // Heavy brow ridge & deep-set eyes
+    c.rect(8, 8, 9, 2, PMAT.stone, 2);
+    c.set(9, 10, PMAT.amber, 3);
+    c.set(15, 10, PMAT.amber, 3);
+    // Wide flat nostrils & jaw
+    shadedOval(c, 12, 12.5, 3.4, 2.4, PMAT.stone);
+    c.set(11, 12, PMAT.iron, 0);
+    c.set(13, 12, PMAT.iron, 0);
+    c.line(10, 14, 14, 14, PMAT.iron, 0);
+  }),
+
+  kangaroo: icon24((c) => {
+    drawShoulders(c, 11, 15, 6.5, PMAT.bronze, PMAT.sand);
+    // Tall upright kangaroo ears
+    c.line(8, 7, 6, 2, PMAT.bronze, 3);
+    c.line(9, 7, 7, 2, PMAT.bronze, 2);
+    c.line(11, 7, 13, 2, PMAT.bronze, 2);
+    c.line(12, 7, 14, 2, PMAT.bronze, 1);
+    // Slender neck & head facing right
+    c.rect(9, 10, 4, 6, PMAT.bronze, 2);
+    shadedOval(c, 11.5, 8.5, 3.8, 3, PMAT.bronze);
+    shadedOval(c, 16, 9.5, 2.8, 2, PMAT.bronze);
+    drawEye(c, 12, 8);
+    c.set(18, 9, PMAT.iron, 0);
+    // Folded forepaws tucked in front
+    c.stamp(13, 16, ['322', '211', '.10'], PMAT.bronze);
+  }),
+
+  moose: icon24((c) => {
+    // Shaggy dark bull-moose shoulders & throat dewlap
+    drawShoulders(c, 12, 15, 7.5, PMAT.darkWood);
+    c.rect(11, 16, 2, 4, PMAT.darkWood, 1);
+    // Huge broad palmate antlers spanning x=2..21, y=2..9
+    c.stamp(
+      2,
+      2,
+      [
+        '4.4.4...',
+        '33332...',
+        '.22222..',
+        '..12222.',
+        '.....122',
+      ],
+      PMAT.sand,
+    );
+    c.stamp(
+      14,
+      2,
+      [
+        '...4.4.4',
+        '...23333',
+        '..22222.',
+        '.22221..',
+        '221.....',
+      ],
+      PMAT.sand,
+    );
+    // Heavy long bulbous muzzle
+    shadedOval(c, 12, 11, 4.2, 5.2, PMAT.darkWood);
+    shadedOval(c, 12, 14.5, 3.4, 2.5, PMAT.wood);
+    drawEye(c, 9, 9);
+    drawEye(c, 15, 9);
+    c.set(10, 14, PMAT.iron, 0);
+    c.set(14, 14, PMAT.iron, 0);
+  }),
+
+  bison: icon24((c) => {
+    // Colossal humped shaggy shoulders
+    shadedOval(c, 12, 14, 9, 7, PMAT.darkWood);
+    drawShoulders(c, 12, 15, 8.5, PMAT.darkWood);
+    // Curved side horns
+    drawHorn(c, 6, 8, 4, 6, 5, 4, PMAT.parchment);
+    drawHorn(c, 18, 8, 20, 6, 19, 4, PMAT.parchment);
+    // Huge shaggy wool-crowned head & beard
+    shadedOval(c, 12, 11, 6, 5.5, PMAT.wood);
+    shadedOval(c, 12, 8, 5.6, 3.2, PMAT.darkWood);
+    drawEye(c, 9, 10, PMAT.amber);
+    drawEye(c, 15, 10, PMAT.amber);
+    // Broad dark muzzle
+    shadedOval(c, 12, 14, 3.2, 2.2, PMAT.iron);
+    c.set(11, 14, PMAT.iron, 0);
+    c.set(13, 14, PMAT.iron, 0);
+  }),
+
+  flamingo: icon24((c) => {
+    // Feathered pink shoulder base
+    drawShoulders(c, 10, 16, 7, PMAT.rose);
+    // Graceful S-curved slender neck
+    c.line(10, 16, 8, 12, PMAT.rose, 3);
+    c.line(11, 16, 9, 12, PMAT.rose, 2);
+    c.line(8, 12, 11, 7, PMAT.rose, 3);
+    c.line(9, 12, 12, 7, PMAT.rose, 2);
+    // Small elegant head
+    shadedOval(c, 12.5, 6.5, 3, 2.5, PMAT.rose);
+    drawEye(c, 13, 6, PMAT.gold);
+    // Iconic downward-curved black-tipped beak
+    c.line(15, 6, 18, 7, PMAT.parchment, 3);
+    c.line(18, 7, 19, 10, PMAT.iron, 0);
+    c.line(17, 8, 18, 10, PMAT.iron, 1);
+  }),
+
+  ostrich: icon24((c) => {
+    // Fluffy black-feathered shoulders with white plume tips
+    drawShoulders(c, 11, 16, 7.5, PMAT.iron);
+    c.set(5, 18, PMAT.bone, 4);
+    c.set(17, 18, PMAT.bone, 4);
+    c.set(6, 20, PMAT.bone, 3);
+    c.set(16, 20, PMAT.bone, 3);
+    // Long pale slender neck
+    c.rect(10, 8, 3, 9, PMAT.skin, 2);
+    c.line(10, 8, 10, 16, PMAT.skin, 3);
+    // Small flat head with huge expressive eyes & flat beak
+    shadedOval(c, 12, 6.5, 3.2, 2.5, PMAT.skin);
+    c.set(11, 5, PMAT.bone, 4);
+    c.set(12, 6, PMAT.iron, 0);
+    c.rect(15, 6, 5, 2, PMAT.amber, 3);
+    c.line(15, 7, 19, 7, PMAT.amber, 1);
+  }),
+
+  seal: icon24((c) => {
+    // Sleek glossy blubbery shoulders & flipper
+    drawShoulders(c, 12, 14, 7.5, PMAT.steel, PMAT.bone);
+    // Rounded seal head
+    shadedOval(c, 12, 9.5, 5, 4.6, PMAT.steel);
+    // Big glossy dark eyes
+    c.rect(8, 8, 2, 2, PMAT.iron, 0);
+    c.set(8, 8, PMAT.bone, 4);
+    c.rect(14, 8, 2, 2, PMAT.iron, 0);
+    c.set(14, 8, PMAT.bone, 4);
+    // Plump whiskered muzzle & button nose
+    shadedOval(c, 10.5, 12.5, 2.2, 1.6, PMAT.bone);
+    shadedOval(c, 13.5, 12.5, 2.2, 1.6, PMAT.bone);
+    c.rect(11, 11, 2, 1, PMAT.iron, 0);
+    // Whiskers
+    c.line(6, 12, 8, 12, PMAT.bone, 3);
+    c.line(16, 12, 18, 12, PMAT.bone, 3);
+  }),
+
+  giant_spider: cluster24(
+    [
+      '........................',
+      '........................',
+      '....21............12....',
+      '...21..............12...',
+      '..21....22333322....12..',
+      '.21....2332222211....12.',
+      '.1....232222222111....1.',
+      '..21..222222221111..12..',
+      '.21..22222222211111..12.',
+      '.1...222R2R22R2R111...1.',
+      '..21.2222R2222R2111.12..',
+      '.21..12222222221110..12.',
+      '.1....122222221110....1.',
+      '......11122221110.......',
+      '....21..11111110..12....',
+      '...21...1T1..1T1...12...',
+      '..21....TT....TT....12..',
+      '..1.....t......t.....1..',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+    ],
+    PMAT.iron,
+    BMAT,
+  ),
+
+  // =========================================================================
+  // 28 MYTHICAL / MONSTERS / UNDEAD / ALIENS / AMBIENT
+  // =========================================================================
+  dragon: icon24((c) => {
+    // Wing shoulders peeking behind
+    c.stamp(2, 10, ['.21', '321', '210', '10.'], PMAT.crimson);
+    c.stamp(19, 10, ['12.', '123', '012', '.01'], PMAT.crimson);
+    // Scaled neck & golden plated chest
+    drawShoulders(c, 11, 15, 7, PMAT.crimson, PMAT.gold);
+    // Sweeping curved ivory horns
+    drawHorn(c, 9, 6, 5, 4, 3, 2, PMAT.parchment);
+    drawHorn(c, 13, 6, 16, 3, 18, 2, PMAT.parchment);
+    // Fierce horned dragon head & snout
+    shadedOval(c, 11.5, 9.5, 4.8, 4, PMAT.crimson);
+    c.rect(12, 8, 8, 4, PMAT.crimson, 2);
+    c.line(12, 8, 19, 8, PMAT.crimson, 3);
+    // Jaw & fangs
+    c.rect(12, 13, 7, 2, PMAT.crimson, 1);
+    c.set(14, 12, PMAT.bone, 4);
+    c.set(17, 12, PMAT.bone, 4);
+    // Glowing amber eye & smoke nostril
+    drawEye(c, 11, 8, PMAT.amber);
+    c.set(19, 8, PMAT.amber, 4);
+  }),
+
+  unicorn: icon24((c) => {
+    drawShoulders(c, 10, 15, 7, PMAT.bone);
+    // Flowing silvery-arcane mane
+    c.stamp(
+      4,
+      5,
+      [
+        '..43.',
+        '.432.',
+        '3321.',
+        '3221.',
+        '221..',
+        '21...',
+      ],
+      PMAT.arcane,
+    );
+    // Spiraled golden horn jutting diagonally upward
+    c.line(13, 6, 20, 1, PMAT.gold, 3);
+    c.line(14, 6, 20, 2, PMAT.gold, 4);
+    c.set(16, 4, PMAT.gold, 2);
+    c.set(18, 2, PMAT.gold, 2);
+    // Noble white horse head
+    shadedOval(c, 11, 9, 4.2, 3.8, PMAT.bone);
+    c.line(12, 8, 18, 12, PMAT.bone, 3);
+    c.line(11, 9, 17, 13, PMAT.bone, 2);
+    c.line(10, 10, 16, 14, PMAT.bone, 2);
+    shadedOval(c, 17, 13, 2, 1.8, PMAT.parchment);
+    drawEye(c, 11, 8, PMAT.ice);
+  }),
+
+  leviathan: icon24((c) => {
+    // Abyssal sea-serpent neck & glowing ice frill collar
+    drawShoulders(c, 11, 15, 7.5, PMAT.water, PMAT.ice);
+    c.stamp(3, 7, ['43.', '321', '210', '321'], PMAT.ice);
+    c.stamp(18, 7, ['.34', '123', '012', '123'], PMAT.ice);
+    // Armored sea-serpent head
+    shadedOval(c, 12, 9.5, 5.2, 4.4, PMAT.water);
+    // Dorsal crest
+    c.line(12, 2, 12, 6, PMAT.ice, 4);
+    c.line(11, 4, 13, 4, PMAT.ice, 3);
+    // Glowing abyssal eyes & fanged maw
+    drawEye(c, 9, 8, PMAT.ice);
+    drawEye(c, 15, 8, PMAT.ice);
+    c.line(9, 13, 15, 13, PMAT.water, 0);
+    c.set(10, 13, PMAT.bone, 4);
+    c.set(12, 13, PMAT.bone, 4);
+    c.set(14, 13, PMAT.bone, 4);
+  }),
+
+  phoenix: icon24((c) => {
+    // Blazing wings & feathered chest
+    drawShoulders(c, 12, 14, 8, PMAT.crimson, PMAT.amber);
+    c.stamp(2, 9, ['43.', '322', '221', '110'], PMAT.amber);
+    c.stamp(19, 9, ['.34', '223', '122', '011'], PMAT.amber);
+    // Trailing golden fire-plume crest
+    c.line(11, 6, 8, 2, PMAT.gold, 4);
+    c.line(12, 6, 12, 1, PMAT.gold, 4);
+    c.line(13, 6, 16, 2, PMAT.amber, 3);
+    // Regal firebird head
+    shadedOval(c, 12, 9.5, 4.2, 4, PMAT.amber);
+    drawEye(c, 10, 8, PMAT.gold);
+    drawEye(c, 14, 8, PMAT.gold);
+    // Hooked golden beak
+    c.stamp(10, 10, ['.44.', '3321', '.12.'], PMAT.gold);
+  }),
+
+  griffin: icon24((c) => {
+    // Lion shoulders + folded feathered wing tips
+    drawShoulders(c, 12, 15, 8, PMAT.fur);
+    c.stamp(2, 11, ['332', '221', '110'], PMAT.wood);
+    c.stamp(19, 11, ['233', '122', '011'], PMAT.wood);
+    // Tufted eagle ears
+    c.line(8, 6, 5, 3, PMAT.parchment, 3);
+    c.line(16, 6, 19, 3, PMAT.parchment, 2);
+    // Majestic white eagle head & feathered neck ruff
+    shadedOval(c, 12, 9.5, 4.6, 4.5, PMAT.parchment);
+    c.stamp(8, 13, ['32323232', '.212121.'], PMAT.parchment);
+    drawEye(c, 9, 8, PMAT.amber);
+    drawEye(c, 15, 8, PMAT.amber);
+    // Sharp hooked golden beak
+    c.stamp(10, 10, ['.44.', '3321', '.21.'], PMAT.gold);
+  }),
+
+  yeti: icon24((c) => {
+    // Massive shaggy arctic shoulders
+    drawShoulders(c, 12, 13, 9, PMAT.bone);
+    c.line(5, 15, 7, 20, PMAT.ice, 2);
+    c.line(19, 15, 17, 20, PMAT.ice, 2);
+    // Curved ice-tinted horns
+    drawHorn(c, 7, 6, 4, 4, 4, 2, PMAT.steel);
+    drawHorn(c, 17, 6, 20, 4, 20, 2, PMAT.steel);
+    // Shaggy snow-beast head
+    shadedOval(c, 12, 9.5, 5.6, 5.2, PMAT.bone);
+    // Shadowed steel face with glowing ice eyes & fangs
+    shadedOval(c, 12, 10.5, 3.8, 3.2, PMAT.steel);
+    drawEye(c, 10, 9, PMAT.ice);
+    drawEye(c, 14, 9, PMAT.ice);
+    c.line(10, 12, 14, 12, PMAT.iron, 0);
+    c.set(10, 12, PMAT.bone, 4);
+    c.set(14, 12, PMAT.bone, 4);
+  }),
+
+  golem: icon24((c) => {
+    // Blocky chiseled boulder shoulders
+    c.rect(3, 14, 18, 8, PMAT.stone, 2);
+    c.rect(3, 14, 18, 2, PMAT.stone, 3);
+    c.rect(17, 14, 4, 8, PMAT.stone, 1);
+    c.line(6, 15, 6, 21, PMAT.stone, 0);
+    c.line(17, 15, 17, 21, PMAT.stone, 0);
+    // Mossy cracks
+    c.stamp(4, 14, ['32.', '21.'], PMAT.moss);
+    // Chiseled monolith head
+    c.rect(7, 4, 10, 10, PMAT.stone, 2);
+    c.rect(7, 4, 10, 2, PMAT.stone, 3);
+    c.rect(15, 4, 2, 10, PMAT.stone, 1);
+    // Glowing carved forehead rune & twin eyes
+    c.stamp(11, 5, ['4', '3', '4'], PMAT.amber);
+    c.rect(8, 9, 2, 2, PMAT.amber, 4);
+    c.rect(14, 9, 2, 2, PMAT.amber, 4);
+    c.line(9, 12, 15, 12, PMAT.stone, 0);
+  }),
+
+  kitsune: icon24((c) => {
+    // Fan of mystic white-and-crimson fox tails rising behind shoulders!
+    c.stamp(2, 6, ['..R.', '.RW.', 'RWW.', 'WWWw', 'WWw.'], PMAT.bone, BMAT);
+    c.stamp(18, 6, ['.R..', '.WR.', '.WWR', 'wWWW', '.wWW'], PMAT.bone, BMAT);
+    drawShoulders(c, 12, 15, 6.5, PMAT.parchment);
+    // Tall pointed fox ears with crimson tips
+    c.stamp(6, 2, ['..R.', '.rR.', '332.', '2210'], PMAT.parchment, BMAT);
+    c.stamp(14, 2, ['.R..', '.Rr.', '.233', '0122'], PMAT.parchment, BMAT);
+    // Sleek white fox face with mystic crimson markings
+    shadedOval(c, 12, 10, 4.8, 4.2, PMAT.parchment);
+    c.set(8, 10, PMAT.crimson, 3);
+    c.set(16, 10, PMAT.crimson, 3);
+    c.set(12, 7, PMAT.crimson, 3);
+    drawEye(c, 10, 9, PMAT.amber);
+    drawEye(c, 14, 9, PMAT.amber);
+    c.set(12, 12, PMAT.iron, 0);
+  }),
+
+  hydra: icon24((c) => {
+    // Thick scaly base
+    drawShoulders(c, 12, 16, 7.5, PMAT.moss, PMAT.toxic);
+    // Three necks rising to 3 snarling serpent heads
+    c.line(8, 16, 5, 10, PMAT.moss, 2);
+    c.line(9, 16, 6, 10, PMAT.moss, 3);
+    c.line(12, 16, 12, 7, PMAT.moss, 3);
+    c.line(13, 16, 13, 7, PMAT.moss, 2);
+    c.line(16, 16, 19, 10, PMAT.moss, 2);
+    c.line(15, 16, 18, 10, PMAT.moss, 1);
+    // Left head
+    shadedOval(c, 5.5, 9, 2.8, 2.4, PMAT.moss);
+    c.set(5, 8, PMAT.amber, 4);
+    c.line(2, 10, 4, 10, PMAT.crimson, 3);
+    // Center high head
+    shadedOval(c, 12, 5.5, 3.2, 2.6, PMAT.moss);
+    c.set(11, 5, PMAT.amber, 4);
+    c.set(13, 5, PMAT.amber, 4);
+    c.set(12, 8, PMAT.crimson, 3);
+    // Right head
+    shadedOval(c, 18.5, 9, 2.8, 2.4, PMAT.moss);
+    c.set(19, 8, PMAT.amber, 4);
+    c.line(20, 10, 22, 10, PMAT.crimson, 3);
+  }),
+
+  minotaur: icon24((c) => {
+    // Massive muscular bull-warrior shoulders + bronze strap
+    drawShoulders(c, 12, 14, 8.5, PMAT.darkWood);
+    c.line(6, 15, 16, 21, PMAT.bronze, 3);
+    c.line(7, 15, 17, 21, PMAT.bronze, 2);
+    // Huge sweeping ivory bull horns
+    drawHorn(c, 7, 7, 3, 6, 2, 2, PMAT.parchment);
+    drawHorn(c, 17, 7, 21, 6, 22, 2, PMAT.parchment);
+    // Fierce bovine head
+    shadedOval(c, 12, 10, 5, 5, PMAT.darkWood);
+    drawEye(c, 9, 8, PMAT.crimson);
+    drawEye(c, 15, 8, PMAT.crimson);
+    // Broad snout + golden nose ring!
+    shadedOval(c, 12, 13, 3.4, 2.2, PMAT.wood);
+    c.stamp(10, 13, ['Y.Y', 'YgY'], PMAT.gold, BMAT);
+  }),
+
+  pegasus: icon24((c) => {
+    // Twin angelic feathered wings unfurling behind shoulders
+    c.stamp(1, 5, ['443.', '3322', '2211', '.211', '..10'], PMAT.bone);
+    c.stamp(19, 5, ['.344', '2233', '1122', '112.', '01..'], PMAT.bone);
+    drawShoulders(c, 12, 15, 6.5, PMAT.bone);
+    // Ice-tinted flowing mane & ears
+    c.line(9, 6, 9, 3, PMAT.bone, 3);
+    c.line(14, 6, 14, 3, PMAT.bone, 2);
+    c.line(8, 7, 7, 14, PMAT.ice, 3);
+    // Graceful white steed head
+    shadedOval(c, 12, 9.5, 4, 4.2, PMAT.bone);
+    drawEye(c, 10, 8, PMAT.ice);
+    drawEye(c, 14, 8, PMAT.ice);
+    c.set(11, 12, PMAT.steel, 2);
+    c.set(13, 12, PMAT.steel, 2);
+  }),
+
+  cerberus: icon24((c) => {
+    // Spiked dark hellhound shoulders
+    drawShoulders(c, 12, 15, 8, PMAT.iron);
+    c.line(6, 15, 18, 15, PMAT.crimson, 2);
+    c.set(8, 15, PMAT.steel, 4);
+    c.set(12, 15, PMAT.steel, 4);
+    c.set(16, 15, PMAT.steel, 4);
+    // Left snarling hound head
+    shadedOval(c, 5.5, 10, 3, 3, PMAT.iron);
+    c.set(4, 6, PMAT.iron, 2);
+    c.set(5, 9, PMAT.crimson, 4);
+    c.set(4, 12, PMAT.bone, 4);
+    // Right snarling hound head
+    shadedOval(c, 18.5, 10, 3, 3, PMAT.iron);
+    c.set(20, 6, PMAT.iron, 2);
+    c.set(19, 9, PMAT.crimson, 4);
+    c.set(20, 12, PMAT.bone, 4);
+    // Center alpha hound head
+    shadedOval(c, 12, 8, 3.8, 3.6, PMAT.iron);
+    c.line(9, 5, 9, 3, PMAT.iron, 2);
+    c.line(15, 5, 15, 3, PMAT.iron, 2);
+    drawEye(c, 10, 7, PMAT.amber);
+    drawEye(c, 14, 7, PMAT.amber);
+    c.set(11, 10, PMAT.bone, 4);
+    c.set(13, 10, PMAT.bone, 4);
+  }),
+
+  ent: icon24((c) => {
+    // Gnarled bark torso & mossy beard
+    drawShoulders(c, 12, 15, 7.5, PMAT.wood);
+    c.line(9, 15, 9, 21, PMAT.darkWood, 1);
+    c.line(15, 15, 15, 21, PMAT.darkWood, 1);
+    // Branch antlers & lush leafy canopy crown
+    c.line(9, 7, 5, 3, PMAT.wood, 2);
+    c.line(15, 7, 19, 3, PMAT.wood, 2);
+    shadedOval(c, 7, 4.5, 3.2, 2.4, PMAT.moss);
+    shadedOval(c, 12, 3.5, 3.6, 2.4, PMAT.moss);
+    shadedOval(c, 17, 4.5, 3.2, 2.4, PMAT.moss);
+    // Hollow bark face with glowing amber eyes & mossy beard
+    shadedOval(c, 12, 10.5, 4.5, 4.6, PMAT.wood);
+    drawEye(c, 10, 9, PMAT.amber);
+    drawEye(c, 14, 9, PMAT.amber);
+    c.stamp(9, 13, ['3232323', '.21212.', '..121..'], PMAT.moss);
+  }),
+
+  basilisk: icon24((c) => {
+    // Hooded cobra-like frilled neck
+    drawShoulders(c, 12, 14, 8, PMAT.moss, PMAT.toxic);
+    c.line(6, 15, 6, 20, PMAT.gold, 2);
+    c.line(18, 15, 18, 20, PMAT.gold, 2);
+    // Golden jagged crown-crest
+    c.stamp(8, 2, ['4.4.4', '33433', '.222.'], PMAT.gold);
+    // Venomous reptilian head
+    shadedOval(c, 12, 9.5, 4.8, 4.2, PMAT.toxic);
+    // Piercing glowing gold petrifying eyes
+    drawEye(c, 9, 8, PMAT.gold);
+    drawEye(c, 15, 8, PMAT.gold);
+    // Dripping fangs & forked tongue
+    c.line(9, 12, 15, 12, PMAT.moss, 0);
+    c.set(10, 12, PMAT.bone, 4);
+    c.set(14, 12, PMAT.bone, 4);
+    c.line(12, 13, 12, 15, PMAT.crimson, 3);
+  }),
+
+  thunderbird: icon24((c) => {
+    // Storm-blue spread shoulders with electric gold sparks
+    drawShoulders(c, 12, 14, 8.5, PMAT.water);
+    c.stamp(2, 11, ['43.', '321', '210'], PMAT.water);
+    c.stamp(19, 11, ['.34', '123', '012'], PMAT.water);
+    c.line(4, 15, 7, 18, PMAT.gold, 4);
+    c.line(20, 15, 17, 18, PMAT.gold, 4);
+    // Jagged golden lightning crest
+    c.line(10, 6, 7, 2, PMAT.gold, 4);
+    c.line(12, 5, 12, 1, PMAT.ice, 4);
+    c.line(14, 6, 17, 2, PMAT.gold, 4);
+    // Fierce storm-eagle head & hooked beak
+    shadedOval(c, 12, 9.5, 4.4, 4, PMAT.water);
+    drawEye(c, 10, 8, PMAT.ice);
+    drawEye(c, 14, 8, PMAT.ice);
+    c.stamp(10, 10, ['.44.', '3321', '.21.'], PMAT.gold);
+  }),
+
+  kraken: icon24((c) => {
+    // Curling tentacles rising up on both sides
+    c.line(5, 20, 3, 12, PMAT.crimson, 2);
+    c.line(3, 12, 5, 7, PMAT.crimson, 3);
+    c.set(4, 10, PMAT.rose, 3);
+    c.set(4, 14, PMAT.rose, 3);
+    c.line(19, 20, 21, 12, PMAT.crimson, 1);
+    c.line(21, 12, 19, 7, PMAT.crimson, 2);
+    c.set(20, 10, PMAT.rose, 2);
+    c.set(20, 14, PMAT.rose, 2);
+    // Lower tentacle crown
+    drawShoulders(c, 12, 15, 6.5, PMAT.crimson);
+    // Bulbous ribbed mantle head
+    shadedOval(c, 12, 8.5, 5.4, 6, PMAT.crimson);
+    c.line(12, 3, 12, 9, PMAT.crimson, 3);
+    // Angry golden slit eyes
+    c.rect(8, 10, 2, 2, PMAT.gold, 4);
+    c.set(9, 11, PMAT.iron, 0);
+    c.rect(14, 10, 2, 2, PMAT.gold, 4);
+    c.set(14, 11, PMAT.iron, 0);
+  }),
+
+  manticore: icon24((c) => {
+    // Barbed scorpion tail arching over right shoulder!
+    c.line(18, 18, 21, 12, PMAT.crimson, 2);
+    c.line(21, 12, 20, 6, PMAT.crimson, 3);
+    c.line(20, 6, 17, 4, PMAT.crimson, 3);
+    c.set(16, 4, PMAT.toxic, 4);
+    // Shaggy mane & beast shoulders
+    drawShoulders(c, 10, 15, 7, PMAT.bronze);
+    shadedOval(c, 10, 10.5, 6.4, 6, PMAT.darkWood);
+    // Curved devil horns
+    drawHorn(c, 7, 6, 5, 4, 5, 2, PMAT.bone);
+    drawHorn(c, 13, 6, 15, 4, 15, 2, PMAT.bone);
+    // Fierce horned lion-monster face
+    shadedOval(c, 10, 10.5, 4.4, 4.2, PMAT.bronze);
+    drawEye(c, 8, 9, PMAT.amber);
+    drawEye(c, 12, 9, PMAT.amber);
+    c.line(8, 12, 12, 12, PMAT.iron, 0);
+    c.set(8, 12, PMAT.bone, 4);
+    c.set(10, 12, PMAT.bone, 4);
+    c.set(12, 12, PMAT.bone, 4);
+  }),
+
+  gargoyle: icon24((c) => {
+    // Jagged gothic stone bat-wings rising behind
+    c.stamp(1, 3, ['32..', '321.', '2210', '210.', '110.', '.10.'], PMAT.stone);
+    c.stamp(19, 3, ['..23', '.123', '0122', '.012', '.011', '.01.'], PMAT.stone);
+    // Hunched granite shoulders
+    drawShoulders(c, 12, 14, 7.5, PMAT.stone);
+    // Sharp stone horns
+    drawHorn(c, 9, 6, 7, 4, 6, 2, PMAT.stone);
+    drawHorn(c, 15, 6, 17, 4, 18, 2, PMAT.stone);
+    // Fierce carved granite head with glowing amber eyes
+    shadedOval(c, 12, 10, 4.6, 4.4, PMAT.stone);
+    drawEye(c, 10, 9, PMAT.amber);
+    drawEye(c, 14, 9, PMAT.amber);
+    c.line(10, 12, 14, 12, PMAT.stone, 0);
+    c.set(10, 12, PMAT.bone, 3);
+    c.set(14, 12, PMAT.bone, 3);
+  }),
+
+  skeleton: icon24((c) => {
+    // Tattered iron pauldrons & exposed ribcage collar
+    drawShoulders(c, 10, 15, 7, PMAT.iron);
+    c.stamp(7, 16, ['333.333', '.22.22.', '333.333', '.11.11.'], PMAT.bone);
+    // Iconic grinning skull
+    shadedOval(c, 10, 9, 4.8, 4.4, PMAT.bone);
+    c.rect(8, 12, 5, 3, PMAT.bone, 2);
+    // Deep hollow eye sockets with ghostly glint
+    c.rect(7, 8, 2, 2, PMAT.iron, 0);
+    c.rect(11, 8, 2, 2, PMAT.iron, 0);
+    c.set(8, 9, PMAT.ice, 4);
+    c.set(12, 9, PMAT.ice, 4);
+    // Nasal cavity & grinning teeth
+    c.set(10, 11, PMAT.iron, 0);
+    c.line(8, 13, 12, 13, PMAT.iron, 0);
+    c.set(9, 13, PMAT.bone, 4);
+    c.set(11, 13, PMAT.bone, 4);
+    // Rusty blade beside right shoulder
+    c.stamp(18, 4, ['.S.', 'Ssm', 'Ssm', 'smM', 'smM', 'smM', 'dDd', '.b.'], PMAT.steel, BMAT);
+  }),
+
+  alien_trooper: icon24((c) => {
+    // Sleek dark sci-fi armor chest with glowing toxic core
+    drawShoulders(c, 10, 15, 7, PMAT.iron, PMAT.arcane);
+    c.rect(9, 17, 3, 2, PMAT.toxic, 4);
+    // Oversized bulbous alien head
+    shadedOval(c, 10, 8.5, 5.2, 4.6, PMAT.toxic);
+    shadedOval(c, 10, 11.5, 3.2, 2.8, PMAT.toxic, false);
+    // Huge slanted glossy black almond eyes
+    c.stamp(6, 8, ['xx.', 'xWx', '.xx'], PMAT.iron, BMAT);
+    c.stamp(11, 8, ['.xx', 'xWx', 'xx.'], PMAT.iron, BMAT);
+    // Plasma rifle rising beside right shoulder
+    c.stamp(18, 4, ['TT.', 'dSd', 'dTd', 'dSd', 'dmd', 'dmd', 'ddd'], PMAT.iron, BMAT);
+  }),
+
+  alien_ufo: cluster24(
+    [
+      '........................',
+      '........................',
+      '........................',
+      '.........CCCC...........',
+      '.......CCccccCC.........',
+      '......CccTttccCC........',
+      '.....CccTxtxTccC........',
+      '.....CccTTTTtccC........',
+      '....SSSSsssssSMMM.......',
+      '..SSSSssssssssssMMM.....',
+      '.SSssTssFssTssFssMMM....',
+      '.SmmmmmmmmmmmmmmmmMM....',
+      '..MMMMmmmmmmmmmmMMM.....',
+      '....MMMMMMMMMMMMM.......',
+      '.......ccCCcc...........',
+      '......ccCCCCcc..........',
+      '.....cc..CC..cc.........',
+      '....c....cc....c........',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+    ],
+    PMAT.steel,
+    BMAT,
+  ),
+
+  alien_walker: icon24((c) => {
+    // Articulated tripod mechanical legs descending from armored pod
+    c.line(8, 13, 3, 21, PMAT.iron, 2);
+    c.line(9, 13, 4, 21, PMAT.steel, 3);
+    c.line(16, 13, 21, 21, PMAT.iron, 1);
+    c.line(15, 13, 20, 21, PMAT.steel, 2);
+    c.line(12, 14, 12, 21, PMAT.iron, 1);
+    // Armored biomechanical war-pod head
+    shadedOval(c, 12, 9, 6.2, 5.4, PMAT.iron);
+    c.rect(7, 4, 10, 2, PMAT.steel, 3);
+    // Glowing crimson cyclops optic lens
+    shadedOval(c, 12, 9, 2.8, 2.4, PMAT.crimson);
+    c.set(11, 8, PMAT.amber, 4);
+    c.set(12, 9, PMAT.crimson, 4);
+    // Twin side plasma barrels
+    c.rect(4, 10, 2, 3, PMAT.arcane, 3);
+    c.rect(18, 10, 2, 3, PMAT.arcane, 3);
+  }),
+
+  firefly: icon24((c) => {
+    // Gossamer translucent wings spread behind shoulders
+    shadedOval(c, 6, 11, 4.2, 2.6, PMAT.ice);
+    shadedOval(c, 18, 11, 4.2, 2.6, PMAT.ice);
+    // Glowing warm amber lantern thorax/belly
+    shadedOval(c, 12, 16.5, 4.6, 4.6, PMAT.amber);
+    shadedOval(c, 12, 16.5, 2.8, 2.8, PMAT.gold);
+    c.set(11, 15, PMAT.gold, 4);
+    // Cute dark beetle head + antennae
+    shadedOval(c, 12, 9, 3.6, 3.2, PMAT.darkWood);
+    c.line(10, 6, 7, 3, PMAT.amber, 3);
+    c.set(7, 3, PMAT.gold, 4);
+    c.line(14, 6, 17, 3, PMAT.amber, 3);
+    c.set(17, 3, PMAT.gold, 4);
+    drawEye(c, 10, 9, PMAT.gold);
+    drawEye(c, 14, 9, PMAT.gold);
+  }),
+
+  glow_moth: icon24((c) => {
+    // Huge ornate luminous wings with glowing gold eyespots
+    shadedOval(c, 6, 11, 4.8, 6.2, PMAT.ice);
+    shadedOval(c, 18, 11, 4.8, 6.2, PMAT.ice);
+    c.ellipse(6, 10, 2.2, 2.2, PMAT.arcane, 3);
+    c.set(6, 10, PMAT.gold, 4);
+    c.ellipse(18, 10, 2.2, 2.2, PMAT.arcane, 3);
+    c.set(18, 10, PMAT.gold, 4);
+    // Fuzzy parchment moth thorax & head
+    shadedOval(c, 12, 13, 3, 5.5, PMAT.parchment);
+    shadedOval(c, 12, 7.5, 2.8, 2.6, PMAT.parchment);
+    // Feathery gold antennae
+    c.line(10, 5, 7, 2, PMAT.gold, 4);
+    c.line(14, 5, 17, 2, PMAT.gold, 4);
+    drawEye(c, 11, 7);
+    drawEye(c, 13, 7);
+  }),
+
+  lantern_jelly: cluster24(
+    [
+      '........................',
+      '........................',
+      '........CCCCCC..........',
+      '......CCccccccCC........',
+      '.....CcPPccccPPcC.......',
+      '....CcPccYYYYccPcC......',
+      '...CcPccYFFFFYccPcC.....',
+      '...CcccYFFYYFFYcccC.....',
+      '...CcccYFFYYFFYcccC.....',
+      '...CccPPYYYYYYPPccC.....',
+      '....CCcPPPPPPPPcCC......',
+      '.....cCcPccccPcCc.......',
+      '......c.P.cc.P.c........',
+      '.....c..p.cc.p..c.......',
+      '.....c..p.cc.p..c.......',
+      '......c.p..c.p.c........',
+      '......c.z..c.z.c........',
+      '.....c..z..c..z.c.......',
+      '.....c..z.....z.........',
+      '........z...............',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+    ],
+    PMAT.ice,
+    BMAT,
+  ),
+
+  fairy: icon24((c) => {
+    // Shimmering translucent butterfly wings unfurling behind shoulders
+    shadedOval(c, 5, 10, 3.8, 4.4, PMAT.ice);
+    shadedOval(c, 19, 10, 3.8, 4.4, PMAT.ice);
+    shadedOval(c, 6, 16, 2.6, 2.6, PMAT.rose);
+    shadedOval(c, 18, 16, 2.6, 2.6, PMAT.rose);
+    // Petal bodice shoulders
+    drawShoulders(c, 12, 15, 5.5, PMAT.moss, PMAT.rose);
+    // Expressive fairy face & golden hair with floral crown
+    shadedOval(c, 12, 10, 4, 4, PMAT.skin);
+    c.stamp(8, 5, ['.34332.', '3322211', '21...11'], PMAT.gold);
+    c.set(10, 5, PMAT.rose, 4);
+    c.set(12, 4, PMAT.moss, 4);
+    c.set(14, 5, PMAT.rose, 4);
+    drawEye(c, 10, 9);
+    drawEye(c, 14, 9);
+  }),
+
+  fae: icon24((c) => {
+    // Mystical leafy cloak shoulders
+    drawShoulders(c, 12, 15, 6.5, PMAT.moss, PMAT.arcane);
+    // Delicate golden stag-twig antlers
+    c.line(9, 6, 6, 2, PMAT.gold, 3);
+    c.line(7, 4, 5, 4, PMAT.gold, 4);
+    c.line(15, 6, 18, 2, PMAT.gold, 3);
+    c.line(17, 4, 19, 4, PMAT.gold, 4);
+    // Ethereal pale face & flowing arcane hair
+    shadedOval(c, 12, 10, 4.2, 4.2, PMAT.bone);
+    c.stamp(7, 5, ['.3433322.', '332222111', '21.....11', '1.......1'], PMAT.arcane);
+    // Glowing toxic forest-spirit eyes & floating wisps
+    drawEye(c, 10, 9, PMAT.toxic);
+    drawEye(c, 14, 9, PMAT.toxic);
+    c.set(3, 9, PMAT.toxic, 4);
+    c.set(20, 11, PMAT.toxic, 4);
+  }),
+
+  will_o_wisp: cluster24(
+    [
+      '........................',
+      '...........C............',
+      '..........CC............',
+      '.........CccC...........',
+      '........CcTTcC..........',
+      '.......CcTTTTcC.........',
+      '......CcTTCCCTcC........',
+      '.....CcTTCCCCCTcC.......',
+      '....CcTTCCWWCCCTcC......',
+      '....CcTTCCWWCCCTcC......',
+      '....CcTCxWWWWxCTcC......',
+      '....CcTCxWWWWxCTcC......',
+      '....CcTTCCWWCCCTcC......',
+      '.....CcTTCCCCCTcC.......',
+      '......CcTTCCCTcC........',
+      '.......CcTTTTcC....C....',
+      '...C....CcTTcC..........',
+      '.........CccC...........',
+      '..........cc............',
+      '...........c............',
+      '........................',
+      '........................',
+      '........................',
+      '........................',
+    ],
+    PMAT.ice,
+    BMAT,
   ),
 };
-
