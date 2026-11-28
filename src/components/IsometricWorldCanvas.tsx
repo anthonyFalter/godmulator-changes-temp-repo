@@ -1528,6 +1528,10 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
       runway: 21,
       void_goo: 22,
       ice: 23,
+      volcanic_wasteland: 24,
+      blighted_mire: 25,
+      floral_plains: 26,
+      dirt: 27,
     };
     const NODE_CODE: Record<string, number> = {
       none: 0,

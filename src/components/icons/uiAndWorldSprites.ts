@@ -879,6 +879,16 @@ export const ZONE_SPRITES: Record<ZoneOverlayType, CompiledSprite> = {
 
 export const TERRAIN_SPRITES: Record<TerrainToolType, CompiledSprite> = {
   // 24x24 Isometric grass block with raised hillock & bold upward gold-amber arrow
+  // 24x24 Flat earthy brown dirt tile block with warm soil clods & pebble highlights
+  base_dirt: icon24((c) => {
+    c.isoBlock(PMAT.wood, PMAT.darkWood, PMAT.darkWood, 17, 4, (x, y) => {
+      const h = (x * 13 + y * 29) & 7;
+      if (h === 0) return { ramp: PMAT.wood, tone: 4 };
+      if (h === 3) return { ramp: PMAT.darkWood, tone: 2 };
+      return null;
+    });
+  }),
+
   raise: icon24((c) => {
     c.isoBlock(PMAT.moss, PMAT.wood, PMAT.darkWood, 17, 4);
     c.stamp(

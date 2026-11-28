@@ -687,6 +687,7 @@ export function getMagicCircleThemeForPower(powerOrTool: string): MagicCircleThe
     case 'soil_enrich':
     case 'acid_rain':
     case 'swamp_mire':
+    case 'base_dirt':
     case 'savanna_biome':
     case 'forest_biome':
     case 'taiga_biome':

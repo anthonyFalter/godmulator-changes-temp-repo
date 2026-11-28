@@ -37,6 +37,7 @@ export const TERRAIN_TO_CODE: Record<TerrainType, number> = {
   volcanic_wasteland: 24,
   blighted_mire: 25,
   floral_plains: 26,
+  dirt: 27,
 };
 
 export const RESOURCE_NODE_TO_CODE: Record<ResourceNodeType, number> = {

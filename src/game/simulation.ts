@@ -2688,6 +2688,8 @@ export function canApplyTerrainToolToTile(
   _centerHeight = t.height,
 ): boolean {
   switch (toolType) {
+    case 'base_dirt':
+      return !t.buildingId && (t.height === 0 || t.terrain !== 'dirt' || t.cursedTimer > 0 || t.onFireTimer > 0);
     case 'raise':
     case 'lower':
     case 'flatten':
@@ -2791,6 +2793,21 @@ function applyTerrainToolTileMutation(
 ): boolean {
   let tileModified = false;
   switch (toolType) {
+        case 'base_dirt': {
+          if (t.buildingId) break;
+          if (t.height === 0) {
+            raiseWaterTileToLand(t, 'dirt', 1);
+            tileModified = true;
+          } else if (t.terrain !== 'dirt' || t.cursedTimer > 0 || t.onFireTimer > 0) {
+            t.terrain = 'dirt';
+            t.onFireTimer = 0;
+            t.cursedTimer = 0;
+            t.devastatedTimer = 0;
+            t.burntTree = undefined;
+            tileModified = true;
+          }
+          break;
+        }
         case 'raise': {
           // Organic feathered rim only on larger brushes (3x+) so 1x & 2x reticles sculpt every tile cleanly
           if (brushRadius >= 2 && normDist > 0.84 && (((t.x * 13 + t.z * 29) & 3) === 0)) {
@@ -6090,6 +6107,7 @@ function getBaseBiomeTempC(terrain: TerrainType): number {
     case 'volcanic_wasteland': return 46;
     case 'blighted_mire': return 12;
     case 'floral_plains': return 21;
+    case 'dirt': return 18;
   }
 }
 

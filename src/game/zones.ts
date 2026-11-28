@@ -363,6 +363,12 @@ const BIOME_META: Record<
     color: [244, 114, 182],
     baseTempC: 19,
   },
+  dirt: {
+    name: 'Base Dirt',
+    category: 'Terrestrial',
+    color: [143, 98, 62],
+    baseTempC: 18,
+  },
 };
 
 const THERMAL_BAND_META: Array<{

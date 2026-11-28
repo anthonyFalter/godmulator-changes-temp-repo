@@ -67,7 +67,8 @@ export type TerrainType =
   | 'ice'
   | 'volcanic_wasteland'
   | 'blighted_mire'
-  | 'floral_plains';
+  | 'floral_plains'
+  | 'dirt';
 
 export type ResourceNodeType =
   | 'none'
@@ -475,6 +476,7 @@ export interface GodPowerDefinition {
 }
 
 export type TerrainToolType =
+  | 'base_dirt'
   | 'raise'
   | 'lower'
   | 'flatten'

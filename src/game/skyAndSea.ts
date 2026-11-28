@@ -2179,6 +2179,7 @@ const STYLED_TERRAIN_CODE: Record<TerrainType, number> = {
   volcanic_wasteland: 24,
   blighted_mire: 25,
   floral_plains: 26,
+  dirt: 27,
 };
 
 export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem {
@@ -2860,7 +2861,7 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
         }
         c = mix(c, poisonGreen, toxPool * (0.80 + 0.20 * pulse));
         return mix(c, acidLime, acidCore * pulse);
-      } else {
+      } else if (code < 26.5) {
         // Floral Plains (26): Majestic fantasy emerald-jade steppes, rich dark healthy soil & dense multi-colored blossom carpets waving in the wind
         float wind = sin(pixPos.x * 0.78 + pixPos.y * 0.52 - tTime * 1.55) * 0.09;
         float bloomWave = landNoise(chunkPos * 1.15 + vec2(5.4, 9.8));
@@ -2886,6 +2887,17 @@ export function createStyledTerrainSystem(gridSize: number): StyledTerrainSystem
                   : landSrgb(255.0, 248.0, 238.0); // Ivory-Pearl Lily
           float petalMix = detail > 0.76 ? 0.92 : 0.68;
           c = mix(c, blossomCol, petalMix);
+        }
+        return c;
+      } else {
+        // Base Dirt (27): Warm natural earthy brown loam with subtle pixel-dithered soil clods & pebbles
+        vec3 deepLoam   = landSrgb(104.0, 70.0, 44.0);
+        vec3 warmDirt   = landSrgb(136.0, 94.0, 60.0);
+        vec3 lightEarth = landSrgb(160.0, 114.0, 76.0);
+        vec3 c = mix(deepLoam, warmDirt, step(0.30, patchVal));
+        c = mix(c, lightEarth, step(0.68, patchVal));
+        if (detail > 0.90) {
+          c = detail > 0.96 ? landSrgb(184.0, 146.0, 108.0) : landSrgb(88.0, 58.0, 36.0);
         }
         return c;
       }

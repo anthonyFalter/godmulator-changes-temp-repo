@@ -17,6 +17,7 @@ import {
 } from './worldJuice';
 import { GOD_POWERS, TERRAIN_TOOLS } from './catalog';
 import {
+  applyTerrainTool,
   createInitialSimulationState,
   executeTerrainDropTileImpact,
   getTile,
@@ -207,8 +208,9 @@ test('computeWorldZones shifts temperature bands with seasons and anchors labels
 
 test('TERRAIN_TOOLS is ordered by player usage frequency with all liquid tools grouped together', () => {
   const types = TERRAIN_TOOLS.map((t) => t.type);
-  assert.equal(types.length, 46);
-  assert.deepEqual(types.slice(0, 12), [
+  assert.equal(types.length, 47);
+  assert.deepEqual(types.slice(0, 13), [
+    'base_dirt',
     'raise',
     'lower',
     'flatten',
@@ -222,7 +224,42 @@ test('TERRAIN_TOOLS is ordered by player usage frequency with all liquid tools g
     'lava_river',
     'poison_river',
   ]);
-  assert.equal(new Set(types).size, 46, 'all terrain tool types must be unique');
+  assert.equal(new Set(types).size, 47, 'all terrain tool types must be unique');
+});
+
+test('base_dirt draws flat base-layer dirt on water without raising/lowering existing land and accepts biome paints', () => {
+  const sim = createInitialSimulationState(24, 'BASE-DIRT-TEST');
+  sim.sandboxFreeMode = true;
+
+  // Pick a water tile and a height-3 land tile
+  const waterTile = sim.tiles.find((t) => t.height === 0) ?? sim.tiles[0];
+  waterTile.height = 0;
+  waterTile.terrain = 'deep_water';
+  const hillTile = sim.tiles.find((t) => t !== waterTile && Math.hypot(t.x - waterTile.x, t.z - waterTile.z) > 5)!;
+  hillTile.height = 3;
+  hillTile.terrain = 'grass';
+  hillTile.buildingId = null;
+
+  // 1. Drawing base_dirt on water sets base height 1 & terrain 'dirt'
+  const r1 = applyTerrainTool(sim, 'base_dirt', waterTile.x, waterTile.z, 1);
+  assert.equal(r1.ok, true);
+  assert.equal(waterTile.height, 1, 'base_dirt must raise water to flat base height 1');
+  assert.equal(waterTile.terrain, 'dirt', 'base_dirt must paint normal dirt terrain');
+
+  // 2. Drawing base_dirt again on that same tile must NOT raise or lower it
+  applyTerrainTool(sim, 'base_dirt', waterTile.x, waterTile.z, 1);
+  assert.equal(waterTile.height, 1, 'Repeated base_dirt must never raise height above 1');
+
+  // 3. Drawing base_dirt on existing height-3 land paints dirt without changing height
+  applyTerrainTool(sim, 'base_dirt', hillTile.x, hillTile.z, 1);
+  assert.equal(hillTile.height, 3, 'base_dirt must not raise or lower existing land');
+  assert.equal(hillTile.terrain, 'dirt');
+
+  // 4. Biome paint tools paint directly onto base_dirt land
+  const paintRes = applyTerrainTool(sim, 'forest_biome', waterTile.x, waterTile.z, 1);
+  assert.equal(paintRes.ok, true);
+  assert.equal(waterTile.terrain, 'forest', 'Biome tools must paint cleanly onto base_dirt land');
+  assert.equal(waterTile.height, 1);
 });
 
 test('GOD_POWERS is ordered by usage frequency and logical category groups with all powers preserved', () => {

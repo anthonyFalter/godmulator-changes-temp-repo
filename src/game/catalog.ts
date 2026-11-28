@@ -1894,6 +1894,14 @@ export const GOD_POWERS: GodPowerDefinition[] = [
 export const TERRAIN_TOOLS: TerrainToolDefinition[] = [
   // Tier 1: Core Terrain Sculpting (Most Frequent)
   {
+    type: 'base_dirt',
+    name: 'Base Dirt',
+    category: 'Sculpt',
+    summary: 'Draws flat base dirt land without raising or lowering',
+    faithCost: 2,
+    color: '#8f623e',
+  },
+  {
     type: 'raise',
     name: 'Raise',
     category: 'Sculpt',
