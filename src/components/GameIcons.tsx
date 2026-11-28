@@ -59,10 +59,26 @@ export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string
   className = 'w-5 h-5 pixelated-canvas',
 }) => <PixelArtSvg sprite={ZONE_SPRITES[zone]} className={className} />);
 
+function getPixel32IconUrl(category: 'powers' | 'units', key: string): string {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}assets/icons/${category}/${key}.png`;
+}
+
 export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string }> = React.memo(({
   power,
-  className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={POWER_SPRITES[power]} className={className} />);
+  className = 'w-8 h-8 pixelated-canvas',
+}) => (
+  <img
+    src={getPixel32IconUrl('powers', power)}
+    width={32}
+    height={32}
+    alt=""
+    aria-hidden="true"
+    draggable={false}
+    className={`${className} object-contain select-none pointer-events-none`}
+  />
+));
 
 export const TerrainPixelIcon: React.FC<{ tool: TerrainToolType; className?: string }> = React.memo(({
   tool,
@@ -76,8 +92,18 @@ export const BuildingPixelIcon: React.FC<{ building: BuildingType; className?: s
 
 export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = React.memo(({
   role,
-  className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={UNIT_SPRITES[role] ?? UNIT_SPRITES.human} className={className} />);
+  className = 'w-8 h-8 pixelated-canvas',
+}) => (
+  <img
+    src={getPixel32IconUrl('units', role in UNIT_SPRITES ? role : 'human')}
+    width={32}
+    height={32}
+    alt=""
+    aria-hidden="true"
+    draggable={false}
+    className={`${className} object-contain select-none pointer-events-none`}
+  />
+));
 
 export type HudIconKind = keyof typeof HUD_SPRITES;
 
