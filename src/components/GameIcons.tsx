@@ -21,6 +21,19 @@ import { BUILDING_SPRITES, POWER_SPRITES } from './icons/powerAndBuildSprites';
 import { UNIT_SPRITES } from './icons/unitSprites';
 import { INSPECTOR_SPRITES } from './icons/inspectorSprites';
 import type { InspectorIconKey } from '../game/unitCustomization';
+import { getFlameSpriteSheetUrl } from '../game/fireSprites';
+
+export const FlameSpriteIcon: React.FC<{ className?: string; label?: string }> = React.memo(({
+  className = 'w-5 h-5',
+  label = 'Flame',
+}) => (
+  <span
+    role="img"
+    aria-label={label}
+    className={`flame-sprite-icon ${className}`}
+    style={{ backgroundImage: `url("${getFlameSpriteSheetUrl()}")` }}
+  />
+));
 
 export const TitleEmblemSvg: React.FC<{ centered?: boolean }> = React.memo(({ centered = true }) => (
   <div className={centered ? 'mb-3 flex justify-center' : 'flex items-center'}>
@@ -49,7 +62,13 @@ export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string
 export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string }> = React.memo(({
   power,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={POWER_SPRITES[power]} className={className} />);
+}) =>
+  power === 'heat_wave' ? (
+    <FlameSpriteIcon className={className} label="Heat Wave Flame" />
+  ) : (
+    <PixelArtSvg sprite={POWER_SPRITES[power]} className={className} />
+  ),
+);
 
 export const TerrainPixelIcon: React.FC<{ tool: TerrainToolType; className?: string }> = React.memo(({
   tool,
@@ -78,6 +97,10 @@ export const HudPixelIcon: React.FC<{
 export const InspectorPixelIcon: React.FC<{
   kind: InspectorIconKey;
   className?: string;
-}> = React.memo(({ kind, className = 'w-4 h-4 pixelated-canvas' }) => (
-  <PixelArtSvg sprite={INSPECTOR_SPRITES[kind] ?? INSPECTOR_SPRITES.star} className={className} />
-));
+}> = React.memo(({ kind, className = 'w-4 h-4 pixelated-canvas' }) =>
+  kind === 'flame' ? (
+    <FlameSpriteIcon className={className} label="Flame" />
+  ) : (
+    <PixelArtSvg sprite={INSPECTOR_SPRITES[kind] ?? INSPECTOR_SPRITES.star} className={className} />
+  ),
+);

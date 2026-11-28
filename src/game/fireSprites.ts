@@ -1,7 +1,15 @@
 import * as THREE from 'three';
 
+export const FLAME_SPRITESHEET_FRAMES = 8;
+
+export function getFlameSpriteSheetUrl(): string {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}assets/sprites/flame_spritesheet.png`;
+}
+
 export interface AnimatedSpriteBundle {
-  fireSheetTexture: THREE.CanvasTexture;
+  fireSheetTexture: THREE.Texture;
   smokeSheetTexture: THREE.CanvasTexture;
   breathScrollTexture: THREE.CanvasTexture;
   fireMaterial: THREE.ShaderMaterial;
@@ -11,136 +19,9 @@ export interface AnimatedSpriteBundle {
   dispose: () => void;
 }
 
-function createFireSpriteSheetTexture(frameCount = 12, frameW = 24, frameH = 36): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = frameCount * frameW;
-  canvas.height = frameH;
-  const ctx = canvas.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-
-  for (let f = 0; f < frameCount; f++) {
-    const ox = f * frameW;
-    const phase = (f / frameCount) * Math.PI * 2;
-    const cxBase = frameW * 0.5;
-
-    for (let py = 0; py < frameH; py++) {
-      // ny: 0 at base bottom, 1 at top tip
-      const ny = 1 - py / (frameH - 1);
-
-      // Primary central flame tongue centerline & width
-      const mainSway =
-        Math.sin(phase + ny * 5.8) * (0.85 + ny * 2.1) +
-        Math.cos(phase * 2.0 - ny * 8.2) * (0.4 + ny * 0.95);
-      const mainTaper =
-        ny < 0.14
-          ? 0.58 + (ny / 0.14) * 0.42
-          : Math.pow(Math.max(0, 1 - (ny - 0.10) / 0.88), 0.68);
-      const mainLick = 0.80 + 0.28 * Math.sin(phase * 2.0 + ny * 9.5);
-      const mainHalfW = Math.max(0, 7.6 * mainTaper * mainLick);
-
-      // Left secondary curling flame tongue
-      const leftCenter = cxBase - 3.6 + Math.sin(phase + ny * 6.4 + 1.2) * (1.1 + ny * 1.4);
-      const leftEnv = ny > 0.05 && ny < 0.76 ? Math.sin(((ny - 0.05) / 0.71) * Math.PI) : 0;
-      const leftHalfW = 3.6 * leftEnv * (0.78 + 0.25 * Math.cos(phase * 2.0 + ny * 7.0));
-
-      // Right secondary curling flame tongue
-      const rightCenter = cxBase + 3.5 + Math.cos(phase + ny * 6.8 - 0.9) * (1.1 + ny * 1.4);
-      const rightEnv = ny > 0.06 && ny < 0.82 ? Math.sin(((ny - 0.06) / 0.76) * Math.PI) : 0;
-      const rightHalfW = 3.5 * rightEnv * (0.78 + 0.25 * Math.sin(phase * 2.0 - ny * 7.5));
-
-      // Upper detached flame wisp pinching off near the crown
-      const wispCycle = ((f + 3) % frameCount) / frameCount;
-      const wispY = 0.56 + wispCycle * 0.34;
-      const wispCenter = cxBase + Math.sin(phase + 0.8) * 2.2;
-      const wispDistY = Math.abs(ny - wispY);
-
-      for (let px = 0; px < frameW; px++) {
-        const x = px + 0.5;
-
-        // 1. Main tongue contribution
-        const dMain = mainHalfW > 0.2 ? Math.abs(x - (cxBase + mainSway)) / mainHalfW : 99;
-        let heat = Math.max(0, 1 - dMain * dMain) * (1.02 - ny * 0.34);
-
-        // Serrated flame notches along outer edges for crisp pixel-art flame silhouette
-        const edgeNotch = Math.sin(ny * 17.0 - phase * 2.0 + (x < cxBase ? 0.0 : 2.1));
-        if (dMain > 0.65 && edgeNotch < -0.25) {
-          heat *= 0.62;
-        }
-
-        // 2. Left & right forked side tongues
-        if (leftHalfW > 0.25) {
-          const dLeft = Math.abs(x - leftCenter) / leftHalfW;
-          if (dLeft < 1.1) {
-            heat = Math.max(heat, (1 - dLeft * dLeft) * 0.78 * (1 - ny * 0.25));
-          }
-        }
-        if (rightHalfW > 0.25) {
-          const dRight = Math.abs(x - rightCenter) / rightHalfW;
-          if (dRight < 1.1) {
-            heat = Math.max(heat, (1 - dRight * dRight) * 0.80 * (1 - ny * 0.22));
-          }
-        }
-
-        // 3. Crown pinching wisp
-        if (wispDistY < 0.11) {
-          const dWisp = Math.hypot((x - wispCenter) * 0.55, (ny - wispY) * 11.0);
-          if (dWisp < 1.0) {
-            heat = Math.max(heat, (1 - dWisp) * 0.66);
-          }
-        }
-
-        // 4. Glowing ember & charred coal hearth bed at the base
-        if (ny < 0.13) {
-          const coalSpread = Math.abs(x - cxBase) / 8.8;
-          if (coalSpread < 1.0) {
-            const coalPulse = 0.55 + 0.35 * Math.sin(px * 1.9 + phase * 2.0);
-            const coalHeat = (1 - coalSpread * coalSpread) * (0.48 + 0.35 * coalPulse);
-            heat = Math.max(heat, coalHeat);
-          }
-        }
-
-        if (heat <= 0.14) continue;
-
-        let color: string;
-        if (heat > 0.86 && ny < 0.44 && ny > 0.05) {
-          color = '#fffbeb'; // White-hot inner core
-        } else if (heat > 0.70 && ny < 0.64) {
-          color = '#fef08a'; // Bright sun-yellow tongue
-        } else if (heat > 0.58) {
-          color = '#facc15'; // Golden yellow flame
-        } else if (heat > 0.45) {
-          color = '#fb923c'; // Vibrant amber-orange body
-        } else if (heat > 0.33) {
-          color = '#f97316'; // Deep wildfire orange
-        } else if (heat > 0.23) {
-          color = '#dc2626'; // Crimson outer flame lick
-        } else {
-          color = ny < 0.14 ? '#450a0a' : '#991b1b'; // Charred coal base / dark scarlet contour
-        }
-
-        ctx.fillStyle = color;
-        ctx.fillRect(ox + px, py, 1, 1);
-      }
-    }
-
-    // 5. Detached rising pixel embers & cinders drifting upward across frames
-    for (let s = 0; s < 5; s++) {
-      const progress = ((f + s * 2.4) % frameCount) / frameCount;
-      const sy = Math.round((frameH - 6) * (1 - (0.32 + progress * 0.64)));
-      const swayX = Math.sin(progress * Math.PI * 3 + s * 1.9) * (3.2 + (s % 3) * 1.8);
-      const sx = Math.max(1, Math.min(frameW - 2, Math.round(cxBase + swayX)));
-      if (sy >= 1 && sy < frameH - 3) {
-        ctx.fillStyle = progress < 0.45 ? '#fef08a' : progress < 0.75 ? '#fb923c' : '#dc2626';
-        ctx.fillRect(ox + sx, sy, 1, 1);
-        if (progress < 0.35 && sy + 1 < frameH) {
-          ctx.fillStyle = '#ea580c';
-          ctx.fillRect(ox + sx, sy + 1, 1, 1);
-        }
-      }
-    }
-  }
-
-  const tex = new THREE.CanvasTexture(canvas);
+function createFireSpriteSheetTexture(): THREE.Texture {
+  const loader = new THREE.TextureLoader();
+  const tex = loader.load(getFlameSpriteSheetUrl());
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
@@ -239,14 +120,15 @@ function createBreathScrollTexture(size = 32): THREE.CanvasTexture {
 }
 
 export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
-  const FIRE_FRAMES = 12;
+  const FIRE_FRAMES = FLAME_SPRITESHEET_FRAMES;
   const SMOKE_FRAMES = 8;
-  const fireSheetTexture = createFireSpriteSheetTexture(FIRE_FRAMES, 24, 36);
+  const fireSheetTexture = createFireSpriteSheetTexture();
   const smokeSheetTexture = createSmokeSpriteSheetTexture(SMOKE_FRAMES, 20);
   const breathScrollTexture = createBreathScrollTexture(32);
 
-  const fireGeometry = new THREE.PlaneGeometry(1.02, 1.48);
-  fireGeometry.translate(0, 0.68, 0);
+  // 64x64 square frames with flame base near bottom; lift by 0.70 so base sits flush on tiles
+  const fireGeometry = new THREE.PlaneGeometry(1.56, 1.56);
+  fireGeometry.translate(0, 0.70, 0);
 
   const smokeGeometry = new THREE.PlaneGeometry(0.84, 0.84);
 
@@ -255,7 +137,7 @@ export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
       uMap: { value: fireSheetTexture },
       uTime: { value: 0 },
       uFrameCount: { value: FIRE_FRAMES },
-      uFps: { value: 13.5 },
+      uFps: { value: 11.5 },
     },
     vertexShader: `
       attribute vec2 aFireData;
@@ -264,7 +146,6 @@ export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
       uniform float uFrameCount;
       uniform float uFps;
       varying vec2 vUv;
-      varying vec3 vColor;
       varying float vAlpha;
 
       void main() {
@@ -276,13 +157,13 @@ export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
         vec3 camUp = normalize(mix(vec3(0.0, 1.0, 0.0), vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]), 0.36));
 
         float phase = aFireData.x;
-        float sway = (sin(uTime * 7.2 + phase * 19.0 + uv.y * 3.5) * 0.085 + cos(uTime * 11.5 - phase * 13.0) * 0.03) * uv.y * sx;
-        float stretchY = 1.0 + sin(uTime * 9.5 + phase * 23.0) * 0.08 * uv.y;
+        // Subtle organic breeze sway that complements the baked pixel-art spritesheet loop
+        float sway = (sin(uTime * 5.8 + phase * 19.0 + uv.y * 2.5) * 0.028 + cos(uTime * 9.0 - phase * 13.0) * 0.012) * uv.y * sx;
+        float stretchY = 1.0 + sin(uTime * 7.5 + phase * 23.0) * 0.035 * uv.y;
         vec3 posWorld = worldCenter + camRight * (position.x * sx + sway) + camUp * (position.y * sy * stretchY);
 
         float frameIdx = floor(mod(uTime * uFps + phase * uFrameCount, uFrameCount));
         vUv = vec2((uv.x + frameIdx) / uFrameCount, uv.y);
-        vColor = aFireColor;
         vAlpha = aFireData.y;
 
         gl_Position = projectionMatrix * viewMatrix * vec4(posWorld, 1.0);
@@ -291,21 +172,13 @@ export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
     fragmentShader: `
       uniform sampler2D uMap;
       varying vec2 vUv;
-      varying vec3 vColor;
       varying float vAlpha;
 
       void main() {
         vec4 tex = texture2D(uMap, vUv);
         if (tex.a < 0.15) discard;
-
-        // Pure white (1,1,1) preserves classic yellow/orange/crimson pixel fire;
-        // colored dragon fires remap luminance into bright dragon-colored flames with white-hot core.
-        float tintStrength = smoothstep(0.02, 0.18, length(vColor - vec3(1.0)));
-        float luma = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
-        vec3 dragonFlame = mix(vColor * (0.62 + luma * 0.95), vec3(1.0, 0.99, 0.92), smoothstep(0.76, 0.97, luma));
-        vec3 finalRgb = mix(tex.rgb, dragonFlame, tintStrength);
-
-        gl_FragColor = vec4(finalRgb, tex.a * vAlpha);
+        // All flames render with the authentic pixel-art spritesheet colors (no per-color re-tinting)
+        gl_FragColor = vec4(tex.rgb, tex.a * vAlpha);
       }
     `,
     transparent: true,

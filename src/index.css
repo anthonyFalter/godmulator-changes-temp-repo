@@ -950,4 +950,29 @@
   -webkit-backface-visibility: hidden;
 }
 
+/* Seamlessly looping 8-frame pixel-art flame spritesheet icon (512x64 -> 8 x 64x64) */
+@keyframes flame-sprite-loop {
+  from {
+    background-position: 0% 0%;
+  }
+  to {
+    background-position: 114.285714% 0%;
+  }
+}
 
+.flame-sprite-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  background-repeat: no-repeat;
+  background-size: 800% 100%;
+  background-position: 0% 0%;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  animation: flame-sprite-loop 0.72s steps(8, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flame-sprite-icon {
+    animation: none;
+  }
+}
