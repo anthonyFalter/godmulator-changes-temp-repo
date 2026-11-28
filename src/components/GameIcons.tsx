@@ -44,40 +44,87 @@ export const TitleEmblemSvg: React.FC<{ centered?: boolean }> = React.memo(({ ce
   </div>
 ));
 
+function getUiIconUrl(category: string, key: string): string {
+  const base = import.meta.env.BASE_URL || '/';
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+  return `${normalizedBase}assets/icons/${category}/${key}.png`;
+}
+
+const HQ_UNIT_ICONS = new Set<UnitRole>([
+  'human', 'elf', 'orc', 'dwarf', 'lizardfolk', 'villager', 'forager', 'miner',
+  'builder', 'warrior', 'priest', 'scholar', 'astro_engineer', 'raider_swarmer', 'raider_ranged', 'raider_behemoth',
+  'pig', 'cow', 'bear', 'wolf', 'chicken', 'capybara', 'dinosaur', 'dragon',
+  'unicorn', 'leviathan', 'deer', 'sheep', 'rabbit', 'fox', 'boar', 'lion',
+  'elephant', 'camel', 'penguin', 'crocodile', 'phoenix', 'griffin', 'yeti', 'golem',
+  'kitsune', 'horse', 'goat', 'monkey', 'panda', 'polar_bear', 'hippo', 'rhino',
+  'turtle', 'frog', 'crab', 'hydra', 'minotaur', 'pegasus', 'cerberus', 'ent',
+  'giraffe', 'zebra', 'tiger', 'gorilla', 'kangaroo', 'moose', 'bison', 'flamingo',
+]);
+
+const HQ_ZONE_ICONS = new Set<ZoneOverlayType>([
+  'kingdomLabels', 'kingdoms', 'kings', 'territories', 'biomes', 'alliances',
+]);
+
+const HqIconImg: React.FC<{ category: string; name: string; className: string }> = React.memo(({
+  category,
+  name,
+  className,
+}) => (
+  <img
+    src={getUiIconUrl(category, name)}
+    alt=""
+    aria-hidden="true"
+    draggable={false}
+    className={`${className} object-contain select-none pointer-events-none`}
+  />
+));
+
 export const ResourceIconSvg: React.FC<{ resource: keyof Resources; className?: string }> = React.memo(({
   resource,
   className = 'w-4 h-4 pixelated-canvas',
-}) => <PixelArtSvg sprite={RESOURCE_SPRITES[resource]} className={className} />);
+}) => <HqIconImg category="resources" name={resource} className={className} />);
 
 export const TabPixelIcon: React.FC<{ category: ToolCategory; className?: string }> = React.memo(({
   category,
   className = 'w-4 h-4 pixelated-canvas',
-}) => <PixelArtSvg sprite={TAB_SPRITES[category]} className={className} />);
+}) => <HqIconImg category="tabs" name={category} className={className} />);
 
 export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string }> = React.memo(({
   zone,
   className = 'w-5 h-5 pixelated-canvas',
-}) => <PixelArtSvg sprite={ZONE_SPRITES[zone]} className={className} />);
+}) =>
+  HQ_ZONE_ICONS.has(zone) ? (
+    <HqIconImg category="zones" name={zone} className={className} />
+  ) : (
+    <PixelArtSvg sprite={ZONE_SPRITES[zone]} className={className} />
+  ),
+);
 
 export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string }> = React.memo(({
   power,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={POWER_SPRITES[power]} className={className} />);
+}) => <HqIconImg category="powers" name={power} className={className} />);
 
 export const TerrainPixelIcon: React.FC<{ tool: TerrainToolType; className?: string }> = React.memo(({
   tool,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={TERRAIN_SPRITES[tool]} className={className} />);
+}) => <HqIconImg category="terrain" name={tool} className={className} />);
 
 export const BuildingPixelIcon: React.FC<{ building: BuildingType; className?: string }> = React.memo(({
   building,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={BUILDING_SPRITES[building]} className={className} />);
+}) => <HqIconImg category="buildings" name={building} className={className} />);
 
 export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = React.memo(({
   role,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={UNIT_SPRITES[role] ?? UNIT_SPRITES.human} className={className} />);
+}) =>
+  HQ_UNIT_ICONS.has(role) ? (
+    <HqIconImg category="units" name={role} className={className} />
+  ) : (
+    <PixelArtSvg sprite={UNIT_SPRITES[role] ?? UNIT_SPRITES.human} className={className} />
+  ),
+);
 
 export type HudIconKind = keyof typeof HUD_SPRITES;
 
