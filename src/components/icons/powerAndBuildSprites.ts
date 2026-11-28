@@ -1,1866 +1,1532 @@
 import type { BuildingType, GodPowerType } from '../../game/types';
-import {
-  type CompiledSprite,
-  Icon24,
-  type MatLegend,
-  PMAT,
-  cluster24,
-  icon24,
-} from './pixelEngine';
+import { type CompiledSprite, MAT, type MatLegend, cluster16, icon16 } from './pixelEngine';
 
 const PB_MATS: MatLegend = {
   // Gold
-  Y: { ramp: PMAT.gold, tone: 4 },
-  y: { ramp: PMAT.gold, tone: 3 },
-  g: { ramp: PMAT.gold, tone: 2 },
-  G: { ramp: PMAT.gold, tone: 1 },
-  // Amber / Flame
-  F: { ramp: PMAT.amber, tone: 4 },
-  f: { ramp: PMAT.amber, tone: 3 },
-  a: { ramp: PMAT.amber, tone: 2 },
-  A: { ramp: PMAT.amber, tone: 1 },
-  // Crimson
-  R: { ramp: PMAT.crimson, tone: 4 },
-  r: { ramp: PMAT.crimson, tone: 3 },
-  q: { ramp: PMAT.crimson, tone: 2 },
-  Q: { ramp: PMAT.crimson, tone: 1 },
+  Y: { ramp: MAT.gold, tone: 4 },
+  y: { ramp: MAT.gold, tone: 3 },
+  g: { ramp: MAT.gold, tone: 2 },
+  G: { ramp: MAT.gold, tone: 1 },
   // Wood
-  B: { ramp: PMAT.wood, tone: 4 },
-  b: { ramp: PMAT.wood, tone: 3 },
-  k: { ramp: PMAT.wood, tone: 2 },
-  K: { ramp: PMAT.wood, tone: 1 },
-  // Moss / Leaf
-  E: { ramp: PMAT.moss, tone: 4 },
-  e: { ramp: PMAT.moss, tone: 3 },
-  l: { ramp: PMAT.moss, tone: 2 },
-  L: { ramp: PMAT.moss, tone: 1 },
-  // Toxic
-  T: { ramp: PMAT.toxic, tone: 4 },
-  t: { ramp: PMAT.toxic, tone: 3 },
-  w: { ramp: PMAT.toxic, tone: 2 },
-  W: { ramp: PMAT.toxic, tone: 1 },
-  // Water / Azure
-  C: { ramp: PMAT.water, tone: 4 },
-  c: { ramp: PMAT.water, tone: 3 },
-  u: { ramp: PMAT.water, tone: 2 },
-  U: { ramp: PMAT.water, tone: 1 },
-  // Ice / Glacial Highlight
-  X: { ramp: PMAT.ice, tone: 4 },
-  x: { ramp: PMAT.ice, tone: 3 },
-  // Steel / Slate
-  S: { ramp: PMAT.steel, tone: 4 },
-  s: { ramp: PMAT.steel, tone: 3 },
-  m: { ramp: PMAT.steel, tone: 2 },
-  M: { ramp: PMAT.steel, tone: 1 },
+  B: { ramp: MAT.wood, tone: 4 },
+  b: { ramp: MAT.wood, tone: 3 },
+  k: { ramp: MAT.wood, tone: 2 },
+  K: { ramp: MAT.wood, tone: 1 },
+  // Leaf / Emerald
+  E: { ramp: MAT.leaf, tone: 4 },
+  e: { ramp: MAT.leaf, tone: 3 },
+  l: { ramp: MAT.leaf, tone: 2 },
+  L: { ramp: MAT.leaf, tone: 1 },
+  // Toxic Lime
+  T: { ramp: MAT.toxic, tone: 4 },
+  t: { ramp: MAT.toxic, tone: 3 },
+  w: { ramp: MAT.toxic, tone: 2 },
+  W: { ramp: MAT.toxic, tone: 1 },
+  // Azure / Cyan
+  C: { ramp: MAT.azure, tone: 4 },
+  c: { ramp: MAT.azure, tone: 3 },
+  u: { ramp: MAT.azure, tone: 2 },
+  U: { ramp: MAT.azure, tone: 1 },
+  // Steel / Silver
+  S: { ramp: MAT.steel, tone: 4 },
+  s: { ramp: MAT.steel, tone: 3 },
+  m: { ramp: MAT.steel, tone: 2 },
+  M: { ramp: MAT.steel, tone: 1 },
+  // Ruby / Crimson
+  R: { ramp: MAT.ruby, tone: 4 },
+  r: { ramp: MAT.ruby, tone: 3 },
+  q: { ramp: MAT.ruby, tone: 2 },
+  Q: { ramp: MAT.ruby, tone: 1 },
   // Parchment / Ivory
-  I: { ramp: PMAT.parchment, tone: 4 },
-  i: { ramp: PMAT.parchment, tone: 3 },
-  j: { ramp: PMAT.parchment, tone: 2 },
-  J: { ramp: PMAT.parchment, tone: 1 },
-  // Arcane Violet
-  P: { ramp: PMAT.arcane, tone: 4 },
-  p: { ramp: PMAT.arcane, tone: 3 },
-  z: { ramp: PMAT.arcane, tone: 2 },
-  Z: { ramp: PMAT.arcane, tone: 1 },
+  I: { ramp: MAT.parchment, tone: 4 },
+  i: { ramp: MAT.parchment, tone: 3 },
+  j: { ramp: MAT.parchment, tone: 2 },
+  J: { ramp: MAT.parchment, tone: 1 },
+  // Flame
+  F: { ramp: MAT.flame, tone: 4 },
+  f: { ramp: MAT.flame, tone: 3 },
+  a: { ramp: MAT.flame, tone: 2 },
+  A: { ramp: MAT.flame, tone: 1 },
+  // Arcane
+  P: { ramp: MAT.arcane, tone: 4 },
+  p: { ramp: MAT.arcane, tone: 3 },
+  z: { ramp: MAT.arcane, tone: 2 },
+  Z: { ramp: MAT.arcane, tone: 1 },
   // Stone
-  N: { ramp: PMAT.stone, tone: 4 },
-  n: { ramp: PMAT.stone, tone: 3 },
-  h: { ramp: PMAT.stone, tone: 2 },
-  H: { ramp: PMAT.stone, tone: 1 },
-  // Bronze
-  V: { ramp: PMAT.bronze, tone: 3 },
-  v: { ramp: PMAT.bronze, tone: 2 },
-  // Iron / Dark Crease & Pitch Core
-  D: { ramp: PMAT.iron, tone: 1 },
-  d: { ramp: PMAT.iron, tone: 0 },
-  '@': PMAT.iron.out,
-  // Rose
-  '%': { ramp: PMAT.rose, tone: 3 },
-  '&': { ramp: PMAT.rose, tone: 2 },
+  N: { ramp: MAT.stone, tone: 4 },
+  n: { ramp: MAT.stone, tone: 3 },
+  h: { ramp: MAT.stone, tone: 2 },
+  H: { ramp: MAT.stone, tone: 1 },
+  // Dark Iron (shadow creases / rivets / fissures)
+  D: { ramp: MAT.darkIron, tone: 1 },
+  d: { ramp: MAT.darkIron, tone: 0 },
 };
 
-/** Helper to draw a small isometric stone/wood building basepad on Icon24. */
-function drawBasePad(
-  c: Icon24,
-  topRamp = PMAT.moss,
-  leftRamp = PMAT.wood,
-  rightRamp = PMAT.darkWood,
-  baseY = 21,
-  wallH = 3,
-): void {
-  c.isoBlock(topRamp, leftRamp, rightRamp, baseY, wallH);
-}
-
-/** Helper to draw an isometric box (house/tower body) centered at cx, bottom apex at botY. */
-function drawIsoBox(
-  c: Icon24,
-  cx: number,
-  botY: number,
-  halfW: number,
-  height: number,
-  topRamp: typeof PMAT.stone,
-  leftRamp: typeof PMAT.stone,
-  rightRamp: typeof PMAT.stone,
-): void {
-  // Left & right vertical walls
-  for (let dx = -halfW; dx <= halfW; dx++) {
-    const x = cx + dx;
-    const rise = Math.floor(Math.abs(dx) / 2);
-    const yBot = botY - rise;
-    const yTop = yBot - height;
-    for (let y = yTop; y <= yBot; y++) {
-      if (dx <= 0) {
-        const tone = y === yBot ? 1 : dx === 0 ? 1 : y === yTop ? 3 : 2;
-        c.set(x, y, leftRamp, tone);
-      } else {
-        const tone = y === yBot ? 0 : y === yTop ? 2 : 1;
-        c.set(x, y, rightRamp, tone);
-      }
-    }
-  }
-  // Flat diamond roof
-  const roofCenterY = botY - height - Math.floor(halfW / 2);
-  const halfH = Math.max(1, Math.floor(halfW / 2));
-  for (let dy = -halfH; dy <= halfH; dy++) {
-    const span = Math.max(0, halfW - Math.abs(dy) * 2);
-    for (let dx = -span; dx <= span; dx++) {
-      const isRim = dy >= 0 && (Math.abs(dx) >= span - 1);
-      c.set(cx + dx, roofCenterY + dy, topRamp, isRim ? 4 : 3);
-    }
-  }
-}
-
 export const POWER_SPRITES: Record<GodPowerType, CompiledSprite> = {
-  // Grab: Leather-gloved hand reaching down with thumb & fingers pinching a tiny glowing orb/creature
-  drag_entity: cluster24(
+  // 16x16 Crisp 5-digit pinching hand gesture (thumb & index pinching cleanly, 3 curled fingers & azure cuff)
+  drag_entity: cluster16(
     [
-      '........................',
-      '............VVvv........',
-      '...........VVvvvG.......',
-      '..........4333221.......',
-      '.........433222211......',
-      '........4322222111......',
-      '.......43221012211......',
-      '......4321o..12211......',
-      '.....4321....12210......',
-      '.....321.....22110......',
-      '....432.....32210.......',
-      '....321.....2211........',
-      '....21......211.........',
-      '......XCCc..............',
-      '.....XCcCuu.............',
-      '.....CcuuuuU............',
-      '.....cuuU1UU............',
-      '......uUUUU.............',
-      '.......YYY..............',
-      '......Y...Y.............',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '................',
+      '....44444.......',
+      '...44444432.....',
+      '..443...3432....',
+      '..32.....3432...',
+      '.........3321...',
+      '..444....2212...',
+      '..334433.2111...',
+      '.....22332121...',
+      '......222121....',
+      '.......11111....',
+      '........CCcc....',
+      '........uuuU....',
+      '................',
+      '................',
     ],
-    PMAT.wood,
+    MAT.skin,
     PB_MATS,
   ),
 
-  // Bless: Golden divine beam descending onto a glowing heart with halo & warm sparkles
-  blessing: cluster24(
+  // 16x16 Classic ruby heart with symmetrical feathered angel wings & golden halo
+  blessing: cluster16(
     [
-      '........................',
-      '........YyyYyyY.........',
-      '.........YyyyY..........',
-      '.....Y...YyyyY...Y......',
-      '.........YyyyY..........',
-      '.......YYYYYYYYY........',
-      '......YygggggggGY.......',
-      '....Y..Yg.....gG..Y.....',
-      '........YyyyyyY.........',
-      '......RRr....rRR........',
-      '.....RRr33..33rqq.......',
-      '....RR332233222qq.......',
-      '....R3222222222qQ.......',
-      '....R3222222221qQ.......',
-      '.....3222222211Q........',
-      '......22222211Q.........',
-      '.......222211Q..........',
-      '........2211Q...........',
-      '....Y....21Q.....Y......',
-      '..........Q.............',
-      '......Y.......Y.........',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....YYYYYY.....',
+      '....Yy....gG....',
+      '.SSs........sSS.',
+      '.Sss.33..33.ssM.',
+      '.Sss32233223ssM.',
+      '..ss22222222MM..',
+      '...M.222221.M...',
+      '......2221......',
+      '.......21.......',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.crimson,
+    MAT.ruby,
     PB_MATS,
   ),
 
-  // Rain: Layered slate-blue storm cloud with crisp diagonal falling rain droplets
-  rain_of_plenty: cluster24(
+  // 16x16 Bright fluffy raincloud showering crisp cyan teardrops
+  rain_of_plenty: cluster16(
     [
-      '........................',
-      '........................',
-      '........44444...........',
-      '......443333332.........',
-      '.....433333333322.......',
-      '....33333333333321......',
-      '...3322222222222211.....',
-      '..322222222222222111....',
-      '..221111111111111110....',
-      '...1111000000000110.....',
-      '........................',
-      '.....Xc....Xc....Xc.....',
-      '....Xcu...Xcu...Xcu.....',
-      '....cuU...cuU...cuU.....',
-      '....uU....uU....uU......',
-      '........................',
-      '...Xc....Xc....Xc.......',
-      '..Xcu...Xcu...Xcu.......',
-      '..cuU...cuU...cuU.......',
-      '..uU....uU....uU........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....33333......',
+      '...333333332....',
+      '..33333333332...',
+      '.2222222222222..',
+      '..11111111111...',
+      '................',
+      '...Cc...Cc..Cc..',
+      '..Ccu..Ccu.Ccu..',
+      '..uuU..uuU.uuU..',
+      '................',
+      '.....Cc...Cc....',
+      '....Ccu..Ccu....',
+      '....uuU..uuU....',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Purify: Pure radiant beam turning cracked dark earth into fresh green grass
-  cleanse_land: cluster24(
+  // 16x16 Clean Paladin heater shield (silver border, royal azure field, bold gold cross)
+  divine_shield: cluster16(
     [
-      '........................',
-      '...........XY...........',
-      '..........XyyX..........',
-      '......Y...XyyX...Y......',
-      '..........XyyX..........',
-      '.........XXyyXX.........',
-      '........X..yy..X........',
-      '...........yy...........',
-      '......Y...XyyX...Y......',
-      '..........XyyX..........',
-      '...........yy.....E.....',
-      '..........XyyX...EeE....',
-      '.......NnhXyyXEeEeE.....',
-      '.....NnhhhDyyEeelEeE....',
-      '...NnhhhdDDyyEeelllEe...',
-      '..NnhhdDDdhyyeellllleE..',
-      '..nhhhdDhhdhllellllleL..',
-      '..hhhHDhhHHDllllllllLL..',
-      '...hhHHDHHHDllllllLLL...',
-      '....hHHHHDHHDllllLLL....',
-      '......HHHHDHHlllLL......',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..33333333333...',
+      '..32ccYYgccc21..',
+      '..32ccYYgccc21..',
+      '..22uuYYguuu21..',
+      '..2YYYYyyyyg21..',
+      '..2ggggGGGGg21..',
+      '..21uuYYguuU11..',
+      '...1UUYYgUU11...',
+      '....1uYYgu11....',
+      '.....1YYg11.....',
+      '......1111......',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.moss,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Harvest Feast: Rich wooden basket overflowing with golden wheat sheaf, pumpkin & leaves
-  bountiful_harvest: cluster24(
+  // 16x16 Classic RPG campfire flame (crimson tongues, orange mid, bright yellow core)
+  heat_wave: cluster16(
     [
-      '........................',
-      '.......Y....Y...........',
-      '......YyY..YyY..........',
-      '.....YygyYYygyY.........',
-      '......YgygggyY..E.......',
-      '.....YgyyggyY..EeE......',
-      '....E.ygggyY..FFfEE.....',
-      '...EeEygggy.FFffafEE....',
-      '...eElgggggFffaaafalE...',
-      '...lLLggggFFfaaaaafLL...',
-      '..BBBBBBBBBBBBBBBBBB....',
-      '..BbbbkbkbkbkbkbkbkK....',
-      '...bkbkBkbkBkbkBkbKK....',
-      '...kbkbkbkbkbkbkbkK.....',
-      '...kBkbkBkbkBkbkBKK.....',
-      '....bkbkbkbkbkbkbK......',
-      '....kbkBkbkBkbkBKK......',
-      '.....kbkbkbkbkbKK.......',
-      '......KKKKKKKKKK........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......21.......',
+      '......2321......',
+      '....223321.11...',
+      '...2334432221...',
+      '..12344443221...',
+      '..123444432211..',
+      '.1123444432211..',
+      '.1123444432211..',
+      '..12344443211...',
+      '..11233332111...',
+      '...111221111....',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.wood,
+    MAT.flame,
     PB_MATS,
   ),
 
-  // Shield: Heavy steel-rimmed kite shield with azure/gold runic dome barrier glow
-  divine_shield: cluster24(
+  // 16x16 Sharp geometric 6-arm frost crystal snowflake with open arm gaps
+  freeze_snap: cluster16(
     [
-      '........................',
-      '.......XXXXXXXXX........',
-      '.....XXxcccccccxXX......',
-      '....Xx...........xX.....',
-      '...X..44444444444..X....',
-      '...x.4333333333321.x....',
-      '.....43cccuYYucc21......',
-      '.....43cccuYYucc21......',
-      '.....32cuuuYYuuu21......',
-      '.....32uYYYyyYYu21......',
-      '.....32ggggGGGGg21......',
-      '.....32uuuuYYuuu11......',
-      '.....22uUUuYYuUU11......',
-      '......21UUuYYuU11.......',
-      '......21UUuYYuU11.......',
-      '.......11UuYYu11........',
-      '........11uYY11.........',
-      '.........11gg11.........',
-      '..........1111..........',
-      '...........11...........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......44.......',
+      '..4....33....4..',
+      '...3..2332..3...',
+      '....3.2CC2.3....',
+      '..4322CccC2234..',
+      '.....2cuuc2.....',
+      '..4322uuuu2234..',
+      '....2.1221.2....',
+      '...2..1221..2...',
+      '..2....11....2..',
+      '.......11.......',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.ice,
     PB_MATS,
   ),
 
-  // Peace Treaty: Crisp white dove in flight holding a green olive branch in its beak
-  harmony_dove: cluster24(
+  // 16x16 Crisp crossed silver broadswords with crimson hilts
+  bloodlust_frenzy: cluster16(
     [
-      '........................',
-      '........................',
-      '..........444...........',
-      '.........44333..........',
-      '........4433322.........',
-      '.......443333222........',
-      '......44333332221.......',
-      '.....443333332211.......',
-      '......33333332211.......',
-      '.......2233333333.......',
-      '........2233333344......',
-      '...444...23333333o3y....',
-      '..443333..333333333yyE..',
-      '...333222233333222..eEe.',
-      '....2222222222221..Eel..',
-      '.....11222222111....L...',
-      '......11111111..........',
-      '.......11111............',
-      '........11..............',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.33..........33.',
+      '.322........223.',
+      '..322Rr..rR223..',
+      '...322r..q223...',
+      '....322..223....',
+      '.....322223.....',
+      '......3321......',
+      '.....233221.....',
+      '...Yy221.221yY..',
+      '....gG1...1Gg...',
+      '...bk.......kb..',
+      '..Rr.........qQ.',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.bone,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Rally Militia: Crossed iron sword & spear behind a crimson/gold war banner
-  recruit_legion: cluster24(
+  // 16x16 Arcane Abyssal Hex Sigil & Horned Hooded Cursed Eye (distinct from green toxic Plague Spore flask)
+  curse: cluster16(
     [
-      '........................',
-      '...44..............44...',
-      '...432............234...',
-      '....432..........234....',
-      '.....321.YYYYYY.123.....',
-      '......21YyyyyyyY12......',
-      '......B1rrrrrrrr1B......',
-      '.......BrrYYYYrrB.......',
-      '.......BrrYggYrrB.......',
-      '.......BrrYYYYrrB.......',
-      '.......BrrqggqrrB.......',
-      '.......BqqqggqqqB.......',
-      '.......BqqqqqqqqB.......',
-      '......B1qqqYYqqq1B......',
-      '.....B21qqq..qqq12B.....',
-      '....B32.qq....qq.23B....',
-      '...Yy2..q......q..2yY...',
-      '....gG............Gg....',
-      '...bk..............kb...',
-      '..RR................QQ..',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..Z..........Z..',
+      '...zP......Pz...',
+      '....33333332....',
+      '...3322222211...',
+      '..322dd22dd111..',
+      '..32dRR22RRd11..',
+      '..22222oo22211..',
+      '...2211221111...',
+      '..Z..111111..Z..',
+      '.zP.3.3..3.3.Pz.',
+      '....2.2..2.2....',
+      '...zP......Pz...',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.arcane,
     PB_MATS,
   ),
 
-  // Launch Fleet: Wooden medieval warship with billowing cream sail riding dark blue ocean waves
-  summon_fleet: cluster24(
+  // 16x16 Corked lime poison flask with rising toxic bubbles
+  plague_miasma: cluster16(
     [
-      '........................',
-      '..........brrR..........',
-      '..........bqq...........',
-      '..........bII...........',
-      '.........IIiii..........',
-      '........IIiiiiI.........',
-      '.......IIiiiiiiI........',
-      '......IIiiiijjjjI.......',
-      '......IiiiijjjjjI.......',
-      '......IiiijjjjjJ........',
-      '.......iijjjjjJ.........',
-      '........bJJJJ...........',
-      '........b...............',
-      '...BB...b..........BB...',
-      '...BbbBBBBBBBBBBBBbbB...',
-      '....bbkkkkkbbkkkkkbb....',
-      '.....kKKKkYkkYkkKKk.....',
-      '..Xc..KKKKKKKKKKKK..Xc..',
-      '.XcuuXcuuXcuuXcuuXcuuXc.',
-      '.cuUUcuUUcuUUcuUUcuUUcu.',
-      '..UUUUUUUUUUUUUUUUUUUU..',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '......Tt..Bb....',
+      '.........Bbk....',
+      '....w...Sskk....',
+      '.......Ss2sM....',
+      '......Ss22sM....',
+      '.....SsS22wM....',
+      '....SsS22222M...',
+      '...SsS222222M...',
+      '...sS222222WM...',
+      '...s222222WWM...',
+      '...s12222WWM....',
+      '....s1111WM.....',
+      '.....MMMMM......',
+      '................',
+      '................',
     ],
-    PMAT.wood,
+    MAT.toxic,
     PB_MATS,
   ),
 
-  // Heat Wave: Blazing brass sun radiating wavy heat lines over cracked sun-baked ground
-  heat_wave: cluster24(
+  // 16x16 Falling bio-flask with glowing zombie-green mutagen & skull-bubble vapor
+  zombie_virus: cluster16(
     [
-      '........................',
-      '...........Y............',
-      '......Y....y....Y.......',
-      '.......y..yyy..y........',
-      '........FFyyyFF.........',
-      '....Y..FffYYYffF..Y.....',
-      '.....y.FffYYYffF.y......',
-      '......FFfYYYYYfFF.......',
-      '.....y.FffYYYffF.y......',
-      '....Y..FffaaffaF..Y.....',
-      '........aafffaa.........',
-      '.......a..aaa..a........',
-      '....F.....F.....F.......',
-      '...f.....f.....f........',
-      '....a.....a.....a.......',
-      '...f.....f.....f........',
-      '..VVVVVVVVVVVVVVVVVV....',
-      '..VvvvvdvvvVVvvvdvvv....',
-      '..vvvddvvvvvvvddvvvv....',
-      '..vvvdvvvvvvvvdvvvvv....',
-      '...ddddvvvvvvddvvvvd....',
-      '........................',
-      '........................',
-      '........................',
+      '.......w........',
+      '.....BbbB.......',
+      '......bkk.......',
+      '......SskM......',
+      '......Ss2M......',
+      '.....Ss22sM.....',
+      '....Ss2w22sM....',
+      '...Ss222222sM...',
+      '..Ss2w2k2k22sM..',
+      '..s222222222WM..',
+      '..s222k22k22WM..',
+      '..s1222kk22WWM..',
+      '...s122222WWM...',
+      '....s11111WM....',
+      '.....MMMMMM.....',
+      '................',
     ],
-    PMAT.amber,
+    MAT.toxic,
     PB_MATS,
   ),
 
-  // Freeze: Detailed 6-point crystalline snowflake with glacial blue facets
-  freeze_snap: cluster24(
+  // 16x16 Dark iron stormcloud unleashing a bold jagged yellow lightning bolt
+  lightning_smite: cluster16(
     [
-      '........................',
-      '...........44...........',
-      '..........4334..........',
-      '....4.....2332.....4....',
-      '....34...423324...43....',
-      '.....32...2cc2...23.....',
-      '..43..23..2cc2..32..34..',
-      '...3222322c44c2232223...',
-      '.....22c324XX423c22.....',
-      '......2cc3X44X3cc2......',
-      '..43222cc34XX43cc22234..',
-      '....322cc34XX43cc223....',
-      '......2uu234432uu2......',
-      '.....22u212cc212u22.....',
-      '...2221211u22u1121222...',
-      '..21..12..1uu1..21..12..',
-      '.....12...1uu1...21.....',
-      '....12...212212...21....',
-      '....1.....1221.....1....',
-      '..........1221..........',
-      '...........11...........',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....ssmmMM.....',
+      '...ssmmMMMMM....',
+      '..smMMMMMMMMM...',
+      '.mMMMMMMMDDDDD..',
+      '.....33332......',
+      '....33332.......',
+      '...3333332......',
+      '.....2221.......',
+      '....2221........',
+      '...2221.........',
+      '..2211..........',
+      '..11............',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.ice,
+    MAT.gold,
     PB_MATS,
   ),
 
-  // Blizzard: Swirling dark-slate storm cloud blowing diagonal icy wind gusts & snow crystals
-  blizzard: cluster24(
+  // 16x16 Clean sweeping grey wind funnel tornado
+  tornado: cluster16(
     [
-      '........................',
-      '......44444.............',
-      '....443333332...........',
-      '...433333333322.........',
-      '..333222222222211.......',
-      '..2222222222222111......',
-      '...11111111111110.......',
-      '.......0000000..........',
-      '....XXxx.....X..........',
-      '...Xxccu....X4X.........',
-      '......XXxxx..X..........',
-      '.....Xxccuu.....XXx.....',
-      '...X.....XXxxx.Xccu.....',
-      '..X4X...Xxccuu..........',
-      '...X.......XXxxx..X.....',
-      '......XXx.Xxccuu.X4X....',
-      '.....Xccu.........X.....',
-      '.........X...XXxx.......',
-      '........X4X.Xccuu.......',
-      '.........X..............',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..333333222211..',
+      '...1111111111...',
+      '...3333322211...',
+      '....11111111....',
+      '....3332221.....',
+      '.....111111.....',
+      '.....33221......',
+      '......1111......',
+      '......321.......',
+      '.......21.......',
+      '.......11.......',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Acid Cloud: Bubbling dark-green toxic cloud dripping corrosive lime droplets onto sizzling rock
-  acid_rain: cluster24(
+  // 16x16 Dramatic curling tsunami wave with bright white seafoam crest
+  tsunami: cluster16(
     [
-      '........................',
-      '.......44444............',
-      '.....443333332..........',
-      '....433333333322........',
-      '...33322432222221.......',
-      '..3222223222243211......',
-      '..2221111111122110......',
-      '...11110000001110.......',
-      '........................',
-      '.....43....43....43.....',
-      '....432...432...432.....',
-      '....21....21....21......',
-      '........................',
-      '.......43....43.........',
-      '......432...432.........',
-      '......21....21..........',
-      '....4....4.....4........',
-      '..NNn43NNn432NNn43NN....',
-      '.Nnhh21nhh211nhh21hhN...',
-      '.nhhhHHhhhHHHhhhHHhhH...',
-      '..HHHHHHHHHHHHHHHHHH....',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '......SSSSss....',
+      '....SSss222sM...',
+      '..SSs222222..S..',
+      '.SS2222221...S..',
+      '.2222211........',
+      '.222211....S....',
+      '.222211..233S...',
+      '.2221112222221..',
+      '.1111111111111..',
+      '.1111111111111..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.toxic,
+    MAT.azure,
     PB_MATS,
   ),
 
-  // Lightning: Jagged forked golden-white lightning bolt striking down from dark thundercloud
-  lightning_smite: cluster24(
+  // 16x16 Cratered charcoal meteor blazing down-left with vivid flame wake
+  meteor_strike: cluster16(
     [
-      '........................',
-      '......sssss.............',
-      '....ssmmmmmms...........',
-      '...smmmmmmmmmM..........',
-      '..mmMMMMMMMMMMD.........',
-      '..MMMMMMMMMMMMd.........',
-      '...DDDDDDDDDDd..........',
-      '.........YYYY...........',
-      '........YYyyY...........',
-      '.......YYyyY............',
-      '......YYyyyYYYY.........',
-      '.....YYyyyyyYYy.........',
-      '......ggYYYYyy..........',
-      '..........YYy...........',
-      '.........YYy.Yy.........',
-      '........YYy...y.........',
-      '.......YYy..............',
-      '......YYy...............',
-      '.....YYy................',
-      '....FfFFf...............',
-      '...NnhffhN..............',
-      '....HHHHH...............',
-      '........................',
-      '........................',
+      '................',
+      '...........fFF..',
+      '.........ffFFa..',
+      '.......ffFFfaA..',
+      '.....ffFFfaaA...',
+      '....22FFfaaA....',
+      '...232f2aaA.....',
+      '..222F211A......',
+      '..21fF1111......',
+      '..1111f11.......',
+      '...11111........',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.gold,
+    MAT.darkIron,
     PB_MATS,
   ),
 
-  // Meteor: Cracked charred rock meteor hurtling diagonally down-left with blazing fiery tail
-  meteor_strike: cluster24(
+  // 16x16 Tectonic earth slab cracked & fault-shifted apart with glowing magma fissure + flying pebbles
+  earthquake: cluster16(
     [
-      '........................',
-      '...................R....',
-      '.................rRF....',
-      '...............rrRFf....',
-      '..............rqFFff....',
-      '............rrqFFffF....',
-      '...........rqFFffFFa....',
-      '.........rrqFFffFFaa....',
-      '........rqFFffFFaaa.....',
-      '.......rqFFffFFaaa......',
-      '......rqFFf433aaa.......',
-      '.....rqFF433221a........',
-      '....rqF4332d2211........',
-      '....rF4322d22211........',
-      '...rF432222d2110........',
-      '...F4322d2221110........',
-      '...4322222d1110.........',
-      '...32222211110..........',
-      '....221111100...........',
-      '.....1111000............',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '................',
+      '.....Nn...nN....',
+      '................',
+      '.EEEEEee........',
+      '.Bbbbbkd.EEEeeL.',
+      '.BbbbbkdF.BbbbK.',
+      '.NnnnnkFa.NnnnH.',
+      '.NnnnhdF..NnnnH.',
+      '.hhhhhKFa.hhhhH.',
+      '..HHHHd...HHHH..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.stone,
+    MAT.wood,
     PB_MATS,
   ),
 
-  // Tornado: Spiraling funnel cloud of slate-grey wind bands kicking up earth debris at base
-  tornado: cluster24(
-    [
-      '........................',
-      '....444444444444444.....',
-      '...43333333333333321....',
-      '...22222222222222210....',
-      '.....1111111111110......',
-      '.....443333333322.......',
-      '......22222222110.......',
-      '.......111111100........',
-      '.......43333322.........',
-      '........2222210.........',
-      '.........11110..........',
-      '........433322..........',
-      '.........22210..........',
-      '..........110...........',
-      '.........4322...........',
-      '..........210...........',
-      '.........321............',
-      '.....n....21....b.......',
-      '....nh...321...bk.......',
-      '...hh..nn211bb..KK......',
-      '......nhhbbkkhH.........',
-      '........................',
-      '........................',
-      '........................',
-    ],
-    PMAT.steel,
-    PB_MATS,
-  ),
-
-  // Earthquake: Isometric earth block split cleanly down the middle by a jagged deep chasm with falling rocks
-  earthquake: icon24((c) => {
-    // Left half of split isometric block (shifted slightly left-up)
-    for (let x = 2; x <= 10; x++) {
-      const distCenter = 11 - x;
-      const drop = Math.floor(distCenter / 2);
-      const yTop = 14 - drop;
-      const yBot = yTop + 6;
-      for (let y = yTop; y <= yBot; y++) {
-        c.set(x, y, PMAT.wood, y === yBot ? 1 : y === yTop ? 3 : 2);
-      }
-    }
-    // Right half of split isometric block (shifted slightly right-down)
-    for (let x = 13; x <= 21; x++) {
-      const distCenter = x - 12;
-      const drop = Math.floor(distCenter / 2);
-      const yTop = 15 - drop;
-      const yBot = yTop + 6;
-      for (let y = yTop; y <= yBot; y++) {
-        c.set(x, y, PMAT.darkWood, y === yBot ? 0 : y === yTop ? 2 : 1);
-      }
-    }
-    // Top grass surfaces split by jagged fissure
-    for (let y = 5; y <= 14; y++) {
-      const dy = Math.abs(y - 9);
-      const halfSpan = Math.max(0, 9 - dy * 2);
-      const xStart = 11 - halfSpan;
-      const xEnd = 12 + halfSpan;
-      const crackX = 11 + ((y % 3) === 0 ? 0 : (y % 3) === 1 ? 1 : -1);
-      for (let x = xStart; x <= xEnd; x++) {
-        if (x === crackX || x === crackX + 1) {
-          c.setOut(x, y, PMAT.iron);
-          continue;
-        }
-        const shiftY = x > crackX + 1 ? 1 : 0;
-        const tone = y >= 9 ? 4 : 3;
-        c.set(x, y + shiftY, PMAT.moss, tone);
-      }
-    }
-    // Deep dark chasm interior & falling rock chunks
-    for (let y = 11; y <= 20; y++) {
-      const cx = 11 + ((y % 2) === 0 ? 0 : 1);
-      c.setOut(cx, y, PMAT.iron);
-      c.set(cx + 1, y, PMAT.iron, 0);
-    }
-    // Flying rock chunks & shock lines
-    c.rect(5, 4, 2, 2, PMAT.stone, 3);
-    c.rect(16, 4, 2, 2, PMAT.stone, 2);
-    c.set(11, 16, PMAT.stone, 3);
-    c.set(12, 18, PMAT.stone, 2);
+  // 16x16 Radiant sky crystal firing a continuous cyan terraforming beam onto green earth
+  terraform_beam: icon16((c) => {
+    c.isoTile(MAT.leaf, MAT.wood, MAT.darkWood, 14, 3, (x, y) => {
+      if (x >= 6 && x <= 9 && y >= 8 && y <= 10) return { ramp: MAT.azure, tone: 4 };
+      return null;
+    });
+    c.stamp(
+      5,
+      1,
+      [
+        '..CC..',
+        '.Cccu.',
+        '..cc..',
+        '..CC..',
+        '..CC..',
+        '.Cccu.',
+        '.CCcc.',
+        'CCccuu',
+      ],
+      MAT.azure,
+      PB_MATS,
+    );
   }),
 
-  // Tsunami: Towering curling ocean wave with foaming white crest crashing forward
-  tsunami: cluster24(
+  // 16x16 Swirling cosmic spiral vortex around cyan singularity + corner stars
+  wormhole_ascension: cluster16(
     [
-      '........................',
-      '........................',
-      '........XXXXXXX.........',
-      '......XXxxxx33333.......',
-      '.....XXx3333333322......',
-      '....XXx332222222221.....',
-      '....Xx32222111222211....',
-      '.....X32211...1222211...',
-      '....X..21.....1222211...',
-      '...X4X.......12222211...',
-      '....X.......122222211...',
-      '...........1222222211...',
-      '........XXx2222222211...',
-      '.......Xxx33222222211...',
-      '.....XXxx332222222211...',
-      '....Xxx33322222222211...',
-      '...Xx3332222222222110...',
-      '..X332222222222221110...',
-      '..3222221111111111100...',
-      '...11111000000000000....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..Y......3332...',
+      '.....333221121..',
+      '...332211......',
+      '..3211.CCCC221..',
+      '..221.CCccCu21..',
+      '..21..CcuuuU12..',
+      '..22..1uUUU122..',
+      '...1221112221...',
+      '....2222333.....',
+      '..3321......Y...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.water,
+    MAT.arcane,
     PB_MATS,
   ),
 
-  // Volcano: Dark rocky volcanic cone erupting glowing amber magma fountain & ash plume from crater
-  volcano_eruption: cluster24(
+  // 16x16 Erupting volcanic mountain cone with magma crater, lava river & smoke/embers
+  volcano_eruption: cluster16(
     [
-      '........................',
-      '.......sssss............',
-      '.....ssmmmmmmM..........',
-      '....smmmFFmmMMD.........',
-      '.....MMFFffMMd..........',
-      '......FFfFfFF...........',
-      '.....FffYYYffF..........',
-      '......ffYYYff...........',
-      '.......fYYYf............',
-      '......3FFfFF2...........',
-      '.....332Fff211..........',
-      '.....322Ffa211..........',
-      '....3221Fa22111.........',
-      '....3221a221111.........',
-      '...32211a2111110........',
-      '...32211a2111110........',
-      '..32221Fa22111110.......',
-      '..32211a221111110.......',
-      '..22111a111111110.......',
-      '..111111111111100.......',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '.......fY.......',
+      '.....s..f..s....',
+      '....ms.fFa..Y...',
+      '.....mfYYf......',
+      '.....nfafNnh....',
+      '....Nnfafnhh....',
+      '....NnhaaFhhH...',
+      '...NnnffaFhhh...',
+      '...nnhhfaahhhH..',
+      '..NnhhhfaAHhhh..',
+      '..nhhHhafaHhhHH.',
+      '.NnhHHhffahhhhH.',
+      '.nhHHHHaFhhhhHH.',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.stone,
+    MAT.flame,
     PB_MATS,
   ),
 
-  // Lava Fissure: Cracked dark basalt ground split by glowing molten lava fissure & ember sparks
-  wildfire_ring: cluster24(
+  // 16x16 Massive Category-5 storm super-tornado with anvil cloud, lightning & debris
+  super_tornado: cluster16(
     [
-      '........................',
-      '...........F............',
-      '......F........f........',
-      '...........f............',
-      '........F....a..........',
-      '.....n3333333333n.......',
-      '....3322222F222221......',
-      '...322222FFf2222211.....',
-      '..322222FffY22222111....',
-      '..32222FffYYf2222111....',
-      '..2222FffYYff2221110....',
-      '..222FffYYffa2221110....',
-      '..222afYYffa22211110....',
-      '..2222afYYfa22211110....',
-      '..22222afYYfa2211110....',
-      '...22222afYYfa11110.....',
-      '....12222afYfa1110......',
-      '.....11222afaa110.......',
-      '......11111aa100........',
-      '........111100..........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..mMMMMMMMMMd...',
+      '.mMMMDDDDDDDDd..',
+      '.333332222211d..',
+      '..11111111111Y..',
+      '..3333222211Y...',
+      '...111111111.C..',
+      '...33322211..p..',
+      '....111111......',
+      '..Y..33221......',
+      '......111.......',
+      '......321.......',
+      '.......21.......',
+      '.......11.......',
+      '................',
+      '................',
     ],
-    PMAT.iron,
+    MAT.arcane,
     PB_MATS,
   ),
 
-  // Sinkhole: Deep concentric collapsing earth pit with crumbled stone rim plunging into pitch darkness
-  sinkhole: cluster24(
+  // 16x16 Starry dark void goo mass with purple rim & floating colorful soul wisps
+  void_goo: cluster16(
     [
-      '........................',
-      '........................',
-      '........................',
-      '.......EEEEEEEE.........',
-      '.....EEeeeeeeeeEE.......',
-      '....EeeNNnnnnNNeeE......',
-      '...EeNNnhhhhhhNNeEl.....',
-      '..EeNnhhHDDDDHhhNneL....',
-      '..eNnhHDddddddDHhnNL....',
-      '..eNhHDdd@@@@ddDHhNL....',
-      '..eNhHDd@@@@@@dDHhNL....',
-      '..eNhHDd@@@@@@dDHhNL....',
-      '..eNhHDdd@@@@ddDHhNL....',
-      '..lNnhHDddddddDHhnNL....',
-      '...lNnhhHDDDDHhhNnL.....',
-      '....lLNNnhhhhNNnLL......',
-      '.....LLlNNNNNNlLL.......',
-      '.......LLLLLLLL.........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '....C.......Y...',
+      '...C.I..........',
+      '......PzZZz.....',
+      '....PzDdddDZz...',
+      '...PddIdddYddZ..',
+      '..PdddDddddddZ..',
+      '..zddCdddddddZ..',
+      '..zdddddddIddD..',
+      '..ZddddYdddddD..',
+      '...ZdddddddddZ..',
+      '...zZddDdZddd...',
+      '....zzDD.zDD....',
+      '..........C.....',
+      '................',
+      '................',
     ],
-    PMAT.stone,
+    MAT.darkIron,
     PB_MATS,
   ),
 
-  // Start War: Two crossed steel broadswords clashing with sparks over a crimson war crest
-  start_war: cluster24(
+  // 16x16 Obsidian Necrotic Rift Portal summoning ivory bone swirl
+  undead_portal: cluster16(
     [
-      '........................',
-      '..44.......FF.......44..',
-      '..432.....FffF.....234..',
-      '...432....fYYf....234...',
-      '....432...RRRR...234....',
-      '.....432.RrrrrR.234.....',
-      '......432rrqqrr234......',
-      '.......433qqqq334.......',
-      '........43322334........',
-      '.........332233.........',
-      '........33222233........',
-      '.......332qqqq233.......',
-      '......332qqqqqq233......',
-      '.....3321.qQQq.1233.....',
-      '....Yy21..qQQq..12yY....',
-      '...YYgG....QQ....GgYY...',
-      '....bk............kb....',
-      '...bk..............kb...',
-      '..RR................QQ..',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....NNNNNn.....',
+      '...NN334433nn...',
+      '..Nn34IIII43nh..',
+      '.Nn34IdddId43h..',
+      '.Nn3IIdppdII3h..',
+      '.Nn34IIIIII43h..',
+      '.Nn322d22d22nh..',
+      '..Nn2222222nh...',
+      '..Nn1222221nh...',
+      '...Nn11111nh....',
+      '...DDnnnnnDD....',
+      '..DDDDDDDDDDD...',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.arcane,
     PB_MATS,
   ),
 
-  // Rage: Cracked crimson battle-helm/skull with blazing amber eyes & jagged fury aura
-  bloodlust_frenzy: cluster24(
+  // 16x16 Xeno Probe Remote transmitting red targeting lock toward overhead saucer
+  alien_invasion: cluster16(
     [
-      '........................',
-      '....R..............R....',
-      '....rR....R..R....Rr....',
-      '.....rq..r3333r..qr.....',
-      '......q.33322333.q......',
-      '...R...3322222233...R...',
-      '....r.332222222233.r....',
-      '......322222222223......',
-      '.....32211222211223.....',
-      '.....321FF1221FF123.....',
-      '.....321fY1221Yf123.....',
-      '.....22211200211222.....',
-      '......222220022222......',
-      '......122222222221......',
-      '.......1120202021.......',
-      '........12020202........',
-      '........11111111........',
-      '......R..111111..R......',
-      '.....r....1111....r.....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......Rr.......',
+      '......RrqQ......',
+      '....C..CC..C....',
+      '...C..3332..C...',
+      '.....33CC21.....',
+      '.....222221.....',
+      '.....2SSss1.....',
+      '.....2smmM1.....',
+      '.....2Rrrq1.....',
+      '.....2ssss1.....',
+      '.....1smmM1.....',
+      '.....111111.....',
+      '......DDDD......',
+      '................',
+      '................',
     ],
-    PMAT.crimson,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Curse: Dark violet hex sigil & cracked cursed skull with eerie purple miasma wisps
-  curse: cluster24(
+  // 16x16 Golden Chrono-Warp Hourglass radiating cyan temporal energy
+  chrono_surge: cluster16(
     [
-      '........................',
-      '.....P............P.....',
-      '......pP...PP...Pp......',
-      '.......zpP3333Ppz.......',
-      '.......3333333333.......',
-      '......332222222233......',
-      '.....322222d2222223.....',
-      '.....322dd222dd2223.....',
-      '.....32dRRd2dRRd223.....',
-      '.....22dqqd2dqqd222.....',
-      '......22222dd22222......',
-      '.......2222222222.......',
-      '.....P..12020201..P.....',
-      '....pP..11010101..Pp....',
-      '...pz....111111....zp...',
-      '....zZ............Zz....',
-      '.....zP...pppp...Pz.....',
-      '......zPPppzzppPPz......',
-      '.........zzzzzz.........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '...YYYYyyyygg...',
+      '...GGGGGGGGGG...',
+      '....SSCCCCSs....',
+      '....sCcuuUCs....',
+      '.....scuucs.....',
+      '......sCCs......',
+      '......sCCs......',
+      '.....scYYcs.....',
+      '....sCYYYYCs....',
+      '....SCyyyyCS....',
+      '...YYYYyyyygg...',
+      '...GGGGGGGGGG...',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.arcane,
+    MAT.gold,
     PB_MATS,
   ),
 
-  // Plague: Greenish-yellow bubbling alchemical pestilence cloud with skull silhouette inside
-  plague_miasma: cluster24(
+  // 16x16 Radiant Ivory Peace Dove carrying an Emerald Olive Twig
+  harmony_dove: cluster16(
     [
-      '........................',
-      '.......44.......4.......',
-      '......4334.....43.......',
-      '........4444444.........',
-      '......4433333332........',
-      '....44333333333322......',
-      '...4333222222222221.....',
-      '..433222100000122211....',
-      '..3322210dd0dd012221....',
-      '..3222210d404d012221....',
-      '..322221000d00012211....',
-      '..222222100000122210....',
-      '...2222221010122210.....',
-      '...1222222111222110.....',
-      '....11122222222110......',
-      '......11111111100.......',
-      '....43...........43.....',
-      '...432....43....432.....',
-      '....21...432.....21.....',
-      '..........21............',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......44.......',
+      '......4433......',
+      '.....333333.....',
+      '....33333322....',
+      '..44333222211Y..',
+      '.43332222211oY..',
+      '..3222222211....',
+      '...1122221..Ee..',
+      '....11221..eEe..',
+      '.....111....l...',
+      '......g..Y......',
+      '................',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.toxic,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Zombie Virus: Glass bio-flask filled with bubbling toxic green mutagen & biohazard cap
-  zombie_virus: cluster24(
+  // 16x16 Crossed Steel War Swords over a Blazing Crimson War Banner
+  start_war: cluster16(
     [
-      '........................',
-      '..........43....4.......',
-      '.........432...43.......',
-      '.........BBbbBB.........',
-      '.........bkkkkK.........',
-      '........XssmmssM........',
-      '.........XsmmsM.........',
-      '.........XsmmsM.........',
-      '........XXsmmsMM........',
-      '.......XXssmmssMM.......',
-      '......XXs443332sMM......',
-      '.....XXs44334322sMM.....',
-      '.....Xs4333222221sM.....',
-      '....XXs3322243221sMM....',
-      '....Xs332222322111sM....',
-      '....Xs222222222111sM....',
-      '....Xs222432221111sM....',
-      '.....Xs1122111111sM.....',
-      '......Xss111111ssM......',
-      '.......XXssssssMM.......',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..44........44..',
+      '..434......434..',
+      '...434.rr.434...',
+      '....434RR434....',
+      '.....43rr34.....',
+      '....rR4334Rr....',
+      '...rRR3443RRr...',
+      '....rR4334Rr....',
+      '.....43rr34.....',
+      '....Y4Y..Y4Y....',
+      '...YoY....YoY...',
+      '..Yo........oY..',
+      '....rRRRRRRr....',
+      '.....rrRRrr.....',
+      '................',
     ],
-    PMAT.toxic,
+    MAT.steel,
     PB_MATS,
   ),
 
-  // Locust Swarm: Winged amber/brown locust insect in diagonal profile with buzzing swarm dots behind
-  locust_swarm: cluster24(
+  // 16x16 Intense Orbital Helios Beam firing from sky mirror onto scorched impact ring
+  solar_orbital_laser: cluster16(
     [
-      '........................',
-      '...................k....',
-      '.........IIii.....K.....',
-      '........IIiiiiI.........',
-      '.......IIiiiiijI..k.....',
-      '....k...IiiiijjjI.......',
-      '.........IijjjjJ...k....',
-      '......44..jjjjJ.........',
-      '.....4333223322.........',
-      '....43o322332221........',
-      '....3322233222111.......',
-      '...2..222222211110......',
-      '..2....22111111100......',
-      '.......1.11.11100.......',
-      '......1..1...110........',
-      '.....1..1.....1.1.......',
-      '....1............1......',
-      '..............k.........',
-      '..........k.......k.....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '....SSSSssss....',
+      '.....mmYYmm.....',
+      '......Y44Y......',
+      '......F44F......',
+      '......F44F......',
+      '......F44F......',
+      '......F44F......',
+      '......F44F......',
+      '.....aF44Fa.....',
+      '....ffF44Fff....',
+      '..RRafYYYYfaRR..',
+      '.QqqffFFFFffqqQ.',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.amber,
+    MAT.flame,
     PB_MATS,
   ),
 
-  // Skeleton Portal: Stone archway with swirling arcane violet vortex & pale skull emerging
-  undead_portal: cluster24(
+  // 16x16 Indigo Gravity Flux Anomaly lifting glowing cyan distortion arrows
+  gravity_flip: cluster16(
     [
-      '........................',
-      '........NNNNNN..........',
-      '......NNnnnnnnNH........',
-      '.....NnhhPPPPnhhH.......',
-      '....NnhPPppppPPhhH......',
-      '...NnhPpzzzzzzpPhhH.....',
-      '...NhPpzzIIIIzzpPhH.....',
-      '...NhPzzIIiiIIzzPhH.....',
-      '...NhPzIIi@@iIIzPhH.....',
-      '...NhPzIIi@@iIIzPhH.....',
-      '...NhPzIIii@iIIzPhH.....',
-      '...NhPzzIiiiiIzzPhH.....',
-      '...NhPpzzI0I0zzpPhH.....',
-      '...NhPPpzzzzzzpPPhH.....',
-      '...NhhPPppzzppPPhhH.....',
-      '...NhhhPPPppPPPhhhH.....',
-      '...nhhhhPPPPPPnhhhH.....',
-      '...hhhhhHZZZZHhhhhH.....',
-      '..HHHHHHHHHHHHHHHHHH....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......CC.......',
+      '......CCcc......',
+      '.....CcuuuC.....',
+      '.......cc.......',
+      '.....333322.....',
+      '...333222211....',
+      '..33222oo2211...',
+      '..22222222211...',
+      '...221111111....',
+      '.....111111.....',
+      '.......CC.......',
+      '.....CcuuuC.....',
+      '......cuuU......',
+      '.......uu.......',
+      '................',
     ],
-    PMAT.stone,
+    MAT.arcane,
     PB_MATS,
   ),
 
-  // Solar Beam: Focused golden-white orbital beam firing straight down onto scorching impact ring
-  solar_orbital_laser: cluster24(
+  // 16x16 Volcanic Lava Deluge erupting molten magma rivers & obsidian spires
+  lava_deluge: cluster16(
     [
-      '........................',
-      '.........FYYYYF.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '.........fYXXYf.........',
-      '........FfYXXYfF........',
-      '........ffYXXYff........',
-      '.......FffYXXYffF.......',
-      '.....RRFFfYYYYfFFRR.....',
-      '....RrrFFffYYffFFrrR....',
-      '...rqqqFFFFffFFFFqqqr...',
-      '...NnhqqqFFFFFFqqqhnN...',
-      '..NnhhhHqqqqqqqqHhhhNN..',
-      '...HHHHHHHHHHHHHHHHHH...',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '......YYYY......',
+      '.....YFFFFY.....',
+      '....YF4444FY....',
+      '...DFF3333FFD...',
+      '..DDf332233fDD..',
+      '..Ddf22FF22fdD..',
+      '.DDdfFFYYFFfdDD.',
+      '.DddFYYYYYYFddD.',
+      '..FFYYYYYYYYFF..',
+      '.FFffffYYffffFF.',
+      '.faaaaffffaaaaf.',
+      '..aaaaaaaaaaaa..',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.gold,
+    MAT.flame,
     PB_MATS,
   ),
 
-  // Eye of Judgment: Hovering ornate golden/obsidian All-Seeing Eye firing a focused crimson/gold beam downward
-  fortify_walls: cluster24(
+  // 16x16 Dark Purple Blight Plague skull & venomous green spider mire
+  blight_plague: cluster16(
     [
-      '........................',
-      '.........YYYYYY.........',
-      '......YYYyyyyyyYYY......',
-      '....YYyDDIIIIIIIDDyY....',
-      '...YyDDIIiiRRiiIIDDyY...',
-      '..YyDDIIiRrrrrRiIIDDyY..',
-      '..YyDDIIiRr@@rRiIIDDyY..',
-      '..YyDDIIiRrrrrRiIIDDyY..',
-      '...YyDDIIiiRRiiIIDDyY...',
-      '....YYyDDIIIIIIIDDyY....',
-      '......YYYyyRRyyYYY......',
-      '.........YrYYrY.........',
-      '.........RrYYrR.........',
-      '.........RrYYrR.........',
-      '.........RrYYrR.........',
-      '.........RrYYrR.........',
-      '........qRrYYrRq........',
-      '.......qqRrYYrRqq.......',
-      '......qqqRYYYYRqqq......',
-      '.....RrrrYYYYYYrrrR.....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....PPPPPP.....',
+      '...PPpzzzzpPP...',
+      '..PpzDDDDDDzpP..',
+      '..pzDEEddEEDzp..',
+      '..pzDElDDlEDzp..',
+      '...pzDDDDDDzp...',
+      '....pzD44Dzp....',
+      '..EE.pzzzzp.EE..',
+      '.Eeel.EEEE.leeE.',
+      '..ll.Ee44eE.ll..',
+      '....EelLLleE....',
+      '...ll......ll...',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.gold,
+    MAT.arcane,
     PB_MATS,
   ),
 
-  // Time Bubble: Brass hourglass encased in a translucent cyan-blue time dome
-  chrono_surge: cluster24(
+  // 16x16 Majestic Floral Paradise blooming crown of golden-pink blossoms & emerald steppes
+  floral_paradise: cluster16(
     [
-      '........................',
-      '........XXXXXXXX........',
-      '......XXxxccccxxXX......',
-      '.....Xxcc......ccxX.....',
-      '....Xxc..YYYYYY..cxX....',
-      '...Xxc...gYYYYg...cxX...',
-      '...Xc....gIyyIg....cX...',
-      '...Xc....gIyyIg....cX...',
-      '...Xc.....gIIg.....cX...',
-      '...Xc......gy......cX...',
-      '...Xc......gy......cX...',
-      '...Xc.....gIyg.....cX...',
-      '...Xc....gIyyIg....cX...',
-      '...Xc....gYYYYg....cX...',
-      '...Xxc...gYYYYg...cxX...',
-      '....Xxc..GGGGGG..cxX....',
-      '.....Xxc........cxX.....',
-      '......XXxxccccxxXX......',
-      '........XXXXXXXX........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '......YYYY......',
+      '...Rr.Y44Y.Pp...',
+      '..RrY.yYYy.PpY..',
+      '..rq..EEEE..pz..',
+      '.YY..EEeeEE..YY.',
+      'Y44Y.EeYYeE.Y44Y',
+      '.YY..EeyyeE..YY.',
+      '..Cc..eeee..Rr..',
+      '.CcY.EEllEE.RrY.',
+      '..u.EEllllEE.q..',
+      '...EEllllllEE...',
+      '....llllllll....',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.ice,
+    MAT.leaf,
     PB_MATS,
   ),
 
-  // Anti-Gravity: Cracked boulders & earth chunks floating upward with violet/blue upward chevron trails
-  gravity_flip: cluster24(
+  // 16x16 Eye of Judgment — Golden-rimmed Giant Hovering Eye firing a crimson-gold laser beam
+  fortify_walls: cluster16(
     [
-      '........................',
-      '.........EEee...........',
-      '........EeNNneE.........',
-      '.......Nnhhhhnn.........',
-      '.......nhhhhhHH.........',
-      '....Nn..HHHHHH...Nn.....',
-      '...Nnhh.........Nnhh....',
-      '...hhHH....PP....hHH....',
-      '..........PppP..........',
-      '.........Pp..pP.........',
-      '.....PP..p....p..PP.....',
-      '....PppP...cc...PppP....',
-      '...Pp..p..CccC..p..pP...',
-      '.........Cc..cC.........',
-      '..........PP............',
-      '.........PppP...........',
-      '....cc..Pp..pP..cc......',
-      '...CccC........CccC.....',
-      '..Cc..cC......Cc..cC....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '.......YY.......',
+      '....Y..yy..Y....',
+      '...yyGGGGGGyy...',
+      '..GGIIIIIIIIIG..',
+      '.GGIIIRFFRIIIGG.',
+      '.GIIRFFDDFFRIIG.',
+      '.GIIRFDYYDFRIIG.',
+      '.GIIRFFDDFFRIIG.',
+      '.GGIIIRFFRIIIGG.',
+      '..GGIIIIIIIIIG..',
+      '...yyGGGGGGyy...',
+      '......RFFR......',
+      '.....RFYYFR.....',
+      '.....RFYYFR.....',
+      '....RFYYYYFR....',
+      '....RFFYYFFR....',
     ],
-    PMAT.arcane,
+    MAT.gold,
     PB_MATS,
   ),
 
-  // Mutagen Beam: Diagonal emerald-cyan beam mutating a silhouette/crystal with glowing DNA/sparkle aura
-  terraform_beam: cluster24(
+  // 16x16 Bountiful Harvest golden wheat & resource crate
+  bountiful_harvest: cluster16(
     [
-      '........................',
-      '.................TT.....',
-      '................TttT....',
-      '...............TttXT....',
-      '..............TttXtt....',
-      '.............TttXtt.....',
-      '............TttXtt......',
-      '...........TttXtt...P...',
-      '..........TttXtt...PpP..',
-      '.........TttXtt.....P...',
-      '........TttXtt..........',
-      '....P..TttXtt...........',
-      '...PpPTttXtt..T.........',
-      '....P.TttXtt.Ttt........',
-      '.....TTttXXttTTt........',
-      '.....TttXXXXttTT........',
-      '....TttXXPPXXttT........',
-      '....TtXXPppPXXtT........',
-      '.....TXXppppXXT.........',
-      '......TTzzzzTT..........',
-      '.......WWZZWW...........',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....YY..YY.....',
+      '....Y44YY44Y....',
+      '...Y44YyyY44Y...',
+      '....YYyEEyYY....',
+      '.....yE44Ey.....',
+      '...BBEEEEEEEB...',
+      '..B44BYYYYB44B..',
+      '..B33B3333B33B..',
+      '..B33B2222B33B..',
+      '..B22B2222B22B..',
+      '...BBBBBBBBBB...',
+      '....B222222B....',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.toxic,
+    MAT.gold,
     PB_MATS,
   ),
 
-  // Black Hole: Pitch-black singularity core ringed by warped amber/violet accretion disk & bent light
-  wormhole_ascension: cluster24(
+  // 16x16 Rally Militia crossed swords & war banner
+  recruit_legion: cluster16(
     [
-      '........................',
-      '........................',
-      '........PPppppP.........',
-      '......PPppzzzzppP.......',
-      '.....PpzzFFffFFzzP......',
-      '....PpzFFf@@@@fFFzP.....',
-      '...PpzFf@@@@@@@@fFzP....',
-      '...PzFf@@@@@@@@@@fZP....',
-      '..FFff@@@@@@@@@@@@ffFF..',
-      '.FffYY@@@@@@@@@@@@YYffF.',
-      '.fYYYY@@@@@@@@@@@@YYYYf.',
-      '.FffYY@@@@@@@@@@@@YYffF.',
-      '..FFff@@@@@@@@@@@@ffFF..',
-      '...PzFf@@@@@@@@@@fZP....',
-      '...PpzFf@@@@@@@@fFzP....',
-      '....PpzFFf@@@@fFFzP.....',
-      '.....PpzzFFffFFzzP......',
-      '......PPppzzzzppP.......',
-      '........PPppppP.........',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..SS........SS..',
+      '..S4S......S4S..',
+      '...S4S....S4S...',
+      '....S4S..S4S....',
+      '.....S4SS4S.....',
+      '.....RR44RR.....',
+      '....R44YY44R....',
+      '.....S4SS4S.....',
+      '....S4S..S4S....',
+      '...YY3....3YY...',
+      '..Y4Y......Y4Y..',
+      '..YY........YY..',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.arcane,
+    MAT.ruby,
     PB_MATS,
   ),
 
-  // Dark Ooze: Bubbling dark obsidian/violet viscous sludge puddle with rising eerie eye-wisps
-  void_goo: cluster24(
+  // 16x16 Purify radiant emerald-cyan cleansing star
+  cleanse_land: cluster16(
     [
-      '........................',
-      '...........P............',
-      '..........PpP...........',
-      '......P....p.....P......',
-      '.....PpP........PpP.....',
-      '......z....p.....z......',
-      '..........pzp...........',
-      '.........pzPzp..........',
-      '........zdddddZ.........',
-      '.......zddPddPdz........',
-      '......zdddPddPddz.......',
-      '.....zdddddddddddZ......',
-      '....zdddppddddddddZ.....',
-      '...zddddppddddddppdZ....',
-      '..zddddddddddddppppdZ...',
-      '..ddddddddddddddddddD...',
-      '.zddddpddddddddddddpdZ..',
-      '.dddddppddddddddddppdD..',
-      '..ddddddddddddddddddd...',
-      '...DDDDDDDDDDDDDDDDD....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......CC.......',
+      '......C44C......',
+      '......C44C......',
+      '....EEC44CEE....',
+      '...EE444444EE...',
+      '.CCC44YYYY44CCC.',
+      'C4444Y4444Y4444C',
+      '.CCC44YYYY44CCC.',
+      '...EE444444EE...',
+      '....EEC44CEE....',
+      '......C44C......',
+      '......C44C......',
+      '.......CC.......',
+      '................',
+      '................',
     ],
-    PMAT.arcane,
+    MAT.azure,
     PB_MATS,
   ),
 
-  // Alien Invasion: Metallic saucer UFO hovering with glowing green/cyan abduction tractor beam below
-  alien_invasion: cluster24(
+  // 16x16 Launch Fleet wooden sailship on ocean waves
+  summon_fleet: cluster16(
     [
-      '........................',
-      '........................',
-      '.........XXXX...........',
-      '.......XXxxxxXX.........',
-      '......XxxccccxxX........',
-      '....44433333333444......',
-      '...4333333333333332.....',
-      '..43222TT22TT22TT221....',
-      '..32222tt22tt22tt221....',
-      '...2111111111111110.....',
-      '.....111111111110.......',
-      '........TTXXTT..........',
-      '.......TTtXXtTT.........',
-      '.......TtXXXXtT.........',
-      '......TTtXXXXtTT........',
-      '......TttXXXXttT........',
-      '.....TTttXXXXttTT.......',
-      '.....TtttXXXXtttT.......',
-      '....TTtttXXXXtttTT......',
-      '....TttttXXXXttttT......',
-      '.....tttttttttttt.......',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......YY.......',
+      '......S44S......',
+      '.....S4444S.....',
+      '....S444444S....',
+      '...S44444444S...',
+      '.......BB.......',
+      '..BBBBBBBBBBBB..',
+      '...B33333333B...',
+      '....B222222B....',
+      '.CCCCBBBBBBCCCC.',
+      'C44CC44CC44CC44C',
+      '.CCuuCCuuCCuuCC.',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.azure,
     PB_MATS,
   ),
 
-  // God Titan: Armored bronze/steel quadrupedal mech titan head & cannon shoulders with glowing golden visor
-  divine_titan: cluster24(
+  // 16x16 Acid Rain toxic green cloud & corrosive drops
+  acid_rain: cluster16(
     [
-      '........................',
-      '...444............444...',
-      '...432...VVVVVV...234...',
-      '...432..VvvvvvvV..234...',
-      '...321.Vvv4444vvV.123...',
-      '..3321.Vv433334vV.1233..',
-      '..3211.Vv3YYYY3vV.1123..',
-      '..3211.Vv3YXXY3vV.1123..',
-      '..2110.Vvv3333vvV.0112..',
-      '...110..VvvvvvvV..011...',
-      '....VVVVVVvvvvVVVVVV....',
-      '...Vvvvvvv3333vvvvvvV...',
-      '...Vvv222233332222vvV...',
-      '...Vv22111222211122vV...',
-      '...Vv21..112211..12vV...',
-      '..3321...11..11...1233..',
-      '..321....11..11....123..',
-      '..211...211..112...112..',
-      '..110...110..011...011..',
-      '..110...110..011...011..',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '....DDDDDDDD....',
+      '..DD33333333DD..',
+      '.D333EE33EE333D.',
+      '.D33EEEEEEE333D.',
+      '..DD22222222DD..',
+      '................',
+      '...E...EE...E...',
+      '..E4..E44..E4...',
+      '..E....E....E...',
+      '.....E...E......',
+      '....E4..E4...E..',
+      '....E....E..E4..',
+      '....EE..EE..EE..',
+      '................',
+      '................',
     ],
-    PMAT.steel,
+    MAT.toxic,
     PB_MATS,
   ),
 
-  // Internal Event: Super Tornado — massive violent cyclone wrapped in crackling golden lightning
-  super_tornado: cluster24(
+  // 16x16 Blizzard icy snowflake & swirling gale
+  blizzard: cluster16(
     [
-      '........................',
-      '...44444444444444444....',
-      '..4333333333333333321...',
-      '..2222222222222222210...',
-      '....111111111111110.....',
-      '...Y44333333333322Y.....',
-      '....Y222222222211Y......',
-      '.....YY11111111YY.......',
-      '......4333333322........',
-      '.....Y2222222110........',
-      '......Y11111100.........',
-      '.......4333322Y.........',
-      '........22221Y..........',
-      '........Y1110...........',
-      '.......Y43322...........',
-      '........2210Y...........',
-      '........321Y............',
-      '....n...321...n.........',
-      '...nh..4321..nh.........',
-      '..hh..nh211hn..HH.......',
-      '.....nhhHHHhhn..........',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.......CC.......',
+      '...C...44...C...',
+      '....C.C44C.C....',
+      '.....CC44CC.....',
+      '..CC..C44C..CC..',
+      '.C44CCC44CCC44C.',
+      '..CC..C44C..CC..',
+      '.....CC44CC.....',
+      '....C.C44C.C....',
+      '...C...44...C...',
+      '.......CC.......',
+      '...CCC....CCC...',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.iron,
+    MAT.ice,
     PB_MATS,
   ),
 
-  // Internal Event: Lava Deluge — dark volcanic ash cloud raining blazing molten magma blobs
-  lava_deluge: cluster24(
+  // 16x16 Sinkhole dark collapsing pit ringed with rubble
+  sinkhole: cluster16(
     [
-      '........................',
-      '.......33333............',
-      '.....332222221..........',
-      '....322222222211........',
-      '...22211111111110.......',
-      '..2111111111111100......',
-      '...11000000000000.......',
-      '........................',
-      '.....Ff....Ff....Ff.....',
-      '....FfY...FfY...FfY.....',
-      '....aR....aR....aR......',
-      '........................',
-      '.......Ff....Ff.........',
-      '......FfY...FfY.........',
-      '......aR....aR..........',
-      '........................',
-      '...FFffFFffFFffFFffFF...',
-      '..FffYYYYffYYYYffYYYYF..',
-      '..ffaaRRaaffaaRRaaffaa..',
-      '...RRRRRRRRRRRRRRRRRR...',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '....BBBBBBBB....',
+      '..BB33333333BB..',
+      '.B33DDDDDDDD33B.',
+      '.B3DD222222DD3B.',
+      'B3DD2uCCCCu2DD3B',
+      'B3DD2C4444C2DD3B',
+      'B3DD2C4444C2DD3B',
+      'B3DD2uCCCCu2DD3B',
+      '.B3DD222222DD3B.',
+      '.B33DDDDDDDD33B.',
+      '..BB22222222BB..',
+      '....BBBBBBBB....',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.iron,
+    MAT.darkIron,
     PB_MATS,
   ),
 
-  // Internal Event: Blight Plague — withered gnarled dead tree engulfed in toxic violet-green miasma
-  blight_plague: cluster24(
+  // 16x16 Locust Swarm winged insects over dry stalks
+  locust_swarm: cluster16(
     [
-      '........................',
-      '......T..........P......',
-      '.....TtT...b....PpP.....',
-      '......t...bk...b.p......',
-      '.....b....bk..bk........',
-      '......b...bk.bk...T.....',
-      '.......b..bkbk...TtT....',
-      '....P...b.bkk.....t.....',
-      '...PpP...bbkk...........',
-      '....p....bkkK...P.......',
-      '.........bkkK..PpP......',
-      '....T....bkkK...p.......',
-      '...TtT...bkkK...........',
-      '....t...bbkkKK..........',
-      '.......bbbkkKKK.........',
-      '....PPppbbkkKKppPP......',
-      '...PppzzbkkkkKzzppP.....',
-      '..TTttzzzzZZZZzzttTT....',
-      '..twwwWWWWWWWWWWwwwt....',
-      '...WWWWWWWWWWWWWWWW.....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '..YY........YY..',
+      '.Y44Y......Y44Y.',
+      '..BBY..YY..YBB..',
+      '......Y44Y......',
+      '...YY.YBBY.YY...',
+      '..Y44Y....Y44Y..',
+      '...BB......BB...',
+      '.....YY..YY.....',
+      '....Y44YY44Y....',
+      '.....BB..BB.....',
+      '..B...B..B...B..',
+      '..B..B....B..B..',
+      '..BBBBBBBBBBBB..',
+      '................',
+      '................',
     ],
-    PMAT.darkWood,
+    MAT.gold,
     PB_MATS,
   ),
 
-  // Internal Event: Floral Paradise — blooming rose-pink & golden flower cluster sprouting from lush moss
-  floral_paradise: cluster24(
+  // 16x16 Firestorm blazing ring of intense wildfire
+  wildfire_ring: cluster16(
     [
-      '........................',
-      '..........%%............',
-      '.........%YY%...........',
-      '........%%YY%%....Y.....',
-      '....%....%&&%...........',
-      '...%Y%....&&.....%%.....',
-      '..%%Y%%...el....%YY%....',
-      '...%&&%...el...%%YY%%...',
-      '....&&...EelE...%&&%....',
-      '....el...eElE....&&.....',
-      '....el..EeelE....el.....',
-      '...EelE..eelE...EelE....',
-      '...eelE..eell...eelE....',
-      '....ellE.elll..Eell.....',
-      '...EElllEllllEElllEE....',
-      '..EEeeellllllllleeeEE...',
-      '..EeeeellllllllleeeeE...',
-      '...eeellllllllllleee....',
-      '....LLLLLLLLLLLLLLL.....',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
-      '........................',
+      '................',
+      '.....FFYYFF.....',
+      '...FFY4444YFF...',
+      '..FY44FFFF44YF..',
+      '.FY4FF....FF4YF.',
+      '.F4F........F4F.',
+      '.Y4F........F4Y.',
+      '.Y4F........F4Y.',
+      '.F4F........F4F.',
+      '.FY4FF....FF4YF.',
+      '..FY44FFFF44YF..',
+      '...FFY4444YFF...',
+      '.....FFYYFF.....',
+      '................',
+      '................',
+      '................',
     ],
-    PMAT.moss,
+    MAT.flame,
+    PB_MATS,
+  ),
+
+  // 16x16 Giant 4-legged God Titan mecha with twin dorsal rail-cannons
+  divine_titan: cluster16(
+    [
+      '................',
+      '..SSSSSSSSSS....',
+      '.rSSSSSSSSSSss..',
+      '..sssssssssSSs..',
+      '....sSSSSSSss...',
+      '...sSSRRSSSSSs..',
+      '..sSSSRRSSSSSSs.',
+      '..sSSssssSSSSs..',
+      '..sSs....ssSSs..',
+      '.sSs..ss..ssSs..',
+      '.sS..sSs...sSs..',
+      'sSs..sS.....sSs.',
+      'sS..sSs.....sSs.',
+      'SSs.SSs....sSSS.',
+      '................',
+      '................',
+    ],
+    MAT.steel,
     PB_MATS,
   ),
 };
 
 export const BUILDING_SPRITES: Record<BuildingType, CompiledSprite> = {
-  // Bonfire: Isometric stone hearth ring with crossed timber logs & blazing campfire flame
-  bonfire: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.wood, PMAT.darkWood, 21, 3);
-    // Stone hearth ring
-    c.ellipse(11.5, 14.5, 6.5, 3.2, PMAT.stone, 2);
-    c.ellipse(11.5, 14.0, 5.5, 2.4, PMAT.stone, 3);
-    c.ellipse(11.5, 14.2, 4.2, 1.8, PMAT.iron, 0);
-    // Crossed logs
-    c.line(8, 15, 15, 13, PMAT.wood, 3);
-    c.line(8, 13, 15, 15, PMAT.darkWood, 2);
-    c.line(9, 15, 14, 15, PMAT.wood, 2);
-    // Layered campfire flame
-    c.stamp(
-      7,
-      4,
-      [
-        '....f....',
-        '...fFf...',
-        '..fFFfF..',
-        '..FFYYF..',
-        '.fFYYYFf.',
-        '.fFYYYYf.',
-        '.aFFYYFa.',
-        '..aFFFa..',
-        '...aaa...',
-      ],
-      PMAT.amber,
-      PB_MATS,
-    );
-    // Floating embers
-    c.set(8, 4, PMAT.gold, 4);
-    c.set(15, 5, PMAT.amber, 3);
-  }),
+  // 16x16 Stone-ringed bonfire hearth with roaring symmetrical blaze
+  bonfire: cluster16(
+    [
+      '................',
+      '................',
+      '.......22.......',
+      '......2332......',
+      '.....234432.....',
+      '....12344321....',
+      '....12344321....',
+      '....11233211....',
+      '..Bbb111111kkK..',
+      '.BBbbkkkkkbbKK..',
+      '.NNnnBbbbbkhhH..',
+      '..NNnnhhhhhHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.flame,
+    PB_MATS,
+  ),
 
-  // Forager Hut: Isometric timber-frame hut with sloped thatched roof & warm doorway
-  forager_hut: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.wood, PMAT.darkWood, 21, 3);
-    // Hut timber walls
-    drawIsoBox(c, 11, 17, 5, 5, PMAT.wood, PMAT.wood, PMAT.darkWood);
-    // Doorway on left face
-    c.rect(8, 13, 2, 3, PMAT.iron, 0);
-    c.set(8, 13, PMAT.amber, 2);
-    // Sloped thatched roof
-    for (let dy = 0; dy <= 5; dy++) {
-      const span = dy + 1;
-      for (let dx = -span; dx <= span; dx++) {
-        const tone = dx < 0 ? (dy % 2 === 0 ? 4 : 3) : (dy % 2 === 0 ? 2 : 1);
-        c.set(11 + dx, 5 + dy, PMAT.sand, tone);
-      }
-    }
-    // Roof ridge beam
-    c.rect(10, 4, 3, 1, PMAT.wood, 3);
-  }),
+  // 16x16 Cozy thatched cottage with symmetrical straw roof, cast eave shadow & glowing door
+  forager_hut: cluster16(
+    [
+      '................',
+      '................',
+      '.......33.......',
+      '......3332......',
+      '.....222222.....',
+      '....22222221....',
+      '...2222222211...',
+      '..111111111111..',
+      '...JjjBbbkjJJ...',
+      '...IIiBfFakjJ...',
+      '...IiBBffakJJ...',
+      '...BBbkkkkKKK...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
 
-  // Totem: Carved stone/wood tribal totem pillar with painted mask, feathers & arcane eye
-  shaman_totem: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.stone, PMAT.iron, 21, 3);
-    // Stone pedestal
-    drawIsoBox(c, 11, 17, 4, 2, PMAT.stone, PMAT.stone, PMAT.iron);
-    // Tall carved wooden totem column
-    c.rect(9, 4, 5, 11, PMAT.wood, 2);
-    c.rect(9, 4, 2, 11, PMAT.wood, 3);
-    c.rect(13, 4, 1, 11, PMAT.darkWood, 1);
-    // Side tribal wing plumes
-    c.line(5, 7, 8, 9, PMAT.crimson, 3);
-    c.line(5, 9, 8, 10, PMAT.parchment, 3);
-    c.line(17, 7, 14, 9, PMAT.crimson, 2);
-    c.line(17, 9, 14, 10, PMAT.parchment, 2);
-    // Glowing arcane mask eyes & crest
-    c.rect(10, 6, 1, 2, PMAT.arcane, 4);
-    c.rect(12, 6, 1, 2, PMAT.arcane, 4);
-    c.rect(10, 9, 3, 1, PMAT.gold, 3);
-    c.rect(10, 11, 3, 1, PMAT.crimson, 3);
-    c.rect(10, 3, 3, 1, PMAT.gold, 4);
-  }),
+  // 16x16 Symmetrical carved stone totem with timber wings & spirit fire
+  shaman_totem: cluster16(
+    [
+      '................',
+      '................',
+      '....Rr...Yy.....',
+      '....rq...gG.....',
+      '.....333322.....',
+      '.BBbb2CC2CCkKK..',
+      '.bbkK222221kKK..',
+      '.....22FFf1.....',
+      '.....22ffaa.....',
+      '.....122221.....',
+      '....22222211....',
+      '...1111111111...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.stone,
+    PB_MATS,
+  ),
 
-  // Granary: Stone-foundation cylindrical grain silo with conical bronze roof & wheat crest
-  granary: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.wood, PMAT.darkWood, 21, 3);
-    // Cylindrical stone & plaster silo body
-    c.rect(6, 9, 11, 8, PMAT.parchment, 2);
-    c.rect(6, 9, 4, 8, PMAT.parchment, 3);
-    c.rect(14, 9, 3, 8, PMAT.parchment, 1);
-    // Stone base band
-    c.rect(6, 15, 11, 2, PMAT.stone, 2);
-    c.rect(14, 15, 3, 2, PMAT.stone, 1);
-    // Conical terracotta/bronze roof
-    for (let dy = 0; dy <= 5; dy++) {
-      const span = dy + 1;
-      for (let dx = -span; dx <= span; dx++) {
-        const tone = dx <= 0 ? 3 : 2;
-        c.set(11 + dx, 3 + dy, PMAT.bronze, tone);
-      }
-    }
-    c.set(11, 2, PMAT.gold, 4);
-    // Grain door & wheat trim
-    c.rect(9, 12, 3, 4, PMAT.wood, 2);
-    c.rect(10, 13, 1, 2, PMAT.gold, 4);
-  }),
+  // 16x16 Cylindrical hooped granary silo with conical golden straw dome
+  granary: cluster16(
+    [
+      '................',
+      '................',
+      '.......Y........',
+      '......yyy.......',
+      '.....ggggg......',
+      '....ggggggG.....',
+      '...GGGGGGGGG....',
+      '...222222221....',
+      '...sssmmmMMD....',
+      '...222bkk221....',
+      '...ssmBbkMMD....',
+      '...NNnbBkhhH....',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.parchment,
+    PB_MATS,
+  ),
 
-  // Smeltery: Dark stone furnace/kiln with glowing molten amber mouth, chimney & smoke
-  smeltery: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.stone, PMAT.iron, 21, 3);
-    // Main stone furnace block
-    drawIsoBox(c, 11, 17, 6, 6, PMAT.stone, PMAT.stone, PMAT.iron);
-    // Chimney stack on back-right
-    c.rect(12, 4, 4, 6, PMAT.iron, 2);
-    c.rect(12, 4, 2, 6, PMAT.stone, 2);
-    // Smoke puffs
-    c.rect(13, 2, 3, 2, PMAT.steel, 3);
-    c.set(16, 2, PMAT.steel, 4);
-    // Glowing molten furnace mouth on left face
-    c.rect(7, 12, 3, 3, PMAT.amber, 3);
-    c.set(8, 13, PMAT.gold, 4);
-    c.set(8, 14, PMAT.crimson, 3);
-  }),
+  // 16x16 Red brick blast smeltery with tall chimney & glowing hearth mouth
+  smeltery: cluster16(
+    [
+      '................',
+      '................',
+      '.........SSss...',
+      '..........ssM...',
+      '.........NnhH...',
+      '....Nnn..NnhH...',
+      '..33333333321...',
+      '..22222222211...',
+      '..22fFFf22211...',
+      '..22FFFFfa211...',
+      '..11fFFfaa111...',
+      '..NNnffaaahHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Ziggurat: 3-tiered stepped sandstone temple with central staircase & golden altar
-  ziggurat: icon24((c) => {
-    drawBasePad(c, PMAT.sand, PMAT.bronze, PMAT.darkWood, 21, 2);
-    // Tier 1 (wide base)
-    drawIsoBox(c, 11, 18, 7, 3, PMAT.sand, PMAT.sand, PMAT.bronze);
-    // Tier 2 (mid)
-    drawIsoBox(c, 11, 14, 5, 3, PMAT.sand, PMAT.sand, PMAT.bronze);
-    // Tier 3 (sanctuary)
-    drawIsoBox(c, 11, 10, 3, 3, PMAT.gold, PMAT.sand, PMAT.bronze);
-    // Golden shrine capstone
-    c.rect(10, 4, 3, 2, PMAT.gold, 4);
-    // Central grand staircase
-    c.line(11, 10, 11, 18, PMAT.gold, 3);
-    c.line(12, 10, 12, 18, PMAT.bronze, 2);
-  }),
+  // 16x16 Symmetrical 3-tier sandstone ziggurat with clear shaded ledges & sun altar
+  ziggurat: cluster16(
+    [
+      '................',
+      '................',
+      '......Yyyg......',
+      '......gGGd......',
+      '....333YY221....',
+      '....oooooooo....',
+      '..33332YY22211..',
+      '..2222oooooooo..',
+      '.333322YY222111.',
+      '.222211gg111111.',
+      '.11111111111111.',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.parchment,
+    PB_MATS,
+  ),
 
-  // Guildhall: Medieval half-timbered hall with steep crimson slate roof & lit windows
-  guildhall: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.stone, PMAT.iron, 21, 2);
-    // Lower stone + upper parchment timber body
-    drawIsoBox(c, 11, 18, 6, 7, PMAT.parchment, PMAT.parchment, PMAT.stone);
-    // Timber beams
-    c.rect(6, 13, 6, 1, PMAT.wood, 2);
-    c.rect(8, 11, 1, 6, PMAT.wood, 2);
-    c.rect(14, 11, 1, 6, PMAT.darkWood, 1);
-    // Steep crimson roof
-    for (let dy = 0; dy <= 5; dy++) {
-      const span = dy + 2;
-      for (let dx = -span; dx <= span; dx++) {
-        c.set(11 + dx, 4 + dy, PMAT.crimson, dx <= 0 ? 3 : 2);
-      }
-    }
-    c.rect(10, 3, 3, 1, PMAT.gold, 3);
-    // Warm lit windows & door
-    c.rect(6, 14, 2, 2, PMAT.gold, 4);
-    c.rect(10, 15, 2, 3, PMAT.wood, 2);
-    c.rect(15, 13, 2, 2, PMAT.gold, 3);
-  }),
+  // 16x16 Symmetrical half-timbered guildhall with crimson roof & cast eave shadow
+  guildhall: cluster16(
+    [
+      '................',
+      '................',
+      '.......33.......',
+      '.....333322.....',
+      '...2222222221...',
+      '..111111111111..',
+      '...bKjjKbkjYYk..',
+      '...bKIfbKiYgk...',
+      '...bKIabKigGk...',
+      '...bKbbKbkjjK...',
+      '...NNnnnnnhHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Observatory: Stone astronomical tower topped with riveted bronze dome & brass telescope
-  observatory: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.stone, PMAT.iron, 21, 2);
-    // Stone tower cylinder
-    drawIsoBox(c, 11, 18, 5, 7, PMAT.stone, PMAT.stone, PMAT.iron);
-    // Riveted bronze dome
-    c.ellipse(11, 8, 5, 4, PMAT.bronze, 2);
-    c.ellipse(10, 7, 3.5, 2.5, PMAT.bronze, 3);
-    // Slit opening
-    c.line(11, 4, 14, 8, PMAT.iron, 0);
-    // Projecting brass telescope barrel
-    c.line(12, 7, 19, 3, PMAT.gold, 3);
-    c.line(12, 8, 19, 4, PMAT.gold, 2);
-    c.set(19, 3, PMAT.ice, 4);
-    // Tower window
-    c.rect(8, 13, 2, 3, PMAT.water, 3);
-  }),
+  // 16x16 Domed azure observatory with brass trim & telescope
+  observatory: cluster16(
+    [
+      '................',
+      '................',
+      '...........Yy...',
+      '.........YygG...',
+      '.....33332gG....',
+      '....22222221....',
+      '...2222222211...',
+      '..YYYYyyyygggg..',
+      '...JjiuuujJjj...',
+      '...IIiuuujjjJ...',
+      '...NNnnnnnhHH...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.azure,
+    PB_MATS,
+  ),
 
-  // Foundry: Red-brick & iron industrial factory with twin smokestacks & glowing forge
-  steam_foundry: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.iron, PMAT.iron, 21, 2);
-    // Red-brick factory hull
-    drawIsoBox(c, 11, 18, 7, 6, PMAT.iron, PMAT.crimson, PMAT.crimson);
-    // Twin tall smokestacks
-    c.rect(7, 4, 2, 7, PMAT.iron, 2);
-    c.rect(13, 3, 2, 8, PMAT.iron, 2);
-    // Steam/smoke puffs
-    c.rect(8, 2, 3, 2, PMAT.bone, 3);
-    c.rect(14, 1, 3, 2, PMAT.bone, 4);
-    // Glowing forge arches
-    c.rect(6, 13, 2, 3, PMAT.amber, 4);
-    c.rect(9, 14, 2, 3, PMAT.amber, 3);
-    c.rect(14, 14, 3, 2, PMAT.gold, 3);
-  }),
+  // 16x16 Twin-smokestack brick steam foundry with flat brick body & furnace windows
+  steam_foundry: cluster16(
+    [
+      '................',
+      '................',
+      '...SSs....SSs...',
+      '...smM....smM...',
+      '...smM....smM...',
+      '..SSsssmmmMMDD..',
+      '.2222222222211..',
+      '.22fFa22fFa211..',
+      '.22ffa22ffa211..',
+      '.1111111111111..',
+      '.NNnnnnnnhhhHH..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Power Plant: Industrial steel powerhouse with copper turbine coils & cyan electric arcs
-  dynamo_plant: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.steel, PMAT.iron, 21, 2);
-    drawIsoBox(c, 11, 18, 6, 6, PMAT.steel, PMAT.steel, PMAT.iron);
-    // Copper dynamo coils on roof
-    c.rect(7, 6, 3, 5, PMAT.bronze, 3);
-    c.rect(13, 6, 3, 5, PMAT.bronze, 2);
-    c.rect(7, 7, 3, 1, PMAT.gold, 4);
-    c.rect(13, 7, 3, 1, PMAT.gold, 3);
-    // Crackling cyan electric arc between coils
-    c.line(9, 5, 11, 3, PMAT.ice, 4);
-    c.line(11, 3, 12, 6, PMAT.ice, 4);
-    c.line(12, 6, 14, 4, PMAT.ice, 4);
-    // Glowing power gauge window
-    c.rect(8, 13, 3, 2, PMAT.water, 4);
-  }),
+  // 16x16 Symmetrical copper-coil Tesla dynamo with glowing cyan orb
+  dynamo_plant: cluster16(
+    [
+      '................',
+      '................',
+      '.....CCccc......',
+      '.....CccuuU.....',
+      '......cuuU......',
+      '......Yyyg......',
+      '.....YyggGG.....',
+      '......Yyyg......',
+      '..333333333321..',
+      '.222CCc22CCc211.',
+      '.222ccU22ccU111.',
+      '.11111111111111.',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Metro Rail: Arched iron-and-glass train depot with brick facade & steel rails emerging
-  rail_station: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.iron, PMAT.iron, 21, 2);
-    // Brick & steel station hall
-    drawIsoBox(c, 11, 17, 7, 5, PMAT.steel, PMAT.crimson, PMAT.iron);
-    // Arched glass-and-iron roof vault
-    c.ellipse(11, 9, 6, 3, PMAT.steel, 3);
-    c.ellipse(11, 9, 4.5, 2, PMAT.water, 3);
-    // Clock gable
-    c.rect(10, 6, 3, 3, PMAT.gold, 3);
-    c.set(11, 7, PMAT.iron, 0);
-    // Tunnel arch & emerging steel rails
-    c.rect(7, 13, 3, 4, PMAT.iron, 0);
-    c.line(7, 17, 4, 20, PMAT.steel, 4);
-    c.line(9, 17, 6, 20, PMAT.steel, 4);
-  }),
+  // 16x16 Brick rail depot with symmetrical gabled clock tower & tracks
+  rail_station: cluster16(
+    [
+      '................',
+      '................',
+      '.....33322......',
+      '....2IIji11.....',
+      '..33333333321...',
+      '.1111111111111..',
+      '..JjbKJjbKJjj...',
+      '..IfbKIfbKIfj...',
+      '.SSsssmmmMMMMD..',
+      '.bKbKbKbKbKbKb..',
+      '.NNnnnnnnhhhHH..',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.ruby,
+    PB_MATS,
+  ),
 
-  // Reactor: Concrete nuclear facility with twin hyperbolic cooling towers & glowing containment dome
-  fission_reactor: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.iron, PMAT.iron, 21, 2);
-    // Left cooling tower (hyperbolic profile)
-    for (let y = 5; y <= 16; y++) {
-      const w = y < 9 ? 2 : y > 13 ? 3 : 2;
-      c.rect(5 - Math.floor(w / 2), y, w + 2, 1, PMAT.bone, y < 7 ? 4 : 3);
-      c.set(5 + Math.ceil(w / 2), y, PMAT.steel, 2);
-    }
-    // Right cooling tower
-    for (let y = 4; y <= 15; y++) {
-      const w = y < 8 ? 2 : y > 12 ? 3 : 2;
-      c.rect(14 - Math.floor(w / 2), y, w + 2, 1, PMAT.bone, y < 6 ? 4 : 2);
-      c.set(14 + Math.ceil(w / 2), y, PMAT.steel, 1);
-    }
-    // Glowing cyan/toxic containment dome in front
-    c.ellipse(11, 14, 4, 3.2, PMAT.steel, 3);
-    c.ellipse(11, 13.5, 2.8, 2, PMAT.toxic, 4);
-    // Steam wisps above towers
-    c.rect(5, 3, 3, 1, PMAT.ice, 4);
-    c.rect(14, 2, 3, 1, PMAT.ice, 4);
-  }),
+  // 16x16 Atomic dome & cooling tower with glowing Cherenkov core
+  fission_reactor: cluster16(
+    [
+      '................',
+      '................',
+      '........SSss....',
+      '........Nnnh....',
+      '...3332.Nnnh....',
+      '..222221NnhH....',
+      '.22TTt21NnhHH...',
+      '.22ttwW1nhHHH...',
+      '.1111111nhHHH...',
+      '.111111111111...',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Cyber Lab: Sleek steel-and-glass research tower with glowing cyan holo-rings & dish
-  cyber_institute: icon24((c) => {
-    drawBasePad(c, PMAT.iron, PMAT.steel, PMAT.iron, 21, 2);
-    // Sleek central glass-steel tower
-    drawIsoBox(c, 11, 18, 5, 9, PMAT.steel, PMAT.water, PMAT.steel);
-    // Glowing cyan data bands
-    c.rect(7, 10, 4, 1, PMAT.ice, 4);
-    c.rect(7, 13, 4, 1, PMAT.ice, 4);
-    c.rect(12, 11, 4, 1, PMAT.water, 4);
-    c.rect(12, 14, 4, 1, PMAT.water, 4);
-    // Holographic antenna spire & floating data ring
-    c.line(11, 2, 11, 7, PMAT.steel, 4);
-    c.set(11, 2, PMAT.ice, 4);
-    c.ellipse(11, 5, 4, 1.2, PMAT.ice, 4);
-    c.set(11, 5, PMAT.steel, 3);
-  }),
+  // 16x16 Symmetrical cyber arcology with glowing cyan data bands
+  cyber_institute: cluster16(
+    [
+      '................',
+      '................',
+      '.......Cc.......',
+      '.......cu.......',
+      '....3333322.....',
+      '...2CCCCCC21....',
+      '...222222211....',
+      '...2cccccc11....',
+      '..22uuuuuu211...',
+      '..22222222211...',
+      '..222CCc22211...',
+      '..11111111111...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.darkIron,
+    PB_MATS,
+  ),
 
-  // Airport: Control tower with glass radar deck beside angled tarmac runway & silver jet
-  airport: icon24((c) => {
-    drawBasePad(c, PMAT.iron, PMAT.stone, PMAT.iron, 21, 2);
-    // Runway centerline dashes
-    c.line(5, 16, 17, 12, PMAT.parchment, 4);
-    // Miniature silver jetliner on tarmac
-    c.line(11, 14, 17, 11, PMAT.bone, 4);
-    c.line(12, 11, 16, 15, PMAT.steel, 3);
-    // Tall control tower on left
-    c.rect(5, 7, 3, 10, PMAT.bone, 3);
-    c.rect(7, 7, 1, 10, PMAT.steel, 2);
-    // Glass observation cab
-    c.rect(4, 4, 5, 3, PMAT.water, 4);
-    c.rect(4, 3, 5, 1, PMAT.steel, 3);
-    c.set(6, 2, PMAT.crimson, 4);
-  }),
+  // 16x16 Airport ATC tower, glass terminal & yellow-striped tarmac
+  airport: cluster16(
+    [
+      '................',
+      '................',
+      '..........Ff....',
+      '........CCccu...',
+      '........uuUUu...',
+      '...3332..321....',
+      '..22221..221....',
+      '..2CCc1..221....',
+      '..11111..111....',
+      '.MMMMMMMMMMMMM..',
+      '.MYYMMYYMMYYMM..',
+      '.MMMMMMMMMMMMM..',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Launchpad: Armored orbital gantry with sleek white-and-crimson rocket & ignition glow
-  launch_arcology: icon24((c) => {
-    drawBasePad(c, PMAT.iron, PMAT.steel, PMAT.iron, 21, 2);
-    // Steel launch gantry tower on right
-    c.rect(14, 5, 3, 12, PMAT.steel, 2);
-    c.line(12, 7, 15, 7, PMAT.steel, 3);
-    c.line(12, 11, 15, 11, PMAT.steel, 3);
-    // Sleek orbital rocket
-    c.rect(8, 5, 3, 10, PMAT.bone, 4);
-    c.rect(10, 5, 1, 10, PMAT.steel, 2);
-    // Nosecone & crimson fins
-    c.set(9, 3, PMAT.crimson, 4);
-    c.rect(8, 4, 3, 1, PMAT.crimson, 3);
-    c.rect(6, 13, 2, 3, PMAT.crimson, 3);
-    c.rect(11, 13, 2, 3, PMAT.crimson, 2);
-    // Ignition thruster glow
-    c.rect(8, 15, 3, 2, PMAT.amber, 4);
-    c.set(9, 17, PMAT.gold, 4);
-  }),
+  // 16x16 Orbital launch pad with steel gantry & crimson rocket ignition
+  launch_arcology: cluster16(
+    [
+      '................',
+      '................',
+      '.....Rr.........',
+      '....Rrr..smM....',
+      '....332..smM....',
+      '...3322mmsMM....',
+      '...2221..smM....',
+      '...RrqQ..smM....',
+      '..R2221Q.smM....',
+      '..rfFFaQ.smM....',
+      '...FFfa..smM....',
+      '..MMMMMMMMMMM...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
 
-  // Dyson Spire: Towering obsidian-and-gold interstellar spire crowned by levitating star-core
-  dyson_spire: icon24((c) => {
-    drawBasePad(c, PMAT.iron, PMAT.gold, PMAT.iron, 21, 2);
-    // Tapered obsidian & gold spire legs
-    c.line(6, 18, 10, 9, PMAT.iron, 2);
-    c.line(16, 18, 12, 9, PMAT.iron, 1);
-    c.rect(9, 10, 5, 8, PMAT.iron, 2);
-    c.rect(11, 10, 1, 8, PMAT.gold, 4);
-    // Orbital containment rings
-    c.ellipse(11, 6, 6, 2.2, PMAT.gold, 3);
-    c.ellipse(11, 6, 4, 1.3, PMAT.ice, 4);
-    // Levitating golden star-core
-    c.ellipse(11, 6, 2, 2, PMAT.amber, 3);
-    c.set(11, 6, PMAT.gold, 4);
-    c.set(11, 2, PMAT.ice, 4);
-  }),
+  // 16x16 Symmetrical gold Dyson spire with glowing orbital rings
+  dyson_spire: cluster16(
+    [
+      '................',
+      '................',
+      '.......33.......',
+      '......3322......',
+      '..CCcc3322cuUU..',
+      '..Cc..2221..uU..',
+      '...cuu2221uUU...',
+      '...CCc2221cuU...',
+      '..Cc..2221..uU..',
+      '...cuu1111uUu...',
+      '.....222111.....',
+      '...SSssmmMMDD...',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.gold,
+    PB_MATS,
+  ),
 
-  // Windmill: Tapered stone-and-plaster mill tower with 4 diagonal lattice sails
-  windmill: icon24((c) => {
-    drawBasePad(c, PMAT.moss, PMAT.wood, PMAT.darkWood, 21, 2);
-    // Tapered mill tower
-    for (let y = 7; y <= 17; y++) {
-      const half = y < 11 ? 2 : 3;
-      c.rect(11 - half, y, half * 2 + 1, 1, PMAT.parchment, 3);
-      c.rect(12, y, half, 1, PMAT.stone, 2);
-    }
-    // Wooden roof cap & door
-    c.ellipse(11, 7, 3, 2, PMAT.wood, 2);
-    c.rect(10, 14, 2, 3, PMAT.darkWood, 1);
-    // 4 diagonal windmill lattice sails
-    c.line(4, 3, 18, 17, PMAT.wood, 3);
-    c.line(18, 3, 4, 17, PMAT.wood, 3);
-    // Cloth sail blades
-    c.line(5, 3, 9, 7, PMAT.sand, 4);
-    c.line(17, 3, 13, 7, PMAT.sand, 4);
-    c.line(5, 16, 9, 12, PMAT.sand, 3);
-    c.line(17, 16, 13, 12, PMAT.sand, 3);
-    // Central hub
-    c.rect(10, 9, 2, 2, PMAT.bronze, 3);
-  }),
+  // 16x16 Windmill tower with angled canvas sails
+  windmill: cluster16(
+    [
+      '................',
+      '....ww....ww....',
+      '.....ww..ww.....',
+      '......3322......',
+      '.....w3221w.....',
+      '....ww2221ww....',
+      '...ww.2221.ww...',
+      '......2221......',
+      '.....322211.....',
+      '.....22dd11.....',
+      '....322dd111....',
+      '....222dd111....',
+      '...SSSSSSSSSS...',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.stone,
+    PB_MATS,
+  ),
 
-  // Quarry Crane: Timber & stone quarry derrick crane with angled boom & suspended stone block
-  quarry_crane: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.stone, PMAT.iron, 21, 2);
-    // Stone counterweight base
-    drawIsoBox(c, 8, 18, 4, 3, PMAT.stone, PMAT.stone, PMAT.iron);
-    // Tall timber derrick mast
-    c.rect(7, 4, 2, 11, PMAT.wood, 3);
-    // Angled wooden crane boom
-    c.line(8, 6, 18, 4, PMAT.wood, 3);
-    c.line(8, 10, 15, 5, PMAT.darkWood, 2);
-    // Pulley rope & suspended cut stone block
-    c.line(17, 5, 17, 11, PMAT.parchment, 3);
-    c.rect(15, 11, 4, 4, PMAT.stone, 3);
-    c.rect(15, 11, 4, 1, PMAT.stone, 4);
-    c.rect(18, 11, 1, 4, PMAT.stone, 1);
-  }),
+  // 16x16 Quarry timber & iron boom crane with suspended rock load
+  quarry_crane: cluster16(
+    [
+      '................',
+      '...........33...',
+      '.........3322...',
+      '.......3322.m...',
+      '.....3322...m...',
+      '....322.....m...',
+      '....221....SSs..',
+      '....221....sSD..',
+      '....221.........',
+      '...32211........',
+      '...22211........',
+      '..MMMMMMMMMM....',
+      '..DDDDDDDDDD....',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.wood,
+    PB_MATS,
+  ),
 
-  // Ore Crusher: Heavy timber-and-iron stamp mill with gear wheel & ore hopper
-  ore_crusher: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.darkWood, PMAT.iron, 21, 2);
-    // Timber & iron crusher frame
-    drawIsoBox(c, 11, 18, 6, 6, PMAT.iron, PMAT.darkWood, PMAT.iron);
-    // Overhead iron stamp beam & crushing pistons
-    c.rect(6, 5, 11, 2, PMAT.iron, 3);
-    c.rect(8, 7, 2, 6, PMAT.steel, 4);
-    c.rect(12, 7, 2, 5, PMAT.steel, 3);
-    // Side iron gear wheel
-    c.ellipse(17, 13, 3, 3, PMAT.bronze, 2);
-    c.set(17, 13, PMAT.gold, 4);
-    // Raw ore pile at base
-    c.rect(7, 14, 4, 3, PMAT.bronze, 3);
-    c.set(8, 14, PMAT.gold, 4);
-  }),
+  // 16x16 Stone & iron ore crusher hopper with glowing smelt chute
+  ore_crusher: cluster16(
+    [
+      '................',
+      '................',
+      '....SSSSSSSS....',
+      '...S33332222S...',
+      '....33222211....',
+      '....22MMmm11....',
+      '...322FfFF111...',
+      '...222faAF111...',
+      '...222MMMM111...',
+      '..322211111111..',
+      '..222211111111..',
+      '..DDDDDDDDDDDD..',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.darkIron,
+    PB_MATS,
+  ),
 
-  // Quarry Excavator: Heavy industrial tracked excavator rig with yellow-ochre cab & steel shovel arm
-  quarry_excavator: icon24((c) => {
-    drawBasePad(c, PMAT.stone, PMAT.stone, PMAT.iron, 21, 2);
-    // Heavy steel treads
-    c.rect(4, 14, 10, 3, PMAT.iron, 1);
-    c.rect(5, 15, 2, 1, PMAT.steel, 3);
-    c.rect(8, 15, 2, 1, PMAT.steel, 3);
-    c.rect(11, 15, 2, 1, PMAT.steel, 3);
-    // Yellow-ochre industrial cab
-    c.rect(5, 9, 8, 5, PMAT.gold, 3);
-    c.rect(5, 9, 8, 1, PMAT.gold, 4);
-    c.rect(9, 10, 3, 2, PMAT.water, 4);
-    // Articulated steel boom & bucket arm
-    c.line(12, 10, 16, 5, PMAT.gold, 3);
-    c.line(16, 5, 19, 11, PMAT.steel, 3);
-    // Heavy toothed scoop bucket
-    c.rect(17, 11, 4, 3, PMAT.steel, 2);
-    c.rect(17, 11, 4, 1, PMAT.steel, 4);
-    c.set(17, 14, PMAT.bone, 4);
-    c.set(19, 14, PMAT.bone, 4);
-  }),
+  // 16x16 Heavy tracked quarry excavator with steel bucket arm
+  quarry_excavator: cluster16(
+    [
+      '................',
+      '........3322....',
+      '.......332221...',
+      '......322..21...',
+      '.....322....MM..',
+      '...YY221....MD..',
+      '..YYY221....DD..',
+      '..YCC221........',
+      '..YYYYYY11......',
+      '..DDDDDDDDD.....',
+      '.MMmmMMmmMM.....',
+      '.DDDDDDDDDD.....',
+      '................',
+      '................',
+      '................',
+      '................',
+    ],
+    MAT.steel,
+    PB_MATS,
+  ),
+
 };

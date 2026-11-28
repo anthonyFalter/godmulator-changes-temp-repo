@@ -567,307 +567,178 @@ export function cluster16(
   }, outline);
 }
 
-/**
- * Grounded 24x24 Pixel-Art Material Ramps (rich earthy midtones, cool-shifted shadows,
- * selective warm highlights, and crisp dark ink outlines).
- */
-export const PMAT = {
-  crimson: { hi: '#e8a287', lit: '#c74642', mid: '#962933', shd: '#5e1928', lin: '#330f1c', out: '#120912' } as MatRamp,
-  amber: { hi: '#fae6a8', lit: '#e69c3e', mid: '#bd5628', shd: '#7d2922', lin: '#451418', out: '#14090e' } as MatRamp,
-  gold: { hi: '#f7ecc1', lit: '#d9b04c', mid: '#a8762d', shd: '#6e441e', lin: '#3d2214', out: '#140c0c' } as MatRamp,
-  bronze: { hi: '#e8c4a0', lit: '#bd7c4d', mid: '#8c4d2e', shd: '#592c21', lin: '#331715', out: '#120a0d' } as MatRamp,
-  wood: { hi: '#d9b386', lit: '#a3744c', mid: '#734b32', shd: '#4a2d22', lin: '#2b1916', out: '#120a0d' } as MatRamp,
-  darkWood: { hi: '#a68265', lit: '#75513d', mid: '#4f332a', shd: '#331e1d', lin: '#1f1114', out: '#0f090d' } as MatRamp,
-  parchment: { hi: '#f5efe2', lit: '#d9cbb4', mid: '#ad9a80', shd: '#786655', lin: '#473b35', out: '#141014' } as MatRamp,
-  bone: { hi: '#eef2f5', lit: '#c5cfd9', mid: '#8e9cab', shd: '#5b6778', lin: '#363d4d', out: '#12131c' } as MatRamp,
-  steel: { hi: '#dce6f2', lit: '#9eb0c7', mid: '#687991', shd: '#414d63', lin: '#262c3d', out: '#0f111a' } as MatRamp,
-  iron: { hi: '#99a6bd', lit: '#636e85', mid: '#3e4559', shd: '#252938', lin: '#171924', out: '#0c0c14' } as MatRamp,
-  stone: { hi: '#d1cbc2', lit: '#9e968e', mid: '#6e6763', shd: '#474242', lin: '#2b272a', out: '#121014' } as MatRamp,
-  sand: { hi: '#f0dfc0', lit: '#ccae7a', mid: '#9c7d50', shd: '#695036', lin: '#3d2d22', out: '#140f0d' } as MatRamp,
-  moss: { hi: '#c4d982', lit: '#7ca84c', mid: '#497a3b', shd: '#2c5231', lin: '#193022', out: '#0c1714' } as MatRamp,
-  toxic: { hi: '#d6ed8a', lit: '#8ac443', mid: '#508f34', shd: '#2d5c2b', lin: '#183620', out: '#0c1712' } as MatRamp,
-  water: { hi: '#c4e6f2', lit: '#64a8cc', mid: '#36729e', shd: '#224870', lin: '#162b47', out: '#0c1324' } as MatRamp,
-  ice: { hi: '#edf7fa', lit: '#a6d4e6', mid: '#639ec2', shd: '#396991', lin: '#223e5e', out: '#0e1829' } as MatRamp,
-  arcane: { hi: '#e3c7ed', lit: '#a870c7', mid: '#734299', shd: '#472569', lin: '#291442', out: '#110a1f' } as MatRamp,
-  rose: { hi: '#f0d1ce', lit: '#cc878c', mid: '#995360', shd: '#663141', lin: '#3b1b29', out: '#140b12' } as MatRamp,
-  skin: { hi: '#f2d8c2', lit: '#d6a686', mid: '#a87559', shd: '#75493a', lin: '#472924', out: '#170d0f' } as MatRamp,
-  orc: { hi: '#c7d989', lit: '#8aa852', mid: '#58783a', shd: '#36502b', lin: '#1f301d', out: '#0e1711' } as MatRamp,
-  fur: { hi: '#edd1a6', lit: '#c49056', mid: '#8f5e35', shd: '#5c3923', lin: '#361f17', out: '#140c0d' } as MatRamp,
-} as const;
+const refined32Cache = new WeakMap<CompiledSprite, CompiledSprite>();
+
+function parseHexRgb(hex: string): [number, number, number] | null {
+  if (!hex.startsWith('#') || hex.length !== 7) return null;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return null;
+  return [r, g, b];
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  const cr = Math.max(0, Math.min(255, Math.round(r)));
+  const cg = Math.max(0, Math.min(255, Math.round(g)));
+  const cb = Math.max(0, Math.min(255, Math.round(b)));
+  return `#${((1 << 24) | (cr << 16) | (cg << 8) | cb).toString(16).slice(1)}`;
+}
+
+function rgbLum(r: number, g: number, b: number): number {
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
 
 /**
- * 24x24 Detailed Pixel Art Sprite Canvas.
- * Supports rich multi-tone clusters, isometric blocks, half-body busts, and crisp 1px dark ink outlines.
+ * Refines a 16x16 pixel-art sprite into a crisp 32x32 pixel-art sprite:
+ * - Preserves the exact original sprite art and palette
+ * - Applies EPX/Scale2x diagonal smoothing on the interior silhouette
+ * - Adds subtle 1px top-left specular rim highlights & bottom-right shadow bevels at 32x32
+ * - Wraps the smoothed silhouette in a razor-sharp 1px dark outline at 32x32
  */
-export class Icon24 {
-  readonly size = 24;
-  readonly color: (string | null)[];
-  readonly rampRef: (MatRamp | null)[];
+export function refineSpriteTo32(sprite: CompiledSprite): CompiledSprite {
+  if (sprite.size !== 16 || sprite.hasCurrentColor) return sprite;
+  const cached = refined32Cache.get(sprite);
+  if (cached) return cached;
 
-  constructor() {
-    const n = 24 * 24;
-    this.color = new Array(n).fill(null);
-    this.rampRef = new Array(n).fill(null);
+  const g: (string | null)[] = new Array(16 * 16).fill(null);
+  for (let i = 0; i < sprite.runs.length; i++) {
+    const run = sprite.runs[i];
+    const rowOff = run.y * 16;
+    for (let x = run.x; x < run.x + run.w; x++) {
+      g[rowOff + x] = run.fill;
+    }
   }
 
-  inBounds(x: number, y: number): boolean {
-    return x >= 0 && y >= 0 && x < 24 && y < 24;
-  }
-
-  set(x: number, y: number, ramp: MatRamp, tone: number): void {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (!this.inBounds(ix, iy)) return;
-    const idx = iy * 24 + ix;
-    this.color[idx] = toneColor(ramp, tone);
-    this.rampRef[idx] = ramp;
-  }
-
-  setOut(x: number, y: number, ramp: MatRamp): void {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (!this.inBounds(ix, iy)) return;
-    const idx = iy * 24 + ix;
-    this.color[idx] = ramp.out;
-    this.rampRef[idx] = ramp;
-  }
-
-  setRaw(x: number, y: number, hex: string, ramp: MatRamp = PMAT.iron): void {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (!this.inBounds(ix, iy)) return;
-    const idx = iy * 24 + ix;
-    this.color[idx] = hex;
-    this.rampRef[idx] = ramp;
-  }
-
-  clear(x: number, y: number): void {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (!this.inBounds(ix, iy)) return;
-    const idx = iy * 24 + ix;
-    this.color[idx] = null;
-    this.rampRef[idx] = null;
-  }
-
-  has(x: number, y: number): boolean {
-    if (!this.inBounds(x, y)) return false;
-    return this.color[y * 24 + x] !== null;
-  }
-
-  rect(x: number, y: number, w: number, h: number, ramp: MatRamp, tone: number): void {
-    for (let dy = 0; dy < h; dy++) {
-      for (let dx = 0; dx < w; dx++) {
-        this.set(x + dx, y + dy, ramp, tone);
+  // Separate outer 1px dark outline so it can be redrawn cleanly at 1px on 32x32
+  const interior: (string | null)[] = new Array(16 * 16).fill(null);
+  const outlineTint: (string | null)[] = new Array(16 * 16).fill(null);
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const idx = y * 16 + x;
+      const c = g[idx];
+      if (!c) continue;
+      const rgb = parseHexRgb(c);
+      const touchesEmpty =
+        x === 0 ||
+        x === 15 ||
+        y === 0 ||
+        y === 15 ||
+        g[idx - 16] === null ||
+        g[idx + 16] === null ||
+        g[idx - 1] === null ||
+        g[idx + 1] === null;
+      if (rgb && rgbLum(rgb[0], rgb[1], rgb[2]) < 42 && touchesEmpty) {
+        outlineTint[idx] = c;
+      } else {
+        interior[idx] = c;
       }
     }
   }
 
-  ellipse(cx: number, cy: number, rx: number, ry: number, ramp: MatRamp, tone: number): void {
-    const x0 = Math.floor(cx - rx);
-    const x1 = Math.ceil(cx + rx);
-    const y0 = Math.floor(cy - ry);
-    const y1 = Math.ceil(cy + ry);
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        const dx = (x - cx) / rx;
-        const dy = (y - cy) / ry;
-        if (dx * dx + dy * dy <= 1.0) {
-          this.set(x, y, ramp, tone);
+  // EPX / Scale2x diagonal smoothing on interior 16x16 -> 32x32
+  const out: (string | null)[] = new Array(32 * 32).fill(null);
+  const get16 = (x: number, y: number): string | null =>
+    x >= 0 && x < 16 && y >= 0 && y < 16 ? interior[y * 16 + x] : null;
+
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const P = get16(x, y);
+      const A = get16(x, y - 1);
+      const B = get16(x + 1, y);
+      const C = get16(x - 1, y);
+      const D = get16(x, y + 1);
+      let p1 = P;
+      let p2 = P;
+      let p3 = P;
+      let p4 = P;
+      if (A !== D && C !== B) {
+        if (C === A && C !== null) p1 = C;
+        if (A === B && A !== null) p2 = B;
+        if (C === D && C !== null) p3 = C;
+        if (D === B && D !== null) p4 = B;
+      }
+      const oy = y * 2;
+      const ox = x * 2;
+      out[oy * 32 + ox] = p1;
+      out[oy * 32 + ox + 1] = p2;
+      out[(oy + 1) * 32 + ox] = p3;
+      out[(oy + 1) * 32 + ox + 1] = p4;
+    }
+  }
+
+  // Subtle 1px top-left inner highlight & bottom-right inner shadow bevel at 32x32
+  const shaded = out.slice();
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      const idx = y * 32 + x;
+      const c = out[idx];
+      if (!c) continue;
+      const rgb = parseHexRgb(c);
+      if (!rgb) continue;
+      const up = y > 0 ? out[idx - 32] : null;
+      const lt = x > 0 ? out[idx - 1] : null;
+      const dn = y < 31 ? out[idx + 32] : null;
+      const rt = x < 31 ? out[idx + 1] : null;
+      const l = rgbLum(rgb[0], rgb[1], rgb[2]);
+      if ((up === null || lt === null) && dn !== null && rt !== null) {
+        if (l < 235) {
+          shaded[idx] = rgbToHex(rgb[0] * 1.14 + 8, rgb[1] * 1.14 + 6, rgb[2] * 1.14 + 2);
+        }
+      } else if ((dn === null || rt === null) && up !== null && lt !== null) {
+        if (l > 45) {
+          shaded[idx] = rgbToHex(rgb[0] * 0.75, rgb[1] * 0.77, rgb[2] * 0.83);
         }
       }
     }
   }
 
-  line(x0: number, y0: number, x1: number, y1: number, ramp: MatRamp, tone: number): void {
-    let ix0 = Math.round(x0);
-    let iy0 = Math.round(y0);
-    const ix1 = Math.round(x1);
-    const iy1 = Math.round(y1);
-    const dx = Math.abs(ix1 - ix0);
-    const dy = Math.abs(iy1 - iy0);
-    const sx = ix0 < ix1 ? 1 : -1;
-    const sy = iy0 < iy1 ? 1 : -1;
-    let err = dx - dy;
-    while (true) {
-      this.set(ix0, iy0, ramp, tone);
-      if (ix0 === ix1 && iy0 === iy1) break;
-      const e2 = 2 * err;
-      if (e2 > -dy) {
-        err -= dy;
-        ix0 += sx;
-      }
-      if (e2 < dx) {
-        err += dx;
-        iy0 += sy;
-      }
-    }
-  }
-
-  stamp(
-    ox: number,
-    oy: number,
-    rows: readonly string[],
-    primary: MatRamp,
-    materials?: MatLegend,
-  ): void {
-    for (let ry = 0; ry < rows.length; ry++) {
-      const row = rows[ry];
-      for (let rx = 0; rx < row.length; rx++) {
-        const ch = row[rx];
-        if (ch === '.' || ch === ' ') continue;
-        const x = ox + rx;
-        const y = oy + ry;
-        if (!this.inBounds(x, y)) continue;
-        if (ch >= '1' && ch <= '4') {
-          this.set(x, y, primary, ch.charCodeAt(0) - 48);
-        } else if (ch === '0' || ch === 'o') {
-          this.set(x, y, primary, 0);
-        } else if (ch === 'O') {
-          this.setOut(x, y, primary);
-        } else if (materials && ch in materials) {
-          const m = materials[ch];
-          if (typeof m === 'string') {
-            this.setRaw(x, y, m, primary);
-          } else {
-            this.set(x, y, m.ramp, m.tone);
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * 24x24 crisp 2:1 isometric terrain/material block (20px wide, x=2..21)
-   * with textured top face, subtle bevel highlight, and stratified left/right walls.
-   */
-  isoBlock(
-    topRamp: MatRamp,
-    leftRamp: MatRamp,
-    rightRamp: MatRamp,
-    baseY = 20,
-    wallH = 6,
-    topOverlay?: (x: number, y: number, cx: number, cy: number) => { ramp: MatRamp; tone: number } | null,
-  ): void {
-    const midY = baseY - wallH;
-    const apexY = midY + 5;
-    const topY = midY - 5;
-
-    // Left & right walls with subtle strata & shadow crease
-    for (let x = 2; x <= 21; x++) {
-      const distCenter = x <= 11 ? 11 - x : x - 12;
-      const drop = Math.floor(distCenter / 2);
-      const yTop = apexY - drop;
-      const yBot = yTop + wallH;
-      for (let y = yTop; y <= yBot; y++) {
-        const isEdge = x === 11 || x === 12;
-        if (x <= 11) {
-          let tone = y === yBot ? 1 : (y - yTop === 0 ? 3 : 2);
-          if ((x + y * 3) % 7 === 0 && y > yTop && y < yBot) tone = 1;
-          if (isEdge && y > yTop) tone = Math.max(1, tone - 1);
-          this.set(x, y, leftRamp, tone);
+  // Crisp 1px dark outline at 32x32
+  const finalGrid = shaded.slice();
+  for (let y = 0; y < 32; y++) {
+    for (let x = 0; x < 32; x++) {
+      const idx = y * 32 + x;
+      if (shaded[idx] !== null) continue;
+      const nbr =
+        (y > 0 ? shaded[idx - 32] : null) ??
+        (x > 0 ? shaded[idx - 1] : null) ??
+        (x < 31 ? shaded[idx + 1] : null) ??
+        (y < 31 ? shaded[idx + 32] : null);
+      if (nbr !== null) {
+        const origOutline = outlineTint[(y >> 1) * 16 + (x >> 1)];
+        if (origOutline) {
+          finalGrid[idx] = origOutline;
         } else {
-          let tone = y === yBot ? 0 : (y - yTop === 0 ? 2 : 1);
-          if ((x * 2 + y * 3) % 7 === 0 && y > yTop && y < yBot) tone = 0;
-          this.set(x, y, rightRamp, tone);
+          const rgb = parseHexRgb(nbr);
+          finalGrid[idx] = rgb
+            ? rgbToHex(Math.max(12, rgb[0] * 0.22), Math.max(10, rgb[1] * 0.2), Math.max(18, rgb[2] * 0.28))
+            : '#14101a';
         }
-      }
-    }
-
-    // Top diamond with beveled front edge and optional procedural detail
-    for (let y = topY; y <= apexY; y++) {
-      const dy = Math.abs(y - midY);
-      const halfSpan = 10 - dy * 2;
-      const xStart = 12 - halfSpan;
-      const xEnd = 11 + halfSpan;
-      for (let x = xStart; x <= xEnd; x++) {
-        if (topOverlay) {
-          const ov = topOverlay(x, y, 11.5, midY);
-          if (ov) {
-            this.set(x, y, ov.ramp, ov.tone);
-            continue;
-          }
-        }
-        const isFrontRim = y >= midY && (x <= xStart + 1 || x >= xEnd - 1);
-        const isBackEdge = y <= midY && (x <= xStart + 1);
-        let tone = isFrontRim ? 4 : isBackEdge ? 3 : ((x * 5 + y * 3) % 9 === 0 ? 2 : 3);
-        if (y === apexY) tone = 4;
-        this.set(x, y, topRamp, tone);
       }
     }
   }
 
-  finalize(outline = true): CompiledSprite {
-    if (outline) {
-      const queue: Array<{ x: number; y: number; hex: string }> = [];
-      const dirs = [
-        [0, -1],
-        [-1, 0],
-        [1, 0],
-        [0, 1],
-      ] as const;
-
-      for (let y = 0; y < 24; y++) {
-        for (let x = 0; x < 24; x++) {
-          if (this.has(x, y)) continue;
-          let picked: MatRamp | null = null;
-          for (const [dx, dy] of dirs) {
-            const nx = x + dx;
-            const ny = y + dy;
-            if (!this.inBounds(nx, ny)) continue;
-            const idx = ny * 24 + nx;
-            if (this.color[idx] !== null) {
-              picked = this.rampRef[idx] ?? PMAT.iron;
-              break;
-            }
-          }
-          if (picked) {
-            queue.push({ x, y, hex: picked.out });
-          }
-        }
+  const runs: PixelRun[] = [];
+  for (let y = 0; y < 32; y++) {
+    let x = 0;
+    const rowOff = y * 32;
+    while (x < 32) {
+      const fill = finalGrid[rowOff + x];
+      if (!fill) {
+        x++;
+        continue;
       }
-
-      for (const o of queue) {
-        this.color[o.y * 24 + o.x] = o.hex;
+      let w = 1;
+      while (x + w < 32 && finalGrid[rowOff + x + w] === fill) {
+        w++;
       }
+      runs.push({ x, y, w, fill });
+      x += w;
     }
-
-    const runs: PixelRun[] = [];
-    for (let y = 0; y < 24; y++) {
-      let x = 0;
-      while (x < 24) {
-        const fill = this.color[y * 24 + x];
-        if (!fill) {
-          x++;
-          continue;
-        }
-        let w = 1;
-        while (x + w < 24 && this.color[y * 24 + x + w] === fill) {
-          w++;
-        }
-        runs.push({ x, y, w, fill });
-        x += w;
-      }
-    }
-
-    const { paths, hasCurrentColor } = buildPathsFromRuns(runs);
-    return { size: 24, runs, paths, hasCurrentColor };
   }
-}
 
-export function icon24(draw: (c: Icon24) => void, outline = true): CompiledSprite {
-  const c = new Icon24();
-  draw(c);
-  return c.finalize(outline);
-}
-
-export function cluster24(
-  rows: readonly string[],
-  primary: MatRamp,
-  materials?: MatLegend,
-  outline = true,
-): CompiledSprite {
-  return icon24((c) => {
-    c.stamp(0, 0, rows, primary, materials);
-  }, outline);
+  const { paths, hasCurrentColor } = buildPathsFromRuns(runs);
+  const compiled: CompiledSprite = { size: 32, runs, paths, hasCurrentColor };
+  refined32Cache.set(sprite, compiled);
+  return compiled;
 }
