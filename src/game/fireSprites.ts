@@ -22,7 +22,8 @@ export interface AnimatedSpriteBundle {
 function createFireSpriteSheetTexture(): THREE.Texture {
   const loader = new THREE.TextureLoader();
   const tex = loader.load(getFlameSpriteSheetUrl());
-  tex.colorSpace = THREE.SRGBColorSpace;
+  // Keep raw sRGB values for our custom ShaderMaterial so WebGL does not gamma-darken the flame art
+  tex.colorSpace = THREE.NoColorSpace;
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
@@ -157,10 +158,7 @@ export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
         vec3 camUp = normalize(mix(vec3(0.0, 1.0, 0.0), vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]), 0.36));
 
         float phase = aFireData.x;
-        // Subtle organic breeze sway that complements the baked pixel-art spritesheet loop
-        float sway = (sin(uTime * 5.8 + phase * 19.0 + uv.y * 2.5) * 0.028 + cos(uTime * 9.0 - phase * 13.0) * 0.012) * uv.y * sx;
-        float stretchY = 1.0 + sin(uTime * 7.5 + phase * 23.0) * 0.035 * uv.y;
-        vec3 posWorld = worldCenter + camRight * (position.x * sx + sway) + camUp * (position.y * sy * stretchY);
+        vec3 posWorld = worldCenter + camRight * (position.x * sx) + camUp * (position.y * sy);
 
         float frameIdx = floor(mod(uTime * uFps + phase * uFrameCount, uFrameCount));
         vUv = vec2((uv.x + frameIdx) / uFrameCount, uv.y);
@@ -177,8 +175,10 @@ export function createAnimatedFireSpriteBundle(): AnimatedSpriteBundle {
       void main() {
         vec4 tex = texture2D(uMap, vUv);
         if (tex.a < 0.15) discard;
-        // All flames render with the authentic pixel-art spritesheet colors (no per-color re-tinting)
-        gl_FragColor = vec4(tex.rgb, tex.a * vAlpha);
+        // Boost emissive radiance on top of crisp sRGB pixel-art fire colors so flames glow brightly day & night
+        float luma = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
+        vec3 brightRgb = clamp(tex.rgb * 1.16 + vec3(0.06, 0.03, 0.0) * luma, 0.0, 1.0);
+        gl_FragColor = vec4(brightRgb, tex.a * vAlpha);
       }
     `,
     transparent: true,

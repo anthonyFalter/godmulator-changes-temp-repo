@@ -14369,7 +14369,7 @@ export const IsometricWorldCanvas: React.FC<IsometricWorldCanvasProps> = React.m
           const hasTreeOrStructure =
             Boolean(t.buildingId) || t.resourceNode === 'timber_grove' || Boolean(t.burntTree);
           const intensityBoost = hasTreeOrStructure ? 1.24 : 0.98;
-          const pulse = (0.92 + Math.sin(elapsed * 16 + t.x * 3 + t.z * 7) * 0.12) * intensityBoost;
+          const pulse = intensityBoost;
           // Creeping spread radius: flames expand outward toward tile edges as the fire engulfs the tile
           const burnProgress = Math.max(0.18, Math.min(1.0, 1.0 - (t.onFireTimer - 0.6) / 4.2));
           const spreadRadius = 0.16 + burnProgress * 0.26;
