@@ -59,7 +59,7 @@ export const ZonePixelIcon: React.FC<{ zone: ZoneOverlayType; className?: string
   className = 'w-5 h-5 pixelated-canvas',
 }) => <PixelArtSvg sprite={ZONE_SPRITES[zone]} className={className} />);
 
-function getPixel32IconUrl(category: 'powers' | 'units', key: string): string {
+function getPixel16IconUrl(category: 'powers' | 'units', key: string): string {
   const base = import.meta.env.BASE_URL || '/';
   const normalizedBase = base.endsWith('/') ? base : `${base}/`;
   return `${normalizedBase}assets/icons/${category}/${key}.png`;
@@ -70,9 +70,9 @@ export const PowerPixelIcon: React.FC<{ power: GodPowerType; className?: string 
   className = 'w-8 h-8 pixelated-canvas',
 }) => (
   <img
-    src={getPixel32IconUrl('powers', power)}
-    width={32}
-    height={32}
+    src={getPixel16IconUrl('powers', power)}
+    width={16}
+    height={16}
     alt=""
     aria-hidden="true"
     draggable={false}
@@ -95,9 +95,9 @@ export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = R
   className = 'w-8 h-8 pixelated-canvas',
 }) => (
   <img
-    src={getPixel32IconUrl('units', role in UNIT_SPRITES ? role : 'human')}
-    width={32}
-    height={32}
+    src={getPixel16IconUrl('units', role in UNIT_SPRITES ? role : 'human')}
+    width={16}
+    height={16}
     alt=""
     aria-hidden="true"
     draggable={false}
