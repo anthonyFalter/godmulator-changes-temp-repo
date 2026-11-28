@@ -83,7 +83,7 @@ export const BuildingPixelIcon: React.FC<{ building: BuildingType; className?: s
 export const UnitPixelIcon: React.FC<{ role: UnitRole; className?: string }> = React.memo(({
   role,
   className = 'w-7 h-7 pixelated-canvas',
-}) => <PixelArtSvg sprite={refineSpriteTo32(UNIT_SPRITES[role] ?? UNIT_SPRITES.human)} className={className} />);
+}) => <PixelArtSvg sprite={refineSpriteTo32(UNIT_SPRITES[role] ?? UNIT_SPRITES.human, true)} className={className} />);
 
 export type HudIconKind = keyof typeof HUD_SPRITES;
 

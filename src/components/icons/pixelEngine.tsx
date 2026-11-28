@@ -567,7 +567,8 @@ export function cluster16(
   }, outline);
 }
 
-const refined32Cache = new WeakMap<CompiledSprite, CompiledSprite>();
+const refinedFullCache = new WeakMap<CompiledSprite, CompiledSprite>();
+const refinedHalfCache = new WeakMap<CompiledSprite, CompiledSprite>();
 
 function parseHexRgb(hex: string): [number, number, number] | null {
   if (!hex.startsWith('#') || hex.length !== 7) return null;
@@ -590,15 +591,17 @@ function rgbLum(r: number, g: number, b: number): number {
 }
 
 /**
- * Refines a 16x16 pixel-art sprite into a crisp 32x32 pixel-art sprite:
- * - Preserves the exact original sprite art and palette
- * - Applies EPX/Scale2x diagonal smoothing on the interior silhouette
- * - Adds subtle 1px top-left specular rim highlights & bottom-right shadow bevels at 32x32
- * - Wraps the smoothed silhouette in a razor-sharp 1px dark outline at 32x32
+ * Refines a 16x16 pixel-art sprite into a crisp, chunky 24x24 (<=32x32) pixel-art icon:
+ * - Preserves the exact original pixel-art designs and vibrant palette
+ * - Nearest-pixel scales the interior cleanly onto a 24x24 grid (blocky, visibly pixelly, never blurry)
+ * - Optionally crops units to their upper half-body (head + shoulders + chest, removing legs/boots)
+ * - Adds crisp 1px top highlight bevel and 1px rich bottom shade
+ * - Wraps the silhouette in a bold 1px dark pixel outline (#14101a)
  */
-export function refineSpriteTo32(sprite: CompiledSprite): CompiledSprite {
+export function refineSpriteTo32(sprite: CompiledSprite, halfBody = false): CompiledSprite {
   if (sprite.size !== 16 || sprite.hasCurrentColor) return sprite;
-  const cached = refined32Cache.get(sprite);
+  const cache = halfBody ? refinedHalfCache : refinedFullCache;
+  const cached = cache.get(sprite);
   if (cached) return cached;
 
   const g: (string | null)[] = new Array(16 * 16).fill(null);
@@ -610,9 +613,12 @@ export function refineSpriteTo32(sprite: CompiledSprite): CompiledSprite {
     }
   }
 
-  // Separate outer 1px dark outline so it can be redrawn cleanly at 1px on 32x32
+  // Strip outer 1px dark outline so we redraw a crisp, uniform 1px outline at 24x24
   const interior: (string | null)[] = new Array(16 * 16).fill(null);
-  const outlineTint: (string | null)[] = new Array(16 * 16).fill(null);
+  let minX = 16;
+  let maxX = -1;
+  let minY = 16;
+  let maxY = -1;
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
       const idx = y * 16 + x;
@@ -629,107 +635,98 @@ export function refineSpriteTo32(sprite: CompiledSprite): CompiledSprite {
         g[idx - 1] === null ||
         g[idx + 1] === null;
       if (rgb && rgbLum(rgb[0], rgb[1], rgb[2]) < 42 && touchesEmpty) {
-        outlineTint[idx] = c;
-      } else {
-        interior[idx] = c;
+        continue;
+      }
+      interior[idx] = c;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (maxX < minX || maxY < minY) return sprite;
+
+  if (halfBody) {
+    // Keep upper ~76% (head, shoulders, upper torso, tools/weapons) and remove legs/boots
+    const h = maxY - minY + 1;
+    if (h >= 8) {
+      maxY = minY + Math.max(6, Math.round(h * 0.76)) - 1;
+    }
+  }
+
+  const bw = maxX - minX + 1;
+  const bh = maxY - minY + 1;
+  const target = 20;
+  const scale = Math.min(target / bw, target / bh);
+  const nw = Math.max(1, Math.round(bw * scale));
+  const nh = Math.max(1, Math.round(bh * scale));
+  const ox = Math.floor((24 - nw) / 2);
+  const oy = halfBody ? Math.max(2, 24 - 2 - nh) : Math.floor((24 - nh) / 2);
+
+  const out: (string | null)[] = new Array(24 * 24).fill(null);
+  for (let dy = 0; dy < nh; dy++) {
+    const sy = minY + Math.min(bh - 1, Math.floor(dy / scale));
+    const dstRow = (oy + dy) * 24;
+    const srcRow = sy * 16;
+    for (let dx = 0; dx < nw; dx++) {
+      const sx = minX + Math.min(bw - 1, Math.floor(dx / scale));
+      const c = interior[srcRow + sx];
+      if (c !== null) {
+        out[dstRow + ox + dx] = c;
       }
     }
   }
 
-  // EPX / Scale2x diagonal smoothing on interior 16x16 -> 32x32
-  const out: (string | null)[] = new Array(32 * 32).fill(null);
-  const get16 = (x: number, y: number): string | null =>
-    x >= 0 && x < 16 && y >= 0 && y < 16 ? interior[y * 16 + x] : null;
-
-  for (let y = 0; y < 16; y++) {
-    for (let x = 0; x < 16; x++) {
-      const P = get16(x, y);
-      const A = get16(x, y - 1);
-      const B = get16(x + 1, y);
-      const C = get16(x - 1, y);
-      const D = get16(x, y + 1);
-      let p1 = P;
-      let p2 = P;
-      let p3 = P;
-      let p4 = P;
-      if (A !== D && C !== B) {
-        if (C === A && C !== null) p1 = C;
-        if (A === B && A !== null) p2 = B;
-        if (C === D && C !== null) p3 = C;
-        if (D === B && D !== null) p4 = B;
-      }
-      const oy = y * 2;
-      const ox = x * 2;
-      out[oy * 32 + ox] = p1;
-      out[oy * 32 + ox + 1] = p2;
-      out[(oy + 1) * 32 + ox] = p3;
-      out[(oy + 1) * 32 + ox + 1] = p4;
-    }
-  }
-
-  // Subtle 1px top-left inner highlight & bottom-right inner shadow bevel at 32x32
+  // Crisp 1px top inner highlight & 1px bottom inner shade
   const shaded = out.slice();
-  for (let y = 0; y < 32; y++) {
-    for (let x = 0; x < 32; x++) {
-      const idx = y * 32 + x;
+  for (let y = 0; y < 24; y++) {
+    for (let x = 0; x < 24; x++) {
+      const idx = y * 24 + x;
       const c = out[idx];
       if (!c) continue;
       const rgb = parseHexRgb(c);
       if (!rgb) continue;
-      const up = y > 0 ? out[idx - 32] : null;
-      const lt = x > 0 ? out[idx - 1] : null;
-      const dn = y < 31 ? out[idx + 32] : null;
-      const rt = x < 31 ? out[idx + 1] : null;
+      const up = y > 0 ? out[idx - 24] : null;
+      const dn = y < 23 ? out[idx + 24] : null;
       const l = rgbLum(rgb[0], rgb[1], rgb[2]);
-      if ((up === null || lt === null) && dn !== null && rt !== null) {
-        if (l < 235) {
-          shaded[idx] = rgbToHex(rgb[0] * 1.14 + 8, rgb[1] * 1.14 + 6, rgb[2] * 1.14 + 2);
-        }
-      } else if ((dn === null || rt === null) && up !== null && lt !== null) {
-        if (l > 45) {
-          shaded[idx] = rgbToHex(rgb[0] * 0.75, rgb[1] * 0.77, rgb[2] * 0.83);
-        }
+      if (up === null && dn !== null && l < 235) {
+        shaded[idx] = rgbToHex(rgb[0] * 1.18 + 10, rgb[1] * 1.18 + 10, rgb[2] * 1.18 + 6);
+      } else if (dn === null && up !== null && l > 42) {
+        shaded[idx] = rgbToHex(rgb[0] * 0.74, rgb[1] * 0.72, rgb[2] * 0.78);
       }
     }
   }
 
-  // Crisp 1px dark outline at 32x32
+  // Bold 1px dark outer outline (#14101a)
   const finalGrid = shaded.slice();
-  for (let y = 0; y < 32; y++) {
-    for (let x = 0; x < 32; x++) {
-      const idx = y * 32 + x;
+  for (let y = 0; y < 24; y++) {
+    for (let x = 0; x < 24; x++) {
+      const idx = y * 24 + x;
       if (shaded[idx] !== null) continue;
-      const nbr =
-        (y > 0 ? shaded[idx - 32] : null) ??
-        (x > 0 ? shaded[idx - 1] : null) ??
-        (x < 31 ? shaded[idx + 1] : null) ??
-        (y < 31 ? shaded[idx + 32] : null);
-      if (nbr !== null) {
-        const origOutline = outlineTint[(y >> 1) * 16 + (x >> 1)];
-        if (origOutline) {
-          finalGrid[idx] = origOutline;
-        } else {
-          const rgb = parseHexRgb(nbr);
-          finalGrid[idx] = rgb
-            ? rgbToHex(Math.max(12, rgb[0] * 0.22), Math.max(10, rgb[1] * 0.2), Math.max(18, rgb[2] * 0.28))
-            : '#14101a';
-        }
+      if (
+        (y > 0 && shaded[idx - 24] !== null) ||
+        (x > 0 && shaded[idx - 1] !== null) ||
+        (x < 23 && shaded[idx + 1] !== null) ||
+        (y < 23 && shaded[idx + 24] !== null)
+      ) {
+        finalGrid[idx] = '#14101a';
       }
     }
   }
 
   const runs: PixelRun[] = [];
-  for (let y = 0; y < 32; y++) {
+  for (let y = 0; y < 24; y++) {
     let x = 0;
-    const rowOff = y * 32;
-    while (x < 32) {
+    const rowOff = y * 24;
+    while (x < 24) {
       const fill = finalGrid[rowOff + x];
       if (!fill) {
         x++;
         continue;
       }
       let w = 1;
-      while (x + w < 32 && finalGrid[rowOff + x + w] === fill) {
+      while (x + w < 24 && finalGrid[rowOff + x + w] === fill) {
         w++;
       }
       runs.push({ x, y, w, fill });
@@ -738,7 +735,7 @@ export function refineSpriteTo32(sprite: CompiledSprite): CompiledSprite {
   }
 
   const { paths, hasCurrentColor } = buildPathsFromRuns(runs);
-  const compiled: CompiledSprite = { size: 32, runs, paths, hasCurrentColor };
-  refined32Cache.set(sprite, compiled);
+  const compiled: CompiledSprite = { size: 24, runs, paths, hasCurrentColor };
+  cache.set(sprite, compiled);
   return compiled;
 }
